@@ -89,6 +89,7 @@
     show('setup');
     capMode = S.mode; capCur = S.base;
     $$('#capMode button').forEach((b) => b.classList.toggle('on', b.dataset.v === capMode));
+    const demo = !!(S.host && S.host.demo); $('#capMode [data-v="REAL"]').disabled = demo; $('#capMode [data-v="REAL"]').textContent = demo ? 'Reale (no in demo)' : 'Reale';
     $$('#capCur button').forEach((b) => b.classList.toggle('on', b.dataset.v === capCur));
     $('#capAmt').value = S.cfg.budget;
     $('#capBack').classList.toggle('hidden', !back);
