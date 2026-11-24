@@ -1,0 +1,22 @@
+{
+  "name": "grokbot-solana",
+  "version": "1.0.0",
+  "description": "Bot di trading automatico su Solana (Phantom + Jupiter), interfaccia in italiano",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "dependencies": {
+    "@solana/web3.js": "^1.99.0",
+    "bs58": "^6.0.0",
+    "express": "^4.22.3",
+    "qrcode": "^1.5.4"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "private": true
+}
