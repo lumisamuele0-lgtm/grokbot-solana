@@ -1,38 +1,39 @@
 # GrokBot Solana nel cloud (gratis, sempre acceso, HTTPS) — guida da iPhone
 
 Hosting consigliato: **Northflank – piano Sandbox gratuito** (verificato novembre 2026):
-sempre acceso (non va in sospensione), nessuna carta di credito, HTTPS automatico,
+sempre acceso (non va in sospensione), $20/mese di risorse gratis, HTTPS automatico,
 **volume persistente** per il wallet cifrato e lo stato, build dal `Dockerfile` di questo progetto.
 
 > Il bot usa **solo API gratuite** (Jupiter lite-api, DexScreener, GeckoTerminal, RugCheck, RPC pubblico Solana).
 
 ## Cosa ti serve (una volta sola)
-1. Un account **GitHub** (gratis) con il codice del bot in un repository **pubblico**
-   (il codice non contiene chiavi né password: wallet e PIN restano solo sul volume del server).
-2. Un account **Northflank** (gratis, accesso con GitHub).
+1. Il repository **privato** `grokbot-solana` sul tuo GitHub (`lumisamuele0-lgtm`): solo tu lo vedi.
+   Non contiene chiavi né password: wallet e PIN restano solo sul volume del server.
+2. Un account **Northflank** (piano gratuito Sandbox). Northflank legge il repo privato tramite la sua
+   app GitHub, a cui dai accesso **solo** a `grokbot-solana`.
+   Nota: Northflank può chiedere una carta **solo per verifica identità** (non addebita nulla se resti
+   nei $20/mese gratuiti; imposta comunque un avviso di spesa a $1).
 
 ## Passi da iPhone (Safari)
-1. Apri **app.northflank.com/signup** → «Continua con GitHub» → scegli il piano **Sandbox (Free)**.
-2. **Create new → Project** → nome `grokbot` → regione **Europa** (es. *Europe – West*) → Create.
-3. **Create new → Service → Combined service** → nome `bot`.
-   - *Repository*: collega GitHub e scegli il repo `grokbot-solana`, branch `main`.
-   - *Build options*: **Dockerfile** (percorso `/Dockerfile`, contesto `/`).
-   - *Resources*: il più piccolo disponibile nel piano gratuito.
-   - *Networking → Ports*: porta **8787**, protocollo **HTTP**, spunta **Publicly expose**.
-   - *Environment variables*:
-     - `DATA_PERSISTENT` = `1`
-     - `SETUP_PIN` = il tuo PIN (6–12 cifre) – facoltativo ma consigliato
-   - **Create service**.
-4. Nel servizio apri **Volumes → Add volume** → nome `dati`, dimensione **1 GB**, mount path **`/data`** → Create.
-   Il servizio si riavvia: da adesso wallet, PIN, impostazioni e storico sopravvivono a riavvii e aggiornamenti.
-5. Attendi lo stato **Running** (2–4 minuti la prima volta). In **Networking** trovi l'indirizzo
-   `https://….code.run`: aprilo in Safari.
-6. **Primo accesso**: se hai impostato `SETUP_PIN` entra con quel PIN. Altrimenti apri **Logs** del servizio,
-   copia il **CODICE DI CONFIGURAZIONE** (8 caratteri) e inseriscilo insieme al nuovo PIN.
-   Il codice vale una sola volta: dopo, nessun altro può impostare il PIN.
-7. In Safari: **Condividi → Aggiungi alla schermata Home** → l'app si apre a tutto schermo come un'app vera.
-8. **Phantom**: dall'app premi «Collega Phantom» → si apre il browser interno di Phantom sulla stessa pagina
-   (l'indirizzo è https, quindi Phantom lo accetta) → collega e usa «Deposita».
+1. Apri **app.northflank.com/signup** → «Sign up with GitHub» → accedi con GitHub → piano **Sandbox (Free)**.
+2. Quando chiede di collegare Git: **Link GitHub** → si apre GitHub → «Only select repositories» →
+   scegli **grokbot-solana** → **Install**. Torni su Northflank.
+   (Se non lo chiede: menu team → **Integrations → Git → Link GitHub**.)
+3. **Create new → Project** → nome `grokbot` → regione **Europa** → **Create**.
+4. **Create new → Service → Combined service** → nome `bot`:
+   - *Repository*: `lumisamuele0-lgtm/grokbot-solana` · branch `main`
+   - *Build*: **Dockerfile** · percorso `/Dockerfile` · contesto `/`
+   - *Resources*: il piano più piccolo
+   - *Ports*: **8787**, **HTTP**, spunta **Publicly expose**
+   - *Environment*: `DATA_PERSISTENT` = `1` e `SETUP_PIN` = il tuo PIN (6–12 cifre)
+   - **Create service**
+5. Nel servizio: **Volumes → Add volume** → nome `dati` · **1 GB** · mount path **`/data`** → **Create**.
+6. Aspetta **Running** (2–4 minuti). In **Networking** copia l'indirizzo `https://….code.run` e aprilo.
+7. Entra con il PIN di `SETUP_PIN`. (Se non l'hai messo: **Logs** → copia il **CODICE DI CONFIGURAZIONE**
+   di 8 caratteri e inseriscilo con il nuovo PIN; vale una sola volta.)
+8. Safari → **Condividi → Aggiungi alla schermata Home**.
+9. **Phantom**: «Collega Phantom» apre la stessa pagina nel browser di Phantom → collega → «Deposita».
+10. Consigliato: **Billing → Alerts** → avviso a **$1**, così sai subito se superi il gratuito.
 
 ## Sicurezza
 - Solo HTTPS (le richieste http vengono reindirizzate), cookie di sessione `Secure; HttpOnly; SameSite=Strict`, HSTS.
@@ -41,7 +42,7 @@ sempre acceso (non va in sospensione), nessuna carta di credito, HTTPS automatic
 - Fai comunque un **backup**: Impostazioni → Portafoglio del bot → «Esporta chiave» (o «Backup cifrato»).
 
 ## Aggiornare il bot
-Ogni modifica al repository GitHub fa ripartire la build in automatico; i dati restano sul volume `/data`.
+Ogni modifica al repository privato su GitHub fa ripartire la build in automatico; i dati restano sul volume `/data`.
 Dopo un riavvio il trading riparte **in pausa** e in REALE va risbloccato con la password (per sicurezza).
 Se nel wallet c'erano token di posizioni aperte, il bot li **recupera** e li rimette sotto stop‑loss.
 
