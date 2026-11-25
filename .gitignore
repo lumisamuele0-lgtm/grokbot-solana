@@ -1,3 +1,16 @@
 node_modules/
 data/
 *.tmp
+# segreti e dati locali: mai nel repository
+.env
+.env.*
+*.pem
+*.key
+/config.json
+/state.json
+/knowledge.json
+/mentor.json
+/research.json
+/auth.json
+/wallet*.json
+/keystore*.json
