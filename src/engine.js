@@ -14,6 +14,8 @@ const { momentum, ema } = require('./indicators');
 const jup = require('./jupiter');
 const chain = require('./chain');
 const { Market } = require('./market');
+const { Research } = require('./research');
+const { STRATEGIES } = require('./strategies');
 const { uid, sleep, round } = require('./util');
 
 const AGENTS = [
@@ -39,6 +41,8 @@ function newBook(budget, cfg) {
 function newCounters() {
   return { analyzed: 0, rejected: 0, approved: 0, rules: {}, agents: Object.fromEntries(AGENTS.map((a) => [a.id, 0])) };
 }
+
+const stratName = (id) => { const s = STRATEGIES.find((q) => q.id === id); return s ? s.name : id; };
 
 class Engine extends EventEmitter {
   constructor({ dataDir, keystore }) {
@@ -69,6 +73,8 @@ class Engine extends EventEmitter {
     this.seen = {}; // mint -> ultimo controllo filtri
     this.busy = false; this.timers = []; this.bal = null; this.userBal = null; this.lastPriceOk = 0; this.lastErr = null;
     this.analysisRejectTs = {};
+    // MENTORE · ricerca sul web: libreria di strategie con backtest walk-forward su dati reali gratuiti
+    this.research = new Research({ dataDir, log: (a, t, l) => this.log(a, t, l), agent: (id, t, act, ex) => this.agent(id, t, act, ex), getCfg: () => this.cfg, getLev: () => this.leverage() });
   }
 
   get conn() { return chain.connection(this.cfg.rpcUrl); }
@@ -138,12 +144,13 @@ class Engine extends EventEmitter {
     setTimeout(() => every(5 * 60000, () => this.mentorReview()), 20000);
     every(20000, () => this.refreshBalances());
     every(3600000, () => this.market.refreshEur());
+    if (process.env.NO_RESEARCH !== '1') this.research.start();
     if (process.env.BOT_WALLET_PASSWORD && this.ks.exists()) {
       try { this.ks.unlock(process.env.BOT_WALLET_PASSWORD); this.log('SISTEMA', 'Portafoglio del bot sbloccato da variabile d\'ambiente'); } catch (e) { this.log('SISTEMA', `Sblocco automatico fallito: ${e.message}`, 'error'); }
     }
     if (process.env.BOT_AUTOSTART === '1') { this.cfg.trading = true; this.log('SISTEMA', 'Avvio automatico del trading (BOT_AUTOSTART=1)'); }
   }
-  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); }
+  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); this.research.stop(); }
   async cycleLoop() {
     try { await this.cycle(); } catch (e) { this.log('SISTEMA', `Errore ciclo: ${e.message}`, 'error'); }
     this.loopTimer = setTimeout(() => this.cycleLoop(), this.cfg.cycleSec * 1000);
@@ -270,9 +277,12 @@ class Engine extends EventEmitter {
       const a = S.analyze(c);
       const f = st.buys1h != null ? S.flowScore(st) : { score: 0, ratio: 0, volAccel: 1, buys: 0, sells: 0 };
       this.bump('SOCIAL'); this.bump('CAPO');
-      const feat = a.ok ? [...K.featuresOf({ s, a, f, core: true, solMom60: this.solMom60() }), `leva:${this.leverage()}x`] : [];
+      const rs = this.research.signalFor(s.symbol, 'LONG'); // strategie studiate dal MENTORE
+      const feat = a.ok ? [...K.featuresOf({ s, a, f, core: true, solMom60: this.solMom60() }), `leva:${this.leverage()}x`, ...rs.strategies.map((id) => 'strat:' + id)] : [];
       const kn = K.assess(this.kb, feat); // consiglio del MENTORE
-      cands.push({ m, w: { symbol: s.symbol, core: true }, s, a, f, feat, kn, side: 'LONG', total: (a.ok ? a.score : -9) + f.score + kn.adj });
+      const x = { m, w: { symbol: s.symbol, core: true }, s, a, f, feat, kn, rs, side: 'LONG', total: (a.ok ? a.score : -9) + f.score + kn.adj + rs.score - rs.against };
+      if (a.ok && rs.against >= 1 && rs.against > rs.score) x.block = `strategie contrarie (${rs.opposite.map(stratName).join(', ')})`;
+      cands.push(x);
     }
     // SHORT: solo SOL/BTC/ETH (mercati Jupiter Perps), mai insieme a un long sullo stesso asset
     if (cfg.shortsOn) {
@@ -287,11 +297,14 @@ class Engine extends EventEmitter {
         const s = { ...st, symbol: P.SHORT_MARKETS[m] };
         const f = st.buys1h != null ? S.flowScore(st) : { score: 0, ratio: 0, volAccel: 1, buys: 0, sells: 0 };
         this.bump('CAPO');
-        const feat = a.ok ? [...K.featuresOf({ s, a, f, core: true, solMom60: regime, side: 'short' }), `short.leva:${this.leverage()}x`] : [];
+        const rs = this.research.signalFor(s.symbol, 'SHORT');
+        const feat = a.ok ? [...K.featuresOf({ s, a, f, core: true, solMom60: regime, side: 'short' }), `short.leva:${this.leverage()}x`, ...rs.strategies.map((id) => 'short.strat:' + id)] : [];
         const kn = K.assess(this.kb, feat);
-        const x = { m, s, a, f, feat, kn, side: 'SHORT', total: (a.ok ? a.short.score : -9) - f.score + kn.adj };
-        if (a.ok && a.short.signal && regime != null && regime > 1) x.block = 'Mercato SOL in rialzo';
-        if (a.ok && a.short.signal && realBlocked) {
+        const x = { m, s, a, f, feat, kn, rs, side: 'SHORT', total: (a.ok ? a.short.score : -9) - f.score + kn.adj + rs.score - rs.against };
+        const wants = a.ok && (a.short.signal || rs.score >= 1);
+        if (a.ok && rs.against >= 1 && rs.against > rs.score) x.block = `strategie contrarie (${rs.opposite.map(stratName).join(', ')})`;
+        if (wants && regime != null && regime > 1 && !rs.score) x.block = 'Mercato SOL in rialzo';
+        if (wants && realBlocked) {
           x.block = 'Short reali non attivi';
           if (now - (this.analysisRejectTs['R' + m] || 0) > 30 * 60000) { this.analysisRejectTs['R' + m] = now; this.log('RISCHIO', `segnale SHORT su $${s.symbol} ignorato in REALE · ${P.REAL_SHORTS_BLOCK_MSG}`, 'warn'); }
         }
@@ -299,7 +312,9 @@ class Engine extends EventEmitter {
       }
     }
     if (!cands.length) { this.agent('CAPO', cfg.perpLongs || cfg.shortsOn ? 'nessun mercato pronto (candele in caricamento o in cooldown)' : 'long con leva e short spenti: nessun nuovo ingresso', 'idle'); return; }
-    const sigOk = (x) => x.a.ok && (x.side === 'SHORT' ? x.a.short.signal : x.a.signal === 'LONG');
+    // segnale: analisi del CAPO, oppure strategie studiate dal MENTORE con punteggio ≥ 1 (solo se attive fuori campione)
+    const libOk = (x) => x.rs && x.rs.score >= 1 && x.rs.against < 1;
+    const sigOk = (x) => x.a.ok && ((x.side === 'SHORT' ? x.a.short.signal : x.a.signal === 'LONG') || libOk(x));
     const flowOk = (x) => (x.side === 'SHORT' ? x.f.score < 0.2 : x.f.score > -0.2);
     cands.sort((x, y) => y.total - x.total);
     const top = cands[0];
@@ -320,7 +335,7 @@ class Engine extends EventEmitter {
       const key = (x.side === 'SHORT' ? 'S' : '') + x.m;
       if (now - (this.analysisRejectTs[key] || 0) > 15 * 60000) {
         this.analysisRejectTs[key] = now;
-        const lbl = !x.a.ok ? 'Dati insufficienti' : x.side === 'SHORT' ? (x.block || (!x.a.short.signal ? x.a.short.reason : 'Flusso in acquisto')) : x.a.signal !== 'LONG' ? x.a.reason : 'Flusso negativo';
+        const lbl = !x.a.ok ? 'Dati insufficienti' : x.block ? x.block : x.side === 'SHORT' ? (!sigOk(x) ? x.a.short.reason : 'Flusso in acquisto') : !sigOk(x) ? x.a.reason : 'Flusso negativo';
         this.rule(x.side === 'SHORT' ? 'Short: ' + lbl : lbl);
         this.log('CAPO', `scartato $${x.s.symbol}${x.side === 'SHORT' ? ' SHORT' : ''} - ${lbl}${x.a.ok ? ` (RSI ${x.a.rsi.toFixed(0)}, mom15 ${x.a.m15.toFixed(2)}%)` : ''}`);
       }
@@ -333,6 +348,12 @@ class Engine extends EventEmitter {
     const a = best.a; const sym = best.s.symbol; const isShort = best.side === 'SHORT'; const core = isShort || coreMints.has(best.m);
     const checks = isShort ? a.short.checks : a.checks; const conf = isShort ? a.short.confidence : a.confidence;
     const passed = Object.entries(checks).filter(([, v]) => v).map(([k]) => k);
+    const fromLib = !(isShort ? a.short.signal : a.signal === 'LONG'); // ingresso deciso dalle strategie studiate
+    if (best.rs && best.rs.strategies.length) {
+      const names = best.rs.strategies.map(stratName).join(', ');
+      this.bump('MENTORE'); this.agent('MENTORE', `strategie studiate a favore di $${sym} ${isShort ? 'SHORT' : 'LONG'}: ${names}`, 'advise', { token: sym, target: 'CAPO' });
+      this.log('MENTORE', `$${sym} ${isShort ? 'SHORT' : 'LONG'}: segnale da ${names} (punteggio ${best.rs.score.toFixed(2)}, testate fuori campione)${fromLib ? ' · il CAPO entra sul segnale delle strategie' : ''}`);
+    }
     this.agent('CAPO', `scelto $${sym} ${isShort ? 'SHORT ▼' : 'LONG ▲'}: ${passed.length}/6 condizioni (RSI ${a.rsi.toFixed(0)}, mom15 ${a.m15 >= 0 ? '+' : ''}${a.m15.toFixed(2)}%), fiducia ${(conf * 100).toFixed(0)}%`, 'pick', { token: sym, side: best.side });
     if (best.kn.active) this.agent('MENTORE', best.kn.good.length ? `a favore di $${sym}: ${best.kn.good.slice(0, 2).map((g) => g.label).join(', ')}` : `$${sym}: nessun pattern storico forte, decide il CAPO`, 'advise', { token: sym, target: 'CAPO' });
     this.log('CAPO', isShort
@@ -370,7 +391,7 @@ class Engine extends EventEmitter {
     await sleep(400);
 
     // RISCHIO: piano
-    const plan = S.riskPlan(a.atrPct, cfg, core);
+    const plan = S.riskPlan(fromLib && best.rs.atrPct ? best.rs.atrPct : a.atrPct, cfg, core);
     if (usePerp) {
       const px = this.market.usd(best.m) || a.last;
       const liq = P.liquidationPrice({ entryPrice: px, side: sideTxt, ...P.openShortModel({ marginUsd: 100, lev, priceUsd: px }) });
@@ -1015,7 +1036,7 @@ class Engine extends EventEmitter {
       equity: eq, equityEur: toEur(eq), startEquity: b.startEquity, pnl: eq - b.startEquity, pnlEur: toEur(eq - b.startEquity),
       roi: b.startEquity > 0 ? eq / b.startEquity : 1, realizedPnl: b.realizedPnl, fees: b.feesBase, cash: b.cash, solReserve: b.solReserve,
       capital: (({ positions: _ps, ...c }) => c)(this.capital(b)),
-      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3),
+      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(),
       positions, trades: b.trades.slice(0, 60), equityHist: hist.filter((_, i) => i % step === 0 || i === hist.length - 1),
       counters: this.st.counters, agents: AGENTS.map((a) => ({ ...a, count: this.st.counters.agents[a.id] || 0, last: this.st.agents[a.id] || null })),
       log: this.st.log.slice(-80), watch: ws,

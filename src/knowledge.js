@@ -14,7 +14,7 @@ const VERSION = 1;
 
 const LABELS = {
   tipo: 'Tipo', eta: 'Età pool', vol: 'Volume 24h', liq: 'Liquidità', ora: 'Fascia oraria', atr: 'Volatilità', rsi: 'RSI',
-  flusso: 'Flusso acquisti', lato: 'Lato', pressione: 'Pressione vendite', mom: 'Momentum 15m', trend5: 'Trend 5m', cond: 'Condizioni', mercato: 'Mercato SOL', pump: 'Variazione 1h',
+  flusso: 'Flusso acquisti', lato: 'Lato', pressione: 'Pressione vendite', mom: 'Momentum 15m', trend5: 'Trend 5m', cond: 'Condizioni', mercato: 'Mercato SOL', pump: 'Variazione 1h', strat: 'Strategia', leva: 'Leva',
 };
 
 function bucket(v, edges, names) { if (v == null || !Number.isFinite(v)) return 'n/d'; for (let i = 0; i < edges.length; i++) if (v < edges[i]) return names[i]; return names[names.length - 1]; }

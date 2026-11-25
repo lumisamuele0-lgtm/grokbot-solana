@@ -157,7 +157,10 @@
     const b = bots[e.agent]; if (!b) return;
     const a = e.action;
     if (e.agent === 'MENTORE') {
-      if (a === 'teach') teach(e.targets);
+      if (a === 'web') { // legge il web: globo che gira sopra la testa + libro aperto
+        b.webT = RM ? 2 : 5; b.reading = true; jump(b, 7); emote(b, /studio|strategie/.test(e.text || '') ? '📖 strategie' : '🌐 web', 1.8, '#7dd3fc');
+        ring({ x: b.x, y: b.y - 30 }, '#7dd3fc', 30); if (!RM) after(0.5, () => ring({ x: b.x, y: b.y - 30 }, '#FDE68A', 22));
+      } else if (a === 'teach') teach(e.targets);
       else if (a === 'advise') { const to = bots[e.target || 'CAPO']; if (to) { for (let k = 0; k < (RM ? 1 : 4); k++) fx.push({ k: 'know', from: 'MENTORE', to: to.id, t: -k * 0.12, d: 0.9, arc: 20 }); emote(b, /sconsiglio/.test(e.text || '') ? '⚠ ' + tok(e) : '📖 ' + tok(e), 1.4, /sconsiglio/.test(e.text || '') ? '#ff5a6a' : '#00FF88'); after(0.9, () => { to.glowT = 1; emote(to, /sconsiglio/.test(e.text || '') ? '✋ ok' : '👍', 1); }); } }
       return;
     }
@@ -228,6 +231,7 @@
     for (const b of Object.values(bots)) {
       b.emoteT -= dt; if (b.emoteT <= 0) b.emote = null;
       b.bearT = Math.max(b.id === 'SORVEGLIANZA' && st.anyShort ? 1 : 0, (b.bearT || 0) - dt);
+      b.webT = Math.max(0, (b.webT || 0) - dt);
       if (b.beam) { b.beam.s -= dt; if (b.beam.s <= 0) b.beam = null; }
       b.blink -= dt; if (b.blink < -3 - Math.random() * 3) b.blink = 0.12;
       if (b.tasks.length > 14) b.tasks.splice(0, b.tasks.length - 14);
@@ -451,6 +455,16 @@
       ctx.save(); glow('#FDE68A', 6 + (b.glowT > 0 ? 10 : 0)); ctx.fillStyle = '#7c5a10'; rr(-7, by + 6, 14, 8, 1.5); ctx.fill(); noGlow();
       ctx.fillStyle = '#fff7d6'; ctx.fillRect(-6, by + 6.6, 5.6, 6.6); ctx.fillRect(0.4, by + 6.6, 5.6, 6.6);
       ctx.fillStyle = '#fffbeb'; ctx.beginPath(); ctx.moveTo(0, by + 6.6); ctx.lineTo(6 - flip * 12, by + 5.6 - Math.sin(flip * 3.14) * 3); ctx.lineTo(6 - flip * 12, by + 12.2 - Math.sin(flip * 3.14) * 3); ctx.lineTo(0, by + 13.2); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+    if (b.webT > 0) {
+      // globo del web: meridiani che ruotano e scintille in orbita
+      const k = Math.min(1, b.webT * 1.5); const gx = 12, gy = hy - 10, r = 5.2; const rot = t * (RM ? 0.6 : 2.4);
+      ctx.save(); ctx.globalAlpha = k; glow('#7dd3fc', 10); ctx.fillStyle = '#0c4a6e'; ctx.beginPath(); ctx.arc(gx, gy, r, 0, 6.28); ctx.fill(); noGlow();
+      ctx.strokeStyle = '#7dd3fc'; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.arc(gx, gy, r, 0, 6.28); ctx.stroke();
+      for (let m = 0; m < 3; m++) { const ph = (rot + (m * Math.PI) / 3) % Math.PI; const rx = Math.abs(Math.cos(ph)) * r; ctx.beginPath(); ctx.ellipse(gx, gy, Math.max(0.3, rx), r, 0, 0, 6.28); ctx.stroke(); }
+      ctx.beginPath(); ctx.moveTo(gx - r, gy); ctx.lineTo(gx + r, gy); ctx.stroke();
+      if (!RM) for (let q = 0; q < 3; q++) { const an = t * 3 + q * 2.09; ctx.fillStyle = q ? '#FDE68A' : '#00FF88'; ctx.beginPath(); ctx.arc(gx + Math.cos(an) * (r + 3), gy + Math.sin(an) * (r + 3) * 0.5, 0.9, 0, 6.28); ctx.fill(); }
       ctx.restore();
     }
     // oggetto trasportato

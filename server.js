@@ -88,6 +88,8 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+// stato pubblico della ricerca del MENTORE (solo fonti dati e statistiche delle strategie: nessun dato del portafoglio)
+app.get('/api/research/status', (req, res) => res.json(engine.research.publicStatus()));
 app.get('/api/auth/status', (req, res) => res.json({ setup: auth.isSetup(), loggedIn: auth.check(cookieOf(req)), canSetup: !auth.isSetup(), needsToken: !auth.isSetup() && !isLocal(req), demo: DEMO }));
 app.post('/api/auth/setup', wrap(async (req, res) => {
   if (!isLocal(req)) {
