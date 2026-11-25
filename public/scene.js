@@ -120,6 +120,18 @@
 
   function onEvent(e) {
     if (e.type === 'trade') {
+      if (e.side === 'PARTIAL') {
+        // lancio di monete: una parte del guadagno torna in cassa, il resto continua a correre
+        const p = podFor(e.symbol); const sv = bots.SORVEGLIANZA;
+        for (let i = 0; i < (RM ? 3 : 6); i++) fx.push({ k: 'coin', x0: p.x, y0: p.y - 6, x1: ST.vault.x + (Math.random() - 0.5) * 12, y1: ST.vault.y - 6 + (Math.random() - 0.5) * 6, t: -i * 0.09, d: 1.15, color: '#FFD54A' });
+        ring(p, '#FFD54A', 18); st.vaultGlow = 1;
+        after(1.1, () => { ring({ x: ST.vault.x, y: ST.vault.y - 4 }, '#FFD54A', 24); });
+        floatTxt({ x: p.x, y: p.y - 22 }, `${(e.pnl || 0) >= 0 ? '+' : ''}${(e.pnl || 0).toFixed(e.amount < 5 ? 4 : 2)} · ${e.pct || ''}%`, '#FFD54A');
+        if (sv) { jump(sv, 10); spin(sv, 0.5); emote(sv, '🪙 ' + (e.pct || '') + '%', 1.4, '#00FF88'); }
+        if (bots.ESECUZIONE) after(0.2, () => jump(bots.ESECUZIONE, 7));
+        if (bots.MENTORE) after(0.35, () => { bots.MENTORE.glowT = 0.8; });
+        return;
+      }
       if (e.side === 'BUY') { coins(ST.vault, ST.portal, 6, '#FFD54A'); st.portal = 2.5; st.vaultGlow = 1; jump(bots.ESECUZIONE, 12); spin(bots.ESECUZIONE, 0.5); after(0.2, () => jump(bots.DIMENSIONE, 7)); after(0.35, () => jump(bots.CAPO, 7)); }
       else { const p = podFor(e.symbol); const win = (e.pnl || 0) >= 0; coins(p, ST.vault, 8, win ? '#00FF88' : '#ff5a6a'); burst(p, win ? '#00FF88' : '#ff5a6a'); st.vaultGlow = 1;
         floatTxt({ x: ST.vault.x, y: ST.vault.y - 30 }, (win ? '+' : '') + (e.pnl || 0).toFixed(e.amount < 5 ? 4 : 2), win ? '#00FF88' : '#ff5a6a');
@@ -184,6 +196,7 @@
         } else if (a === 'fail') { call(b, () => emote(b, '✗ errore', 1.6, '#ff5a6a')); }
         break;
       case 'SORVEGLIANZA':
+        if (a === 'trail') { jump(b, 5); emote(b, '🪜 stop su', 1.2, '#00FF88'); st.shield = 'g'; st.shieldT = 0.8; break; }
         if (a === 'win' || a === 'loss') {
           const p = podFor(e.token); b.tasks = [];
           go(b, p.x, p.y + 16, true); call(b, () => { b.beam = { x: p.x, y: p.y, s: 0.6 }; emote(b, a === 'win' ? '💰' : '🩸', 1.5, a === 'win' ? '#00FF88' : '#ff5a6a'); if (a === 'win') { jump(b, 12); dance(b, 1.2); } else shake(b, 0.7); });

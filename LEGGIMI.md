@@ -112,6 +112,16 @@ Su iPhone il collegamento a Phantom funziona dentro l'app Phantom: tocca **Phant
 
 Solo **spot**: nessuna leva sui fondi reali.
 
+### Uscite furbe (attive di default)
+R = distanza dello stop-loss iniziale, calcolata sulla volatilità (ATR × 2,2, tra 1,5% e 10%; meme almeno 3%).
+- **Presa parziale 1**: a +1R vende il 40% e sposta lo stop a pareggio (+0,3% per coprire le commissioni).
+- **Presa parziale 2**: a +2R vende un altro 30% della quantità iniziale.
+- **Trailing stop**: si attiva da +1R e segue il massimo a 1,5 × ATR di distanza, mai più largo dello stop iniziale; non scende mai.
+- **Meme**: prese e trailing più vicini (× 0,75).
+- **Uscita a tempo**: dopo 90 minuti sotto +0,5% e senza prese, chiude. Resta il limite massimo di 240 minuti.
+- **Uscita rapida**: crollo oltre il 3% (o 2 × ATR) in 5 minuti sotto la EMA9, oppure sui meme vendite ≥ 75% delle transazioni dell'ultima ora (almeno 40), dopo i primi 3 minuti.
+Le prese parziali entrano subito nel PnL realizzato; il resto resta "aperto". Nello storico il trade compare una sola volta, alla chiusura completa, con il rendimento complessivo (ed è da questo che impara il Mentore). Tutto è modificabile in Impostazioni → Uscite furbe.
+
 ### Il Mentore (9° bot)
 Impara da ogni trade chiuso, simulato o reale (i reali pesano 1,5×), quali caratteristiche portano a vincere o perdere: tipo di token, età del pool, volume, liquidità, fascia oraria, volatilità, RSI, momentum, flusso acquisti/vendite, condizioni rispettate e andamento di SOL. Le statistiche sono smussate (prior bayesiano di 8 trade verso la media), salvate in `knowledge.json` e sopravvivono ai riavvii. Dopo 10 trade inizia a consigliare: riordina i candidati e la watchlist e blocca i setup con rendimento atteso negativo e un pattern chiaramente perdente (≥ 8 trade, < 40% vincenti). Non cambia mai il 7% per operazione, i filtri minimi, lo stop-loss o il kill switch.
 

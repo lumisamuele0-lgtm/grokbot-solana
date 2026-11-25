@@ -28,8 +28,8 @@ function fakeQuotes(e) {
 }
 const plan = { slPct: 2, tpPct: 4, trailPct: 1.4 };
 
-test('SIMULAZIONE: apertura e chiusura con commissioni e slippage contabilizzati', async () => {
-  const e = mkEngine(); fakeQuotes(e);
+test('SIMULAZIONE: apertura e chiusura con commissioni e slippage contabilizzati (uscite classiche)', async () => {
+  const e = mkEngine({ cfgVersion: 3, smartExits: false }); fakeQuotes(e);
   await e.openPosition({ m: JUP, s: { symbol: 'JUP', decimals: 6 } }, 20, plan);
   const b = e.book; assert.strictEqual(b.positions.length, 1);
   const fee = e.solToBase((5000 + e.cfg.simPriorityLamports) / LAMPORTS_PER_SOL);

@@ -115,4 +115,59 @@ function exitCheck(pos, price, now, cfg) {
   return { exit: false, change: ch };
 }
 
-module.exports = { filterRules, safetyRules, analyze, flowScore, riskPlan, sizePosition, checkLimits, exitCheck };
+// ---------- USCITE FURBE
+// Livelli (in % dal prezzo d'ingresso) scalati sulla volatilità: R = stop-loss iniziale (ATR × moltiplicatore).
+function exitLevels(pos, cfg) {
+  const k = pos.core === false ? cfg.memeExitMult : 1;
+  const R = pos.slPct;
+  const dist = pos.atrPct != null && pos.atrPct > 0 ? pos.atrPct * cfg.trailAtrMult * k : R * 0.7 * k;
+  return { R, tp1: R * cfg.tp1R * k, tp2: R * cfg.tp2R * k, trailAct: R * cfg.trailActR * k, trailDist: Math.min(R, Math.max(0.3, dist)) };
+}
+// Decide cosa fare con una posizione. Aggiorna sulla posizione: highest, trailStop.
+// Ritorna { action: 'none'|'partial'|'close', frac (quota della quantità ATTUALE), stage, reason, events[], change }.
+function exitPlan(pos, price, now, cfg, ctx = {}) {
+  if (!cfg.smartExits) { const r = exitCheck(pos, price, now, cfg); return { action: r.exit ? 'close' : 'none', reason: r.reason, change: r.change, events: [] }; }
+  const events = [];
+  pos.highest = Math.max(pos.highest || pos.entryPrice, price);
+  const ch = ((price - pos.entryPrice) / pos.entryPrice) * 100;
+  const gainHigh = ((pos.highest - pos.entryPrice) / pos.entryPrice) * 100;
+  const L = exitLevels(pos, cfg);
+  const fmt = (x) => `${x >= 0 ? '+' : ''}${x.toFixed(2)}%`;
+  // trailing: si attiva dopo +trailAct, segue il massimo, non scende mai e non è mai più largo dello stop iniziale
+  if (cfg.trailOn && gainHigh >= L.trailAct) {
+    const ts = pos.highest * (1 - L.trailDist / 100);
+    if (!pos.trailStop || ts > pos.trailStop) { events.push({ type: 'trail', from: pos.trailStop || null, to: ts, pctFromEntry: ((ts - pos.entryPrice) / pos.entryPrice) * 100 }); pos.trailStop = ts; }
+  }
+  const sl = pos.entryPrice * (1 - pos.slPct / 100);
+  const stop = Math.max(sl, pos.beStop || 0, pos.trailStop || 0);
+  if (price <= stop) {
+    const kind = stop === pos.trailStop ? 'Trailing stop' : stop === pos.beStop ? 'Stop a pareggio' : 'Stop-loss';
+    return { action: 'close', reason: `${kind} (${fmt(ch)})`, change: ch, events };
+  }
+  // prese di profitto parziali
+  const initQty = pos.initQty || pos.qty;
+  if (cfg.partialTp) {
+    if (!pos.tp1Done && ch >= L.tp1) return { action: 'partial', stage: 1, frac: Math.min(1, cfg.tp1Pct / 100), reason: `Presa parziale 1 (${fmt(ch)})`, change: ch, events };
+    if (pos.tp1Done && !pos.tp2Done && cfg.tp2Pct > 0 && ch >= Math.max(L.tp2, L.tp1)) {
+      const rem = initQty > 0 ? pos.qty / initQty : 1;
+      return { action: 'partial', stage: 2, frac: Math.min(1, (cfg.tp2Pct / 100) / Math.max(rem, 1e-9)), reason: `Presa parziale 2 (${fmt(ch)})`, change: ch, events };
+    }
+  }
+  // senza trailing: chiude il resto al target classico (o oltre la seconda presa)
+  if (!cfg.trailOn) {
+    const tpFinal = cfg.partialTp ? Math.max(pos.tpPct, L.tp2 * 1.5) : pos.tpPct;
+    if (ch >= tpFinal) return { action: 'close', reason: `Take-profit (${fmt(ch)})`, change: ch, events };
+  }
+  const held = now - pos.openedAt;
+  // uscita rapida: crollo del momentum a 5 minuti sotto la EMA9, oppure vendite dominanti sui meme
+  if (cfg.reversalExit && held >= 3 * 60000) {
+    const thr = Math.max(cfg.reversalPct, (pos.atrPct || 0) * 2);
+    if (ctx.m5 != null && ctx.m5 <= -thr && (ctx.ema9 == null || price < ctx.ema9)) return { action: 'close', reason: `Inversione rapida (${ctx.m5.toFixed(2)}% in 5 min)`, change: ch, events };
+    if (pos.core === false && ctx.flow && ctx.flow.tot >= 40 && ctx.flow.ratio <= -0.5) return { action: 'close', reason: `Ondata di vendite (${Math.round(((1 - ctx.flow.ratio) / 2) * 100)}% vendite)`, change: ch, events };
+  }
+  if (cfg.timeStopOn && !pos.tp1Done && held >= cfg.timeStopMin * 60000 && ch < cfg.timeStopMinGainPct) return { action: 'close', reason: `Ferma da ${cfg.timeStopMin} min (${fmt(ch)})`, change: ch, events };
+  if (held >= cfg.maxHoldMin * 60000) return { action: 'close', reason: `Tempo massimo (${cfg.maxHoldMin} min)`, change: ch, events };
+  return { action: 'none', change: ch, events, levels: L };
+}
+
+module.exports = { exitLevels, exitPlan, filterRules, safetyRules, analyze, flowScore, riskPlan, sizePosition, checkLimits, exitCheck };
