@@ -34,6 +34,17 @@ async function fetchJson(url, opts = {}) {
   throw lastErr;
 }
 
+// Testo (RSS/XML) con timeout; segue i redirect
+async function fetchText(url, { timeout = 12000, headers = {} } = {}) {
+  const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), timeout);
+  try {
+    const res = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 (grokbot-solana)', accept: 'application/rss+xml, application/xml, text/xml, */*', ...headers }, redirect: 'follow', signal: ctrl.signal });
+    const text = await res.text();
+    if (!res.ok) { const e = new Error(`HTTP ${res.status} ${url.split('?')[0]}`); e.status = res.status; throw e; }
+    return text;
+  } finally { clearTimeout(t); }
+}
+
 // Coda che esegue al massimo una chiamata ogni `gapMs` (per API gratuite con limiti).
 function rateQueue(gapMs) {
   let chain = Promise.resolve();
@@ -56,4 +67,4 @@ const short = (s) => (s ? `${s.slice(0, 4)}…${s.slice(-4)}` : '');
 const nowIso = () => new Date().toISOString();
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
-module.exports = { sleep, fetchJson, rateQueue, clamp, round, short, nowIso, uid };
+module.exports = { sleep, fetchJson, fetchText, rateQueue, clamp, round, short, nowIso, uid };

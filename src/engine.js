@@ -15,6 +15,7 @@ const jup = require('./jupiter');
 const chain = require('./chain');
 const { Market } = require('./market');
 const { Research } = require('./research');
+const { Mentor } = require('./mentor');
 const { STRATEGIES } = require('./strategies');
 const { uid, sleep, round } = require('./util');
 
@@ -75,6 +76,9 @@ class Engine extends EventEmitter {
     this.analysisRejectTs = {};
     // MENTORE · ricerca sul web: libreria di strategie con backtest walk-forward su dati reali gratuiti
     this.research = new Research({ dataDir, log: (a, t, l) => this.log(a, t, l), agent: (id, t, act, ex) => this.agent(id, t, act, ex), getCfg: () => this.cfg, getLev: () => this.leverage() });
+    // MENTORE · diario post-mortem e correzioni automatiche (limitate, con rollback), salvati su /data/mentor.json
+    this.mentor = new Mentor({ dataDir, log: (a, t, l) => this.log(a, t, l) });
+    this.research.mentorStatus = () => this.mentor.publicSummary();
   }
 
   get conn() { return chain.connection(this.cfg.rpcUrl); }
@@ -150,7 +154,7 @@ class Engine extends EventEmitter {
     }
     if (process.env.BOT_AUTOSTART === '1') { this.cfg.trading = true; this.log('SISTEMA', 'Avvio automatico del trading (BOT_AUTOSTART=1)'); }
   }
-  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); this.research.stop(); }
+  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); this.research.stop(); this.mentor.flush(); }
   async cycleLoop() {
     try { await this.cycle(); } catch (e) { this.log('SISTEMA', `Errore ciclo: ${e.message}`, 'error'); }
     this.loopTimer = setTimeout(() => this.cycleLoop(), this.cfg.cycleSec * 1000);
@@ -281,6 +285,7 @@ class Engine extends EventEmitter {
       const feat = a.ok ? [...K.featuresOf({ s, a, f, core: true, solMom60: this.solMom60() }), `leva:${this.leverage()}x`, ...rs.strategies.map((id) => 'strat:' + id)] : [];
       const kn = K.assess(this.kb, feat); // consiglio del MENTORE
       const x = { m, w: { symbol: s.symbol, core: true }, s, a, f, feat, kn, rs, side: 'LONG', total: (a.ok ? a.score : -9) + f.score + kn.adj + rs.score - rs.against };
+      this.mentorGate(x);
       if (a.ok && rs.against >= 1 && rs.against > rs.score) x.block = `strategie contrarie (${rs.opposite.map(stratName).join(', ')})`;
       cands.push(x);
     }
@@ -301,9 +306,10 @@ class Engine extends EventEmitter {
         const feat = a.ok ? [...K.featuresOf({ s, a, f, core: true, solMom60: regime, side: 'short' }), `short.leva:${this.leverage()}x`, ...rs.strategies.map((id) => 'short.strat:' + id)] : [];
         const kn = K.assess(this.kb, feat);
         const x = { m, s, a, f, feat, kn, rs, side: 'SHORT', total: (a.ok ? a.short.score : -9) - f.score + kn.adj + rs.score - rs.against };
+        this.mentorGate(x);
         const wants = a.ok && (a.short.signal || rs.score >= 1);
         if (a.ok && rs.against >= 1 && rs.against > rs.score) x.block = `strategie contrarie (${rs.opposite.map(stratName).join(', ')})`;
-        if (wants && regime != null && regime > 1 && !rs.score) x.block = 'Mercato SOL in rialzo';
+        if (wants && regime != null && regime > 1 && !rs.score && !x.block) x.block = 'Mercato SOL in rialzo';
         if (wants && realBlocked) {
           x.block = 'Short reali non attivi';
           if (now - (this.analysisRejectTs['R' + m] || 0) > 30 * 60000) { this.analysisRejectTs['R' + m] = now; this.log('RISCHIO', `segnale SHORT su $${s.symbol} ignorato in REALE · ${P.REAL_SHORTS_BLOCK_MSG}`, 'warn'); }
@@ -392,6 +398,14 @@ class Engine extends EventEmitter {
 
     // RISCHIO: piano
     const plan = S.riskPlan(fromLib && best.rs.atrPct ? best.rs.atrPct : a.atrPct, cfg, core);
+    // correzioni del MENTORE: stop e target leggermente più larghi/stretti (0,8–1,3 / 1–1,4), sempre entro i limiti
+    const tp = this.mentor.params(sym, sideTxt);
+    if (tp.slMult !== 1 || tp.tpMult !== 1) {
+      const hi = Math.min(cfg.slMaxPct, 6);
+      plan.slPct = Math.max(Math.min(cfg.slMinPct, hi), Math.min(hi, plan.slPct * tp.slMult)); plan.tpPct = plan.slPct * cfg.rewardRisk * tp.tpMult; plan.trailPct = plan.slPct * 0.7;
+      this.log('MENTORE', `$${sym} ${sideTxt}: applico le correzioni imparate · stop ×${tp.slMult.toFixed(2)} · target ×${tp.tpMult.toFixed(2)}`);
+    }
+    best.ctx = { ...this.research.marketContext(sym), atrPct: a.atrPct, conf, rs: best.rs ? +best.rs.score.toFixed(2) : 0, strategies: best.rs ? best.rs.strategies : [], fromLib, tpMult: tp.tpMult, tuneVer: tp.ver };
     if (usePerp) {
       const px = this.market.usd(best.m) || a.last;
       const liq = P.liquidationPrice({ entryPrice: px, side: sideTxt, ...P.openShortModel({ marginUsd: 100, lev, priceUsd: px }) });
@@ -481,7 +495,7 @@ class Engine extends EventEmitter {
     const pos = { id: uid(), side, perp: true, market: P.SHORT_MARKETS[c.m], lev, mint: c.m, symbol: sym, decimals: 6, qtyRaw: '0', qty: m.sizeUsd / px, initQty: m.sizeUsd / px,
       costBase: margin, origCost: margin, feesBase: feeBase, origFees: feeBase, entryPrice: px, highest: px, sizeUsd: m.sizeUsd, initSizeUsd: m.sizeUsd, collateralUsd: m.collateralUsd,
       openFeeUsd: m.openFeeUsd, perpFeesUsd: m.openFeeUsd, borrowUsd: 0, lastAccrual: now, slPct: plan.slPct, tpPct: plan.tpPct, trailPct: plan.trailPct, openedAt: now, sigOpen: null,
-      core: true, feat: c.feat || [], atrPct: c.a && c.a.atrPct };
+      core: true, feat: c.feat || [], atrPct: c.a && c.a.atrPct, ctx: c.ctx || null, tpMult: (c.ctx && c.ctx.tpMult) || 1, mfe: 0, mae: 0 };
     pos.liqPrice = P.liquidationPrice(pos);
     pos.slPct = S.shortStopCap(pos.slPct, px, pos.liqPrice);
     b.positions.push(pos); b.feesBase += feeBase;
@@ -542,7 +556,7 @@ class Engine extends EventEmitter {
     const nParts = (p.partials || []).length;
     const tr = { id: p.id, side: p.side, perp: true, lev: p.lev, symbol: p.symbol, mint: p.mint, openedAt: p.openedAt, closedAt: now, costBase: origCost, outBase: valueBase + (p.partOut || 0), pnl: totalPnl, pnlPct: (totalPnl / origCost) * 100,
       fees: (p.origFees != null ? p.origFees : p.feesBase) + (p.partFees || 0) + feeBase + p.perpFeesUsd / bu, perpFeesUsd: p.perpFeesUsd, entryPrice: p.entryPrice, exitPrice: px,
-      reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [], sigOpen: null, sigClose: null, mode: cfg.mode, estimated: false, feat: p.feat || [] };
+      reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [], sigOpen: null, sigClose: null, mode: cfg.mode, estimated: false, feat: p.feat || [], ...this.postFields(p) };
     b.trades.unshift(tr); if (b.trades.length > 500) b.trades.pop();
     this.mentorLearn(tr);
     this.bump('SORVEGLIANZA');
@@ -569,6 +583,7 @@ class Engine extends EventEmitter {
         const k = (px - p.entryPrice) / (st.liqPrice - p.entryPrice); // 0 = ingresso, 1 = liquidazione
         if (k >= 0.8) { await this.closeShort(p, 1, `Vicino alla liquidazione (${(((px - p.entryPrice) / p.entryPrice) * 100).toFixed(2)}%)`); continue; }
       }
+      { const mv = ((p.side === 'SHORT' ? -1 : 1) * (px - p.entryPrice) / p.entryPrice) * 100; p.mfe = Math.max(p.mfe || 0, mv); p.mae = Math.min(p.mae || 0, mv); } // per il post-mortem
       const r = S.exitPlan(p, px, now, this.cfg, this.exitCtx(p));
       lines.push(`$${p.symbol}${p.side === 'SHORT' ? '▼' : ''}${isPerp(p) ? ' ' + p.lev + 'x' : ''} ${r.change != null ? (r.change >= 0 ? '+' : '') + r.change.toFixed(2) + '%' : ''}`);
       for (const ev of r.events || []) this.onTrail(p, ev);
@@ -666,7 +681,7 @@ class Engine extends EventEmitter {
       const nParts = (p.partials || []).length;
       const tr = { id: p.id, symbol: p.symbol, mint: p.mint, openedAt: p.openedAt, closedAt: Date.now(), costBase: origCost, outBase: valueBase + (p.partOut || 0), pnl: totalPnl, pnlPct: (totalPnl / origCost) * 100,
         fees: (p.origFees != null ? p.origFees : p.feesBase) + (p.partFees || 0) + feeBase, reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [],
-        sigOpen: p.sigOpen, sigClose: sig, mode: cfg.mode, estimated, feat: p.feat || [] };
+        sigOpen: p.sigOpen, sigClose: sig, mode: cfg.mode, estimated, feat: p.feat || [], side: 'LONG', entryPrice: p.entryPrice, exitPrice: this.priceBase(p.mint) || p.entryPrice, ...this.postFields(p) };
       b.trades.unshift(tr); if (b.trades.length > 500) b.trades.pop();
       this.mentorLearn(tr);
       this.bump('SORVEGLIANZA');
@@ -968,7 +983,19 @@ class Engine extends EventEmitter {
 
   // ---------- MENTORE
   solMom60() { const c = this.market.candles[SOL]; return c && c.length > 60 ? momentum(c.map((x) => x.c), 60) : null; }
+  postFields(p) { return { slPct: p.slPct, atrPct: p.atrPct, ctx: p.ctx || null, mfe: p.mfe != null ? p.mfe : null, mae: p.mae != null ? p.mae : null, tuneVer: p.ctx ? p.ctx.tuneVer : null }; }
+  // filtro del MENTORE su un candidato: pause/selettività imparate, notizie, preferenza long/short per regime
+  mentorGate(x) {
+    if (!x.a.ok) return;
+    const sym = x.s.symbol; const mc = this.research.marketContext(sym); const nw = this.research.newsFor(sym); const d = x.side === 'SHORT' ? -1 : 1;
+    x.total += d * 0.5 * nw.sentiment - 0.5 * nw.risk + this.mentor.prefAdj(x.side, mc.regime);
+    x.news = nw;
+    const conf = x.side === 'SHORT' ? x.a.short.confidence : x.a.confidence;
+    const chk = this.mentor.entryCheck({ symbol: sym, side: x.side, regime: mc.regime, atrPct: x.a.atrPct, funding: mc.funding, newsRisk: nw.risk, conf, flowStrict: d > 0 ? x.f.score > 0 : x.f.score < 0, rsScore: x.rs ? x.rs.score : 0 });
+    if (!chk.ok) x.block = chk.reason;
+  }
   mentorLearn(tr) {
+    try { this.mentor.onClose(tr); } catch (e) { this.log('MENTORE', `post-mortem non riuscito: ${e.message}`, 'warn'); }
     if (!K.learn(this.kb, { id: tr.id, feat: tr.feat, pnlPct: tr.pnlPct, mode: tr.mode })) return;
     this.bump('MENTORE');
     const sm = K.summary(this.kb, 1);
@@ -980,6 +1007,16 @@ class Engine extends EventEmitter {
     this.agent('MENTORE', `condivido la lezione con tutti i bot (${sm.trades} trade)`, 'teach', { targets: AGENTS.filter((a) => a.id !== 'MENTORE').map((a) => a.id) });
   }
   mentorReview() {
+    // verifica finale dei post-mortem (60 min dopo l'uscita) e correzioni automatiche
+    try {
+      const mintOf = (sym) => Object.keys(P.SHORT_MARKETS).find((m) => P.SHORT_MARKETS[m] === sym) || (this.st.books[this.cfg.mode].trades.find((t) => t.symbol === sym) || {}).mint;
+      const lessons = this.mentor.followUp((sym) => this.market.candles[mintOf(sym)] || []);
+      for (const l of lessons) {
+        this.bump('MENTORE');
+        this.log('MENTORE', `lezione: ${l.text}${l.corrections.length ? '' : ' · nessuna correzione necessaria'}`);
+        this.agent('MENTORE', `lezione da $${l.symbol}: ${l.text.split(': ').slice(1).join(': ').split(' · ')[0]}`, 'teach', { targets: AGENTS.filter((a) => a.id !== 'MENTORE').map((a) => a.id) });
+      }
+    } catch (e) { this.log('MENTORE', `verifica post-mortem non riuscita: ${e.message}`, 'warn'); }
     const sm = K.summary(this.kb, 2);
     if (!sm.trades) {
       if (Date.now() - this.lastMentorIdle > 30 * 60000) { this.lastMentorIdle = Date.now(); this.log('MENTORE', 'nessun trade chiuso da cui imparare: osservo il mercato e aspetto i primi risultati'); }
@@ -1036,7 +1073,7 @@ class Engine extends EventEmitter {
       equity: eq, equityEur: toEur(eq), startEquity: b.startEquity, pnl: eq - b.startEquity, pnlEur: toEur(eq - b.startEquity),
       roi: b.startEquity > 0 ? eq / b.startEquity : 1, realizedPnl: b.realizedPnl, fees: b.feesBase, cash: b.cash, solReserve: b.solReserve,
       capital: (({ positions: _ps, ...c }) => c)(this.capital(b)),
-      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(),
+      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(), mentor: this.mentor.summary(),
       positions, trades: b.trades.slice(0, 60), equityHist: hist.filter((_, i) => i % step === 0 || i === hist.length - 1),
       counters: this.st.counters, agents: AGENTS.map((a) => ({ ...a, count: this.st.counters.agents[a.id] || 0, last: this.st.agents[a.id] || null })),
       log: this.st.log.slice(-80), watch: ws,

@@ -139,7 +139,8 @@ function exitLevels(pos, cfg) {
   const k = pos.core === false ? cfg.memeExitMult : 1;
   const R = pos.slPct;
   const dist = pos.atrPct != null && pos.atrPct > 0 ? pos.atrPct * cfg.trailAtrMult * k : R * 0.7 * k;
-  return { R, tp1: R * cfg.tp1R * k, tp2: R * cfg.tp2R * k, trailAct: R * cfg.trailActR * k, trailDist: Math.min(R, Math.max(0.3, dist)) };
+  const m = pos.tpMult && pos.tpMult > 1 ? Math.min(1.4, pos.tpMult) : 1; // correzione del MENTORE (solo target più lontani, max ×1,4)
+  return { R, tp1: R * cfg.tp1R * k * m, tp2: R * cfg.tp2R * k * m, trailAct: R * cfg.trailActR * k * m, trailDist: Math.min(R, Math.max(0.3, dist)) };
 }
 // Decide cosa fare con una posizione. Aggiorna sulla posizione: highest, trailStop.
 // Ritorna { action: 'none'|'partial'|'close', frac (quota della quantità ATTUALE), stage, reason, events[], change }.

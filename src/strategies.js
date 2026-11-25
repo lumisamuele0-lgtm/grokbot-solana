@@ -52,6 +52,8 @@ function context(candles, extra = {}) {
     hi: (n) => memo('hi' + n, () => rollMax(h, n)), lo: (n) => memo('lo' + n, () => rollMin(l, n)),
     vwap: (n) => memo('vwap' + n, () => { const o = new Array(c.length).fill(null); let pv = 0, vv = 0; for (let i = 0; i < c.length; i++) { const tp = (h[i] + l[i] + c[i]) / 3, v = candles[i].v || 0; pv += tp * v; vv += v; if (i >= n) { const j = i - n; const tpj = (h[j] + l[j] + c[j]) / 3, vj = candles[j].v || 0; pv -= tpj * vj; vv -= vj; } if (i >= n - 1 && vv > 0) o[i] = pv / vv; } return o; }),
     macd: (f = 12, s = 26, g = 9) => memo(`macd${f}.${s}.${g}`, () => { const a = emaS(c, f), b = emaS(c, s); const m = c.map((_, i) => (a[i] != null && b[i] != null ? a[i] - b[i] : null)); const start = m.findIndex((x) => x != null); const sig = new Array(c.length).fill(null); if (start >= 0) { const e = emaS(m.slice(start), g); for (let i = 0; i < e.length; i++) sig[start + i] = e[i]; } return m.map((x, i) => (x != null && sig[i] != null ? x - sig[i] : null)); }),
+    // Supertrend: direzione +1/−1 per candela
+    supertrend: (n, k) => memo(`st${n}.${k}`, () => { const a = atrS(candles, n); const o = new Array(c.length).fill(null); let up = null, dn = null, d = 1; for (let i = 0; i < c.length; i++) { if (a[i] == null) continue; const m = (h[i] + l[i]) / 2; const bu = m + k * a[i], bl = m - k * a[i]; up = up == null || bu < up || c[i - 1] > up ? bu : up; dn = dn == null || bl > dn || c[i - 1] < dn ? bl : dn; if (d === 1 && c[i] < dn) d = -1; else if (d === -1 && c[i] > up) d = 1; o[i] = d; } return o; }),
     // valore più recente di una serie temporale esterna (funding, Fear&Greed) noto alla chiusura della candela i
     at: (series, i, field) => { if (!series || !series.length) return null; const t = candles[i].t + (ctx.tfMs || 0); let lo = 0, hi = series.length - 1, r = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (series[m].t <= t) { r = m; lo = m + 1; } else hi = m - 1; } return r >= 0 ? series[r][field] : null; },
   };
@@ -83,6 +85,14 @@ const STRATEGIES = [
     signal: (x, i, p) => { const f = x.at(x.funding, i, 'rate'); if (!nz(f)) return 0; const e = x.ema(20); if (f >= p.hi && crossDn(x.c, e, i)) return -1; if (f <= p.lo && crossUp(x.c, e, i)) return 1; return 0; } },
   { id: 'fng', name: 'Regime Fear & Greed', desc: 'Paura estrema + prezzo che torna sopra la EMA50 = LONG; avidità estrema + rottura sotto = SHORT', grid: [{ fear: 25, greed: 75 }, { fear: 35, greed: 65 }],
     signal: (x, i, p) => { const g = x.at(x.fng, i, 'value'); if (!nz(g)) return 0; const e = x.ema(50); if (g <= p.fear && crossUp(x.c, e, i)) return 1; if (g >= p.greed && crossDn(x.c, e, i)) return -1; return 0; } },
+  { id: 'supertrend', name: 'Supertrend (ATR)', desc: 'Il prezzo rompe la banda ATR che segue il trend: si entra nella nuova direzione', grid: [{ n: 10, k: 3 }, { n: 14, k: 2.5 }],
+    signal: (x, i, p) => { const d = x.supertrend(p.n, p.k); if (d[i] == null || d[i - 1] == null) return 0; return d[i] !== d[i - 1] ? d[i] : 0; } },
+  { id: 'rsi2', name: 'Pullback RSI(2) Connors', desc: 'Nel trend di fondo (EMA200), si compra un ribasso estremo di breve (RSI a 2 periodi) e viceversa', grid: [{ lo: 10, hi: 90 }, { lo: 5, hi: 95 }],
+    signal: (x, i, p) => { const r = x.rsi(2)[i], e = x.ema(200)[i]; if (!nz(r) || !nz(e)) return 0; if (x.c[i] > e && r < p.lo) return 1; if (x.c[i] < e && r > p.hi) return -1; return 0; } },
+  { id: 'roc', name: 'Momentum di serie temporale (ROC)', desc: 'Rendimento delle ultime 24 ore che supera una soglia: si segue la direzione (time-series momentum)', grid: [{ th: 3 }, { th: 5 }],
+    signal: (x, i, p) => { const n = x.dayBars || 96; if (i < n + 1) return 0; const r = (x.c[i] / x.c[i - n] - 1) * 100, r0 = (x.c[i - 1] / x.c[i - 1 - n] - 1) * 100; if (r > p.th && r0 <= p.th) return 1; if (r < -p.th && r0 >= -p.th) return -1; return 0; } },
+  { id: 'lsratio', name: 'Contrarian long/short (OKX)', desc: 'Troppi conti long (o short) rispetto alla media di 7 giorni: si va contro la folla quando il prezzo gira', grid: [{ z: 1.5 }, { z: 2 }],
+    signal: (x, i, p) => { const z = x.at(x.lsr, i, 'z'); if (!nz(z)) return 0; const e = x.ema(20); if (z >= p.z && crossDn(x.c, e, i)) return -1; if (z <= -p.z && crossUp(x.c, e, i)) return 1; return 0; } },
 ];
 // regime di mercato alla candela i: rialzo / ribasso / laterale (EMA50 vs EMA200 + ADX)
 function regimeAt(x, i) { const a = x.ema(50)[i], b = x.ema(200)[i], d = x.adx(14)[i]; if (!nz(a) || !nz(b) || !nz(d)) return 'laterale'; if (d >= 20 && a > b) return 'rialzo'; if (d >= 20 && a < b) return 'ribasso'; return 'laterale'; }

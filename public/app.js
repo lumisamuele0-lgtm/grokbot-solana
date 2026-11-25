@@ -210,7 +210,7 @@
     if (pbLast != null && Math.abs(tot - pbLast) > Math.abs(s.startEquity || 1) * 1e-6) { tEl.classList.add(tot > pbLast ? 'flash-up' : 'flash-dn'); }
     pbLast = tot;
     bar.classList.toggle('up', tot > 0); bar.classList.toggle('down', tot < 0);
-    $('#pbSub').textContent = `${fSol(sol(tot))} · ${sgn(pct)}${nf(Math.abs(pct), 2)}%${s.equityEur != null ? ' · ' + (s.pnlEur >= 0 ? '+' : '−') + eur(Math.abs(s.pnlEur)) : ''}`;
+    $('#pbSub').textContent = `${fSol(sol(tot))} · ${sgnN(pct)}${nf(Math.abs(pct), 2)}%${s.equityEur != null ? ' · ' + (s.pnlEur >= 0 ? '+' : '−') + eur(Math.abs(s.pnlEur)) : ''}`;
     const cell = (id, v) => { const el = $(id); el.textContent = fmt(v); el.className = v > 0 ? 'mint' : v < 0 ? 'red' : ''; };
     cell('#pbDay', pb.day); cell('#pbReal', pb.realized); cell('#pbOpen', pb.unrealized);
     const closed = s.wins + s.losses;
@@ -314,10 +314,10 @@
     if (!r) return '<div class="empty">in caricamento…</div>';
     const busy = r.running || (r.lastFeeds && Date.now() - r.lastFeeds < 20000);
     const src = r.sources || {};
-    const srcTxt = [src.candele && `candele ${esc(src.candele)}`, src.funding && `funding ${esc(src.funding)}`, src.openInterest && `open interest ${esc(src.openInterest)}`, src.fearGreed && `Fear & Greed ${esc(src.fearGreed)}`].filter(Boolean).join(' · ') || 'in attesa della prima lettura';
+    const srcTxt = [src.candele && `candele ${esc(src.candele)}`, src.funding && `funding ${esc(src.funding)}`, src.openInterest && `open interest ${esc(src.openInterest)}`, src.fearGreed && `Fear & Greed ${esc(src.fearGreed)}`, src.longShort && `long/short ${esc(src.longShort)}`, src.notizie && `notizie ${esc(src.notizie)}`, src.globale && `mercato ${esc(src.globale)}`, src.tvl && `TVL ${esc(src.tvl)}`].filter(Boolean).join(' · ') || 'in attesa della prima lettura';
     const act = r.strategies.filter((x) => x.active).length;
     const head = `<div class="rs-head"><span class="rs-globe${busy ? ' spin' : ''}" aria-hidden="true">🌐</span><div><b>${r.strategies.length}</b> strategie studiate · <b class="${act ? 'mint' : ''}">${act}</b> attive
-      <div class="mu rs-up">${r.running ? 'sto studiando ora…' : r.lastBacktest ? `ultimo studio ${hhmm(r.lastBacktest)}${r.lev ? ` · leva ${r.lev}x` : ''} · si ripete ogni 4 ore` : 'primo studio tra pochi secondi'}</div></div></div>`;
+      <div class="mu rs-up">${r.running ? 'sto studiando ora…' : r.lastBacktest ? `ultimo studio ${hhmm(r.lastBacktest)}${r.lev ? ` · leva ${r.lev}x` : ''} · si ripete ogni 2 ore` : 'primo studio tra pochi secondi'}</div></div></div>`;
     const fng = r.fng ? `<span class="rs-chip">Fear &amp; Greed <b>${r.fng.value}</b> ${esc(r.fng.label)}</span>` : '';
     const reg = r.regimes ? Object.entries(r.regimes).filter(([, v]) => v).map(([k, v]) => `<span class="rs-chip">${k} ${v === 'rialzo' ? '▲' : v === 'ribasso' ? '▼' : '↔'} ${v}</span>`).join('') : '';
     const sig = (r.liveSignals || []).map((x) => `<span class="rs-chip ${x.dir > 0 ? 'g' : 'r'}">${x.asset} ${x.dir > 0 ? 'LONG' : 'SHORT'} · ${esc((r.strategies.find((q) => q.id === x.id) || {}).name || x.id)}</span>`).join('');
@@ -333,6 +333,29 @@
     const expl = full ? '<p class="note">Risultati FUORI CAMPIONE: i parametri si scelgono sul passato, poi si misura la strategia su settimane mai viste (walk-forward), con commissioni Jupiter, slittamento, prestito, la tua leva, stop prima della liquidazione e margine 7%. Si attiva solo se resta positiva dopo lo "sconto" per pochi dati (almeno 8 operazioni, profit factor &gt; 1,1, drawdown &lt; 25%). Le attive danno un voto al CAPO; quelle contrarie possono bloccare un ingresso. I risultati passati non garantiscono quelli futuri.</p>' : '';
     return head + chips + r.strategies.map(row).join('') + note + expl;
   }
+  // ---------- diario del MENTORE: post-mortem, lezioni, correzioni, ultima ricerca
+  const sgnN = (x, d = 2) => (x == null ? '—' : (x >= 0 ? '+' : '−') + nf(Math.abs(x), d));
+  function mentorHtml(m, r, full) {
+    if (!m) return '<div class="empty">in caricamento…</div>';
+    const head = `<div class="rs-head"><span class="rs-globe${m.pending ? ' spin' : ''}" aria-hidden="true">🧠</span><div><b>${m.trained}</b> trade analizzati · <b>${m.reviewed}</b> verificati${m.pending ? ` · ${m.pending} in verifica (60 min dopo l'uscita)` : ''}
+      <div class="mu rs-up">ogni trade chiuso viene studiato: errore, correzione, lezione per tutti i bot</div></div></div>`;
+    const errs = m.errors.length ? `<div class="lbl kn-t">Errori più frequenti</div><div class="rs-chips">${m.errors.slice(0, full ? 8 : 4).map((e) => `<span class="rs-chip r">${esc(e.label.split(' (')[0])} · ${e.n}</span>`).join('')}</div>` : '';
+    const les = m.lessons.length ? `<div class="lbl kn-t">Lezioni apprese</div>${m.lessons.slice(0, full ? 8 : 3).map((l) => `<div class="md-row"><span class="kn-dot ${l.pnlPct >= 0 ? 'g' : 'r'}"></span><span>${esc(l.text)}</span><small class="mu">${hhmm(l.t)}</small></div>`).join('')}` : '<div class="empty" style="padding:6px 0">Nessuna lezione ancora: il primo post-mortem arriva 60 minuti dopo la chiusura di un trade.</div>';
+    const cor = m.corrections.length ? `<div class="lbl kn-t">Errori corretti</div>${m.corrections.slice(0, full ? 8 : 3).map((c) => `<div class="md-row"><span>${c.kind === 'rollback' ? '↩' : c.kind === 'confermata' ? '✔' : '🔧'}</span><span>${esc(c.text)}</span><small class="mu">${hhmm(c.t)}</small></div>`).join('')}` : '';
+    const tune = full && m.tune.length ? `<div class="lbl kn-t">Correzioni attive</div>${m.tune.map((t) => `<div class="md-row"><span>${esc(t.key.replace('|', ' '))}</span><span class="mu">stop ×${nf(t.slMult, 2)} · target ×${nf(t.tpMult, 2)} · selettività ${nf(t.level, 1)}/3${t.blocks.length ? ' · pause: ' + t.blocks.map((b) => b.kind + (b.regime ? ' ' + b.regime : '') + ' fino ' + hhmm(b.until)).join(', ') : ''}${t.evaluating != null ? ` · in prova (${t.evaluating}/6)` : ''}</span></div>`).join('')}` : '';
+    let web = '';
+    if (r && (r.news || r.context)) {
+      const n = r.news; const ctx = r.context || {};
+      const as = n ? Object.entries(n.assets).filter(([, v]) => v).map(([a, v]) => `<span class="rs-chip ${v.sentiment > 0.15 ? 'g' : v.sentiment < -0.15 ? 'r' : ''}">${a} sentiment ${sgnN(v.sentiment)}${v.risk >= 0.3 ? ` · rischio ${nf(v.risk * 100, 0)}%` : ''}</span>`).join('') : '';
+      const cx = [ctx.global && `mercato 24h ${sgnN(ctx.global.mcapChange24h, 1)}%`, ctx.tvl && ctx.tvl.Solana && `TVL Solana ${sgnN(ctx.tvl.Solana.ch1d, 1)}%`, ctx.lsr && ctx.lsr.SOL && `long/short SOL ${nf(ctx.lsr.SOL.ratio, 2)}`].filter(Boolean).map((t) => `<span class="rs-chip">${t}</span>`).join('');
+      const heads = n && n.latest ? n.latest.slice(0, full ? 6 : 2).map((h) => `<div class="md-row"><span class="kn-dot ${h.risk ? 'r' : h.sentiment > 0 ? 'g' : h.sentiment < 0 ? 'r' : ''}"></span><span>${esc(h.title)}</span><small class="mu">${esc(h.source)}</small></div>`).join('') : '';
+      web = `<div class="lbl kn-t">Ultima ricerca sul web${n ? ` · ${hhmm(n.t)} · ${n.count} notizie da ${n.sources.length} fonti` : ''}</div><div class="rs-chips">${as}${cx}</div>${heads}`;
+    }
+    const note = full ? '<p class="note">Le correzioni sono piccole e graduali: stop ×0,8–1,3, target ×1–1,4, selettività 0–3, pause di 2–6 ore. Se dopo 6 trade vanno peggio di prima vengono annullate. Non cambiano mai la leva (minimo 5x), il margine del 7%, lo stop prima della liquidazione o il kill switch. Il sentiment delle notizie è un conteggio di parole nei titoli: un indizio, non una previsione.</p>' : '';
+    return head + errs + les + cor + tune + web + note;
+  }
+  let lastMdH = '';
+  function renderMentor(s) { const h = mentorHtml(s.mentor, s.research, false); if (h !== lastMdH) { lastMdH = h; $('#mentorDiary').innerHTML = h; } }
   let lastRsH = '';
   function renderResearch(s) { const h = researchHtml(s.research, false); if (h !== lastRsH) { lastRsH = h; $('#research').innerHTML = h; } }
   let lastKnH = '';
@@ -350,6 +373,7 @@
     $('#agents').addEventListener('click', (e) => { const b = e.target.closest('.ag'); if (b) agentSheet(b.dataset.id); });
     $('#know').addEventListener('click', () => agentSheet('MENTORE'));
     $('#research').addEventListener('click', () => agentSheet('MENTORE'));
+    $('#mentorDiary').addEventListener('click', () => agentSheet('MENTORE'));
   }
   const lastAct = {};
   function renderAgents() {
@@ -379,7 +403,7 @@
       const a = S.agents.find((z) => z.id === id);
       const lines = S.log.filter((l) => l.agent === id).slice(-12).reverse();
       return `<div class="row"><span class="ic" style="width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:${a.color}">${ICONS[a.icon]}</span><div><h4>${a.id}</h4><div class="mu" style="font-size:13px">${esc(a.role)} · ${a.count} ${a.unit}</div></div></div>
-      ${id === 'MENTORE' ? `<div class="card know" style="margin-top:14px">${knowledgeHtml(S.knowledge, true)}</div><div class="card know research" style="margin-top:12px"><div class="lbl kn-t">Strategie studiate dal Mentore</div>${researchHtml(S.research, true)}</div>` : ''}
+      ${id === 'MENTORE' ? `<div class="card know research" style="margin-top:14px"><div class="lbl kn-t">Diario del Mentore</div>${mentorHtml(S.mentor, S.research, true)}</div><div class="card know" style="margin-top:12px">${knowledgeHtml(S.knowledge, true)}</div><div class="card know research" style="margin-top:12px"><div class="lbl kn-t">Strategie studiate dal Mentore</div>${researchHtml(S.research, true)}</div>` : ''}
       <div class="card" style="margin-top:14px"><div class="lbl">Decisione attuale</div><div style="margin-top:6px;font-size:15px;line-height:1.45">${esc(a.last ? a.last.text : 'In attesa…')}</div></div>
       <div class="grp"><span class="lbl">Ultime azioni</span><div class="console mono" style="height:auto;max-height:260px">${lines.map(logLine).join('') || '<div>nessuna azione registrata</div>'}</div></div>
       <div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>`;
@@ -443,7 +467,7 @@
     $('#subTag').textContent = `SOL · BTC · ETH sempre con leva ${s.cfg.leverage || 5}x · margine ${s.cfg.maxTradePct}% per operazione`;
     const eb = $('#entryBlock'); if (eb) { eb.classList.toggle('hidden', !s.entryBlock); eb.textContent = s.entryBlock ? '⏸ ' + s.entryBlock + ' Le posizioni già aperte restano gestite.' : ''; }
     renderPnl(s);
-    renderKnowledge(s); renderResearch(s);
+    renderKnowledge(s); renderResearch(s); renderMentor(s);
     if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; requestAnimationFrame(drawSpark); }
     // regole
     const rules = Object.entries(s.counters.rules).sort((a, b) => b[1] - a[1]).slice(0, 10);

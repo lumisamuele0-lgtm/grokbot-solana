@@ -243,3 +243,7 @@ nav.bn button:active{background:#ffffff10}
 .rs-per{display:flex;flex-direction:column;gap:1px;font-size:11px;margin-top:3px}
 .rs-src{font-size:11px;margin-top:8px}
 @media (prefers-reduced-motion:reduce){.rs-globe.spin{animation:none}}
+.md-row{display:flex;gap:7px;align-items:baseline;font-size:12px;padding:3px 0;line-height:1.35}
+.md-row>span:nth-child(2){flex:1}
+.md-row small{white-space:nowrap;font-size:10.5px}
+.md-row .kn-dot:not(.g):not(.r){background:#4b5563}.md-row .kn-dot{flex:none;transform:translateY(-1px)}

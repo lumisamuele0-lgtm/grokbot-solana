@@ -97,6 +97,27 @@ class Feeds {
     ], (v) => Number.isFinite(v) && v > 0);
     return { usd: r.data, source: r.source };
   }
+  async longShort(asset) { // rapporto conti long/short dei perpetui OKX (orario, ~30 giorni), crescente, con z-score a 7 giorni
+    const r = await this.firstOk('longshort', [
+      ['OKX', async () => (await fetchJson(`https://www.okx.com/api/v5/rubik/stat/contracts/long-short-account-ratio?ccy=${asset}&period=1H`, { retries: 1 })).data.map((x) => ({ t: +x[0], ratio: +x[1] }))],
+    ], (d) => Array.isArray(d) && d.length > 50);
+    const s = r.data.filter((x) => Number.isFinite(x.ratio)).sort((a, b) => a.t - b.t);
+    for (let i = 0; i < s.length; i++) { const w = s.slice(Math.max(0, i - 167), i + 1).map((x) => x.ratio); if (w.length < 48) { s[i].z = null; continue; } const m = w.reduce((a, b) => a + b, 0) / w.length; const sd = Math.sqrt(w.reduce((a, b) => a + (b - m) ** 2, 0) / w.length) || 1e-9; s[i].z = (s[i].ratio - m) / sd; }
+    return { series: s, source: r.source };
+  }
+  async global() { // capitalizzazione totale e dominanza BTC (CoinGecko, gratuito)
+    const r = await this.firstOk('globale', [
+      ['CoinGecko', async () => { const d = (await fetchJson('https://api.coingecko.com/api/v3/global', { retries: 1 })).data; return { mcapChange24h: +d.market_cap_change_percentage_24h_usd, btcDom: +d.market_cap_percentage.btc, ethDom: +d.market_cap_percentage.eth }; }],
+    ], (d) => d && Number.isFinite(d.mcapChange24h));
+    return { ...r.data, source: r.source };
+  }
+  async tvl(chain) { // valore bloccato nella DeFi della chain (DefiLlama, gratuito): variazione 1 e 7 giorni
+    const r = await this.firstOk('tvl', [
+      ['DefiLlama', async () => (await fetchJson(`https://api.llama.fi/v2/historicalChainTvl/${chain}`, { retries: 1 })).map((x) => ({ t: +x.date * 1000, tvl: +x.tvl }))],
+    ], (d) => Array.isArray(d) && d.length > 8);
+    const s = r.data; const last = s[s.length - 1];
+    return { tvl: last.tvl, ch1d: (last.tvl / s[s.length - 2].tvl - 1) * 100, ch7d: (last.tvl / s[s.length - 8].tvl - 1) * 100, source: r.source };
+  }
   async fearGreed() { // storico giornaliero, crescente
     const r = await this.firstOk('fng', [
       ['alternative.me', async () => (await fetchJson('https://api.alternative.me/fng/?limit=120&format=json', { retries: 1 })).data.map((x) => ({ t: +x.timestamp * 1000, value: +x.value, label: x.value_classification }))],
