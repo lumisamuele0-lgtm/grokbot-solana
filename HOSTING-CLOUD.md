@@ -1,4 +1,35 @@
-# GrokBot Solana nel cloud (gratis, sempre acceso, HTTPS) — guida da iPhone
+# GrokBot Solana nel cloud — hosting gratuito SENZA carta (aggiornato 25/11/2026)
+
+| | Railway (consigliato) | Render (piano B) |
+|---|---|---|
+| Carta di credito | No | No |
+| Repo GitHub privato | Sì (login con GitHub) | Sì (login con GitHub) |
+| Sempre acceso | Trial 30 gg: sì. Poi piano Free: dorme solo se non fa traffico in uscita (il bot lo fa sempre) | Si addormenta dopo 15 min senza visite: keep-alive automatico |
+| Disco persistente | Sì, volume 0,5 GB su `/data` | No: usare `SETUP_PIN` + `WALLET_ENC_JSON` |
+| Limite | $5 una tantum (30 gg), poi $1/mese: il bot usa ~150 MB RAM ≈ $2/mese, quindi dopo il trial si ferma verso metà mese | 750 ore/mese (basta per 1 servizio) |
+
+## Railway (consigliato)
+1. **railway.com/login** → «Continue with GitHub» → autorizza → accetta i termini (Trial, nessuna carta).
+   Poi **railway.com/verify** per la verifica GitHub (se fallisce resta il «Limited Trial»: l'uscita HTTPS 443 funziona lo stesso).
+2. **New Project → Deploy from GitHub repo** → «Configure GitHub App» → *Only select repositories* → `grokbot-solana` → Install.
+3. Scegli `lumisamuele0-lgtm/grokbot-solana`. Railway legge `railway.json` (build dal `Dockerfile`, healthcheck `/healthz`).
+4. Servizio → **Variables**: `SETUP_PIN` = il tuo PIN (6–12 cifre). (Non serve `PORT`: la imposta Railway.)
+5. Servizio → tasto destro / **Command palette → Add Volume** → mount path **`/data`**.
+6. Servizio → **Settings → Networking → Generate Domain** → indirizzo `https://….up.railway.app`.
+7. Apri l'indirizzo da iPhone, entra con il PIN, **Condividi → Aggiungi alla schermata Home**.
+
+## Render (piano B)
+1. **dashboard.render.com/register** → «GitHub» → autorizza.
+2. **New → Blueprint** → collega GitHub (solo `grokbot-solana`) → scegli il repo: Render legge `render.yaml`
+   (piano **Free**, Francoforte, Docker). Inserisci `SETUP_PIN`; lascia `WALLET_ENC_JSON` vuoto per ora → **Apply**.
+3. Indirizzo `https://grokbot-solana….onrender.com`. Keep-alive automatico ogni 10 minuti (`KEEPALIVE_URL=off` per disattivarlo).
+4. Dopo aver creato il wallet del bot nell'app: **Backup cifrato** → copia il testo nella variabile `WALLET_ENC_JSON` su Render.
+   Senza questo, a ogni riavvio il wallet (e i fondi dentro) andrebbero persi. Dopo un riavvio il wallet è bloccato
+   finché non lo sblocchi con la password: il trading reale si ferma in modo sicuro.
+
+---
+
+# Northflank (richiede verifica carta) — guida da iPhone
 
 Hosting consigliato: **Northflank – piano Sandbox gratuito** (verificato novembre 2026):
 sempre acceso (non va in sospensione), $20/mese di risorse gratis, HTTPS automatico,

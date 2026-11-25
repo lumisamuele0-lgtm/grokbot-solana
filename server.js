@@ -13,6 +13,7 @@ const chain = require('./src/chain');
 const { USDC } = require('./src/tokens');
 
 const crypto = require('crypto');
+const { keepAliveUrl } = require('./src/hosting');
 const PORT = Number(process.env.PORT || 8787);
 const DEMO = process.env.DEMO_MODE === '1';
 const FORCE_HTTPS = process.env.FORCE_HTTPS === '1';
@@ -32,7 +33,9 @@ if (!fs.existsSync(WALLET_FILE) && process.env.WALLET_ENC_JSON) {
     console.log(`  Wallet del bot ripristinato da WALLET_ENC_JSON: ${j.publicKey}`);
   } catch (e) { console.error('  WALLET_ENC_JSON non valido:', e.message); }
 }
-const PERSISTENT = process.env.DATA_PERSISTENT === '1' || !IN_CONTAINER;
+// Railway imposta RAILWAY_VOLUME_MOUNT_PATH quando c'è un volume: se coincide con la cartella dati, il disco è persistente.
+const RAILWAY_VOL = process.env.RAILWAY_VOLUME_MOUNT_PATH ? path.resolve(process.env.RAILWAY_VOLUME_MOUNT_PATH) : null;
+const PERSISTENT = process.env.DATA_PERSISTENT === '1' || !IN_CONTAINER || (RAILWAY_VOL !== null && RAILWAY_VOL === path.resolve(DATA));
 const ks = new Keystore(WALLET_FILE);
 const auth = new Auth(path.join(DATA, 'auth.json'));
 // Primo PIN da remoto: da variabile SETUP_PIN oppure con un codice monouso stampato nei log.
@@ -212,9 +215,14 @@ const server = app.listen(PORT, HOST, async () => {
   if (DEMO) console.log('  MODALITÀ DEMO: solo simulazione, wallet e fondi reali disattivati.');
   if (!PERSISTENT) console.log('  ATTENZIONE: disco non persistente. Imposta SETUP_PIN e, se usi il trading reale, WALLET_ENC_JSON (backup cifrato).');
   if (setupToken) console.log(`\n  >>> CODICE DI CONFIGURAZIONE (primo accesso da remoto): ${setupToken} <<<\n`);
-  if (process.env.KEEPALIVE_URL) {
-    setInterval(() => fetch(process.env.KEEPALIVE_URL.replace(/\/$/, '') + '/healthz').catch(() => {}), 10 * 60000);
-    console.log('  Keep-alive attivo verso', process.env.KEEPALIVE_URL);
+  // Keep-alive: Render (piano free) spegne il servizio dopo 15 minuti senza traffico in ENTRATA.
+  // Se KEEPALIVE_URL non è impostata, su Render si usa l'indirizzo pubblico RENDER_EXTERNAL_URL fornito da Render.
+  // KEEPALIVE_URL=off lo disattiva.
+  const keepUrl = keepAliveUrl(process.env);
+  if (keepUrl) {
+    const ping = () => fetch(keepUrl + '/healthz', { signal: AbortSignal.timeout(20000) }).catch(() => {});
+    setInterval(ping, 10 * 60000).unref();
+    console.log('  Keep-alive attivo verso', keepUrl);
   }
   engine.start();
   if (process.env.OPEN_BROWSER === '1') {

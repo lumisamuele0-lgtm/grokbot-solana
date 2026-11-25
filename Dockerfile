@@ -8,9 +8,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY . .
-# /data va montata come volume persistente (wallet cifrato, PIN, stato, storico)
+# /data va montata come volume persistente dall'hosting (wallet cifrato, PIN, stato, storico).
+# Niente istruzione VOLUME: Railway la rifiuta; il volume si crea nel pannello dell'hosting.
 RUN mkdir -p /data
-VOLUME ["/data"]
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "server.js"]

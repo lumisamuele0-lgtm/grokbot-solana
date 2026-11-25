@@ -1,19 +1,19 @@
-# Piano B: Render (gratis ma si addormenta dopo 15 min senza visite e il disco NON è persistente).
-# Imposta KEEPALIVE_URL = indirizzo del servizio (es. https://grokbot-solana.onrender.com) per tenerlo sveglio,
-# SETUP_PIN per il PIN e WALLET_ENC_JSON per il backup cifrato del wallet.
+# Render (piano free, senza carta): si addormenta dopo 15 min senza visite e il disco NON è persistente.
+# Il keep-alive è automatico (usa RENDER_EXTERNAL_URL). Imposta SETUP_PIN e, dopo aver creato il wallet
+# del bot, WALLET_ENC_JSON con il "Backup cifrato" dell'app, altrimenti a ogni riavvio il wallet si perde.
 services:
   - type: web
     name: grokbot-solana
     runtime: docker
     plan: free
     region: frankfurt
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /healthz
+    autoDeploy: true
     envVars:
       - key: SETUP_PIN
         sync: false
       - key: WALLET_ENC_JSON
-        sync: false
-      - key: KEEPALIVE_URL
         sync: false
       - key: DATA_PERSISTENT
         value: "0"
