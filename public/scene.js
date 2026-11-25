@@ -64,7 +64,8 @@
     },
     setState(s) {
       st.trading = s.trading; st.mode = s.mode;
-      st.pods = (s.positions || []).slice(0, 4).map((p, i, a) => ({ sym: p.symbol, pct: p.pnlPct, x: 200 + (i - (a.length - 1) / 2) * 44, y: 280 }));
+      st.anyShort = (s.positions || []).some((p) => p.side === 'SHORT');
+      st.pods = (s.positions || []).slice(0, 4).map((p, i, a) => ({ sym: p.symbol, pct: p.pnlPct, short: p.side === 'SHORT', lev: p.lev, x: 200 + (i - (a.length - 1) / 2) * 44, y: 280 }));
       if (s.killed) st.alarm = Math.max(st.alarm, 0.6);
     },
     setScreen(sym, closes, txt) { st.screenSym = sym; st.screenLine = closes || []; st.screenTxt = txt || ''; },
@@ -132,6 +133,18 @@
         if (bots.MENTORE) after(0.35, () => { bots.MENTORE.glowT = 0.8; });
         return;
       }
+      if (e.side === 'SHORT') {
+        // SHORT: pioggia di frecce rosse verso il basso, cappello da orso all'esecutore e al capo
+        const p = podFor(e.symbol);
+        for (let i = 0; i < (RM ? 4 : 10); i++) fx.push({ k: 'arrow', x: ST.portal.x + (Math.random() - 0.5) * 60, y: ST.portal.y - 40 - Math.random() * 20, dy: 60 + Math.random() * 40, t: -i * 0.07, d: 1.1, color: i % 2 ? '#ff5a6a' : '#f87171' });
+        coins(ST.vault, ST.portal, 5, '#2775CA'); st.portal = 2.5; st.vaultGlow = 1;
+        after(0.8, () => { ring(p, '#ff5a6a', 22); floatTxt({ x: p.x, y: p.y - 22 }, `▼ SHORT ${e.lev || 2}x`, '#ff5a6a'); });
+        const ex = bots.ESECUZIONE, cp = bots.CAPO;
+        if (ex) { ex.bearT = 8; jump(ex, 12); spin(ex, 0.5); emote(ex, '🐻 short', 1.6, '#ff5a6a'); }
+        if (cp) after(0.3, () => { cp.bearT = 6; jump(cp, 8); emote(cp, '📉', 1.3, '#ff5a6a'); });
+        if (bots.RISCHIO) after(0.5, () => { emote(bots.RISCHIO, '☠️ lontana', 1.3, '#00FF88'); });
+        return;
+      }
       if (e.side === 'BUY') { coins(ST.vault, ST.portal, 6, '#FFD54A'); st.portal = 2.5; st.vaultGlow = 1; jump(bots.ESECUZIONE, 12); spin(bots.ESECUZIONE, 0.5); after(0.2, () => jump(bots.DIMENSIONE, 7)); after(0.35, () => jump(bots.CAPO, 7)); }
       else { const p = podFor(e.symbol); const win = (e.pnl || 0) >= 0; coins(p, ST.vault, 8, win ? '#00FF88' : '#ff5a6a'); burst(p, win ? '#00FF88' : '#ff5a6a'); st.vaultGlow = 1;
         floatTxt({ x: ST.vault.x, y: ST.vault.y - 30 }, (win ? '+' : '') + (e.pnl || 0).toFixed(e.amount < 5 ? 4 : 2), win ? '#00FF88' : '#ff5a6a');
@@ -185,8 +198,8 @@
         break;
       case 'ESECUZIONE':
         if (a === 'quote') { if (!busy(b)) { go(b, ST.portal.x - 22, ST.portal.y + 8); call(b, () => { b.beam = { x: ST.portal.x, y: ST.portal.y, s: 0.8 }; emote(b, 'quote?', 1); st.portal = 1.2; }); } }
-        else if (a === 'buy' || a === 'swap') {
-          if (a === 'buy') {
+        else if (a === 'buy' || a === 'short' || a === 'swap') {
+          if (a === 'buy' || a === 'short') {
             go(b, ST.vault.x + 22, ST.vault.y + 8, true); call(b, () => { b.carry = { type: 'coin' }; st.vaultGlow = 1; });
             go(b, ST.portal.x - 22, ST.portal.y + 8, true); call(b, () => { b.carry = null; st.portal = 2.5; ring(ST.portal, '#22C55E', 30); });
             wait(b, 0.7); call(b, () => { b.carry = { type: 'gem', label: tok(e) }; });
@@ -196,7 +209,7 @@
         } else if (a === 'fail') { call(b, () => emote(b, '✗ errore', 1.6, '#ff5a6a')); }
         break;
       case 'SORVEGLIANZA':
-        if (a === 'trail') { jump(b, 5); emote(b, '🪜 stop su', 1.2, '#00FF88'); st.shield = 'g'; st.shieldT = 0.8; break; }
+        if (a === 'trail') { jump(b, 5); emote(b, /abbassato|SHORT/.test(e.text || '') ? '🪜 stop giù' : '🪜 stop su', 1.2, '#00FF88'); st.shield = 'g'; st.shieldT = 0.8; break; }
         if (a === 'win' || a === 'loss') {
           const p = podFor(e.token); b.tasks = [];
           go(b, p.x, p.y + 16, true); call(b, () => { b.beam = { x: p.x, y: p.y, s: 0.6 }; emote(b, a === 'win' ? '💰' : '🩸', 1.5, a === 'win' ? '#00FF88' : '#ff5a6a'); if (a === 'win') { jump(b, 12); dance(b, 1.2); } else shake(b, 0.7); });
@@ -214,6 +227,7 @@
     st.gateT -= dt; st.waves -= dt; st.tiltT -= dt; st.shieldT -= dt; st.portal -= dt; st.alarm -= dt; st.vaultGlow = Math.max(0, st.vaultGlow - dt);
     for (const b of Object.values(bots)) {
       b.emoteT -= dt; if (b.emoteT <= 0) b.emote = null;
+      b.bearT = Math.max(b.id === 'SORVEGLIANZA' && st.anyShort ? 1 : 0, (b.bearT || 0) - dt);
       if (b.beam) { b.beam.s -= dt; if (b.beam.s <= 0) b.beam = null; }
       b.blink -= dt; if (b.blink < -3 - Math.random() * 3) b.blink = 0.12;
       if (b.tasks.length > 14) b.tasks.splice(0, b.tasks.length - 14);
@@ -349,8 +363,8 @@
     // capsule delle posizioni
     st.pods.forEach((p) => {
       const c = p.pct >= 0 ? '#00FF88' : '#ff5a6a';
-      ctx.save(); glow(c, 8); ctx.fillStyle = '#0f1512'; ctx.strokeStyle = c; ctx.lineWidth = 1.2; rr(p.x - 19, p.y - 13, 38, 24, 7); ctx.fill(); ctx.stroke(); noGlow(); ctx.restore();
-      text('$' + p.sym.slice(0, 6), p.x, p.y - 5, 6.5, '#fff', 'center', '800');
+      ctx.save(); glow(c, 8); ctx.fillStyle = p.short ? '#1a0f12' : '#0f1512'; ctx.strokeStyle = c; ctx.lineWidth = 1.2; if (p.short) ctx.setLineDash([3, 2]); rr(p.x - 19, p.y - 13, 38, 24, 7); ctx.fill(); ctx.stroke(); ctx.setLineDash([]); noGlow(); ctx.restore();
+      text((p.short ? '▼' : '') + '$' + p.sym.slice(0, 6), p.x, p.y - 5, 6.5, p.short ? '#fca5a5' : '#fff', 'center', '800');
       text((p.pct >= 0 ? '+' : '') + p.pct.toFixed(1) + '%', p.x, p.y + 4, 6.5, c, 'center', '700');
     });
     if (!st.pods.length) text('nessuna posizione', 200, 282, 6.5, '#ffffff30');
@@ -414,6 +428,13 @@
     const aw = -lean * 10 + Math.sin(t * 14) * 2.2 * b.wob * AMP + (walk ? Math.sin(b.phase) * 0.8 : 0);
     ctx.strokeStyle = '#cfd6dc'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, hy); ctx.quadraticCurveTo(aw * 0.3, hy - 2.5, aw * 0.6, hy - 4.5); ctx.stroke();
     ctx.fillStyle = Math.sin(t * (b.tasks.length ? 9 : 4) + b.phase) > 0 ? c : '#ffffff'; ctx.beginPath(); ctx.arc(aw * 0.6, hy - 5.5, 1.6, 0, 6.28); ctx.fill();
+    if (b.bearT > 0) {
+      // orecchie da orso (short): marroni con interno rosa, un po' molleggiate
+      const k = Math.min(1, b.bearT * 2); const wig = Math.sin(t * 6 + b.phase) * 0.6 * AMP;
+      ctx.save(); ctx.globalAlpha = k;
+      for (const sx of [-1, 1]) { ctx.fillStyle = '#7c4a1e'; ctx.beginPath(); ctx.arc(sx * 7, hy + 0.5 + wig * sx, 3.4, 0, 6.28); ctx.fill(); ctx.fillStyle = '#f4a7a7'; ctx.beginPath(); ctx.arc(sx * 7, hy + 0.8 + wig * sx, 1.6, 0, 6.28); ctx.fill(); }
+      ctx.fillStyle = '#ff5a6a'; ctx.font = '900 6px system-ui'; ctx.textAlign = 'center'; ctx.fillText('▼', 0, hy - 7); ctx.restore();
+    }
     if (b.id === 'MENTORE') {
       // tocco da laurea + nappa che dondola
       ctx.fillStyle = '#1f2937'; ctx.strokeStyle = '#FDE68A'; ctx.lineWidth = 0.8;
@@ -469,6 +490,7 @@
         for (let j = 3; j >= 0; j--) { const q = Math.max(0, p - j * 0.05); const [x, y] = pt(q); ctx.globalAlpha = (1 - j * 0.22) * (p > 0.92 ? (1 - p) / 0.08 : 1); ctx.fillStyle = j ? '#FDE68A' : '#ffffff'; ctx.beginPath(); ctx.arc(x, y, j ? 1.8 - j * 0.3 : 2.4, 0, 6.28); ctx.fill(); }
         noGlow(); ctx.restore(); ctx.globalAlpha = 1;
       }
+      else if (f.k === 'arrow') { ctx.globalAlpha = 1 - p * p; glow(f.color, 6); text('▼', f.x, f.y + f.dy * p, 9, f.color, 'center', '900'); noGlow(); ctx.globalAlpha = 1; }
       else if (f.k === 'txt') { ctx.globalAlpha = 1 - p * p; text(f.txt, f.x, f.y - p * 26, 9, f.color, 'center', '900'); ctx.globalAlpha = 1; }
     }
   }

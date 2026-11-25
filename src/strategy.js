@@ -60,7 +60,25 @@ function analyze(c1) {
   const score = (trend1 ? 1 : 0) + (trend5 ? 1 : 0) + clamp((m15 || 0) / 2, -1, 1.5) + clamp((m60 || 0) / 5, -1, 1) - (r > 72 ? 1 : 0) + (slope ? 0.5 : 0);
   let reason = null;
   if (signal !== 'LONG') reason = r != null && r > 72 ? 'RSI ipercomprato' : 'Trend debole';
-  return { ok: true, last, ema9: e9[L], ema21: e21[L], rsi: r, atrPct: a, m5, m15, m60, trend1, trend5, checks, confidence, signal, score, reason, candles: c1.length };
+  // SHORT: specchio esatto della logica LONG (ribasso, sotto le EMA, RSI 28–50, momentum negativo)
+  const down1 = e9[L] < e21[L] && last < e21[L];
+  const slopeDown = e21[L] < e21[Math.max(0, L - 5)];
+  const down5 = c5.length >= 10 ? f5[f5.length - 1] < s5[s5.length - 1] : down1;
+  const shortChecks = {
+    'EMA9<EMA21 (1m)': down1,
+    'EMA21 in discesa': slopeDown,
+    'Trend 5m ribassista': down5,
+    'RSI 28–50': r != null && r >= 28 && r <= 50,
+    'Momentum 15m < 0': m15 != null && m15 < 0,
+    'Momentum 60m < +3%': m60 == null || m60 < 3,
+  };
+  const sPassed = Object.values(shortChecks).filter(Boolean).length;
+  const shortConfidence = sPassed / Object.keys(shortChecks).length;
+  const shortSignal = down1 && down5 && shortChecks['RSI 28–50'] && shortChecks['Momentum 15m < 0'] && sPassed >= 5;
+  const shortScore = (down1 ? 1 : 0) + (down5 ? 1 : 0) + clamp(-(m15 || 0) / 2, -1, 1.5) + clamp(-(m60 || 0) / 5, -1, 1) - (r != null && r < 28 ? 1 : 0) + (slopeDown ? 0.5 : 0);
+  const shortReason = shortSignal ? null : r != null && r < 28 ? 'RSI ipervenduto' : 'Ribasso debole';
+  return { ok: true, last, ema9: e9[L], ema21: e21[L], rsi: r, atrPct: a, m5, m15, m60, trend1, trend5, checks, confidence, signal, score, reason, candles: c1.length,
+    short: { signal: shortSignal, score: shortScore, checks: shortChecks, confidence: shortConfidence, reason: shortReason } };
 }
 
 // Flusso acquisti/vendite (dati reali DexScreener) come "sentiment" on-chain.
@@ -125,7 +143,28 @@ function exitLevels(pos, cfg) {
 }
 // Decide cosa fare con una posizione. Aggiorna sulla posizione: highest, trailStop.
 // Ritorna { action: 'none'|'partial'|'close', frac (quota della quantità ATTUALE), stage, reason, events[], change }.
+// SHORT: le stesse regole lavorano su un prezzo "specchiato" attorno all'entrata (2·entrata − prezzo),
+// così un calo del prezzo è un guadagno. highest/trailStop/beStop di uno short sono salvati in questo spazio.
+const mirror = (pos, x) => (x == null ? x : 2 * pos.entryPrice - x);
 function exitPlan(pos, price, now, cfg, ctx = {}) {
+  if (pos.side !== 'SHORT') return exitPlanCore(pos, price, now, cfg, ctx);
+  const mctx = { ...ctx, m5: ctx.m5 != null ? -ctx.m5 : null, ema9: mirror(pos, ctx.ema9), flow: null };
+  const r = exitPlanCore(pos, mirror(pos, price), now, cfg, mctx);
+  for (const e of r.events || []) if (e.type === 'trail') { e.from = mirror(pos, e.from); e.to = mirror(pos, e.to); }
+  if (r.reason) r.reason = r.reason.replace('Inversione rapida', 'Rimbalzo rapido').replace(/\((-?[\d.]+)% in 5 min\)/, (_, v) => `(+${Math.abs(+v).toFixed(2)}% in 5 min)`);
+  return r;
+}
+// prezzo reale dello stop effettivo (long: sotto; short: sopra l'entrata)
+function effectiveStop(pos) {
+  const m = Math.max(pos.entryPrice * (1 - pos.slPct / 100), pos.beStop || 0, pos.trailStop || 0);
+  return pos.side === 'SHORT' ? mirror(pos, m) : m;
+}
+// stop-loss di uno short sempre ben prima della liquidazione: al massimo il 40% della distanza
+function shortStopCap(slPct, entry, liqPrice) {
+  const liqDist = ((liqPrice - entry) / entry) * 100;
+  return Math.max(0.5, Math.min(slPct, liqDist * 0.4));
+}
+function exitPlanCore(pos, price, now, cfg, ctx = {}) {
   if (!cfg.smartExits) { const r = exitCheck(pos, price, now, cfg); return { action: r.exit ? 'close' : 'none', reason: r.reason, change: r.change, events: [] }; }
   const events = [];
   pos.highest = Math.max(pos.highest || pos.entryPrice, price);
@@ -170,4 +209,4 @@ function exitPlan(pos, price, now, cfg, ctx = {}) {
   return { action: 'none', change: ch, events, levels: L };
 }
 
-module.exports = { exitLevels, exitPlan, filterRules, safetyRules, analyze, flowScore, riskPlan, sizePosition, checkLimits, exitCheck };
+module.exports = { effectiveStop, shortStopCap, exitLevels, exitPlan, filterRules, safetyRules, analyze, flowScore, riskPlan, sizePosition, checkLimits, exitCheck };

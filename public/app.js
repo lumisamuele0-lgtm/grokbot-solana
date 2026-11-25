@@ -328,6 +328,8 @@
       if (w) fetch('/api/candles?mint=' + w.mint).then((r) => r.json()).then((c) => Scene.setScreen(e.token, c.slice(-90).map((k) => k.c), e.action === 'pick' ? 'SEGNALE LONG' : 'in analisi')).catch(() => {});
     }
     if (e.type === 'trade' && e.side === 'PARTIAL') toast(`💰 Presa parziale ${e.pct}% su $${e.symbol} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, S && S.base === 'SOL' ? 4 : 2)} ${S ? S.base : ''}`);
+    else if (e.type === 'trade' && e.side === 'SHORT') toast(`🐻 SHORT ${e.lev}x su $${e.symbol}${e.mode === 'SIM' ? ' (simulato)' : ''}`);
+    else if (e.type === 'trade' && e.short) toast(`${(e.pnl || 0) >= 0 ? '💰' : '🔻'} Short chiuso su $${e.symbol} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, S && S.base === 'SOL' ? 4 : 2)} ${S ? S.base : ''}`);
     else if (e.type === 'trade') toast(e.side === 'BUY' ? `🟢 Comprato $${e.symbol}${e.mode === 'SIM' ? ' (simulato)' : ''}` : `${(e.pnl || 0) >= 0 ? '💰' : '🔻'} Venduto $${e.symbol} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, S && S.base === 'SOL' ? 4 : 2)} ${S ? S.base : ''}`);
   }
   let lastLogT = 0;
@@ -383,16 +385,19 @@
     $('#posN').textContent = `${s.positions.length} / ${s.cfg.maxOpen}`;
     $('#pos').innerHTML = s.positions.map((p) => {
       const lo = p.stop != null ? p.stop : p.sl, hi = p.next != null ? p.next : p.tp;
-      const span = hi - lo; const k = span > 0 && p.price ? Math.max(0, Math.min(1, (p.price - lo) / span)) : 0.5;
+      const span = hi - lo; const k = span !== 0 && p.price ? Math.max(0, Math.min(1, (p.price - lo) / span)) : 0.5;
       const sgnP = (x) => (x >= 0 ? '+' : '−') + nf(Math.abs(x), 1) + '%';
-      return `<div class="pcard"><div><div class="sym">$${esc(p.symbol)}</div><div class="sub2">ingresso ${nf(p.costBase, d)} ${s.base} · ${hhmm(p.openedAt)}${p.sigOpen ? ` · <a href="https://solscan.io/tx/${p.sigOpen}" target="_blank" rel="noopener">tx</a>` : ''}</div></div>
+      const sh = p.side === 'SHORT'; const px = (x) => (x >= 100 ? nf(x, 0) : x >= 1 ? nf(x, 2) : nf(x, 4));
+      const badge = `<span class="side ${sh ? 'short' : 'long'}">${sh ? '▼ SHORT' : '▲ LONG'} ${p.lev || 1}x</span>`;
+      return `<div class="pcard${sh ? ' isShort' : ''}"><div><div class="sym">$${esc(p.symbol)} ${badge}</div><div class="sub2">${sh ? `margine ${nf(p.costBase, d)} ${s.base} · esposizione $${nf(p.sizeUsd, 2)} · ingresso $${px(p.entryPrice)}` : `ingresso ${nf(p.costBase, d)} ${s.base}`} · ${hhmm(p.openedAt)}${p.sigOpen ? ` · <a href="https://solscan.io/tx/${p.sigOpen}" target="_blank" rel="noopener">tx</a>` : ''}</div></div>
       <div class="pnl ${p.pnl >= 0 ? 'mint' : 'red'}">${p.pnl >= 0 ? '+' : ''}${nf(p.pnl, d)}<div class="sub2">${nf(p.pnlPct, 2)}%</div></div>
-      ${p.partialsN ? `<div class="sub2 pp" style="grid-column:1/3">💰 ${p.partialsN} ${p.partialsN === 1 ? 'presa parziale' : 'prese parziali'} (${p.soldPct}% venduto) · incassato ${p.realizedPart >= 0 ? '+' : ''}${nf(p.realizedPart, d)} ${s.base}</div>` : ''}
+      ${sh ? `<div class="sub2 liq" style="grid-column:1/3">☠️ liquidazione $${px(p.liqPrice)} (${sgnP(((p.liqPrice - p.entryPrice) / p.entryPrice) * 100)}) · ora $${p.price ? px(p.price) : '—'} · commissioni $${nf(p.perpFeesUsd || 0, 3)}</div>` : ''}
+      ${p.partialsN ? `<div class="sub2 pp" style="grid-column:1/3">💰 ${p.partialsN} ${p.partialsN === 1 ? 'presa parziale' : 'prese parziali'} (${p.soldPct}% ${sh ? 'ricomprato' : 'venduto'}) · incassato ${p.realizedPart >= 0 ? '+' : ''}${nf(p.realizedPart, d)} ${s.base}</div>` : ''}
       <div class="rng" title="stop → prossimo obiettivo"><i style="left:calc(${k * 100}% - 1px)"></i></div>
       <div class="sub2">${p.stopKind === 'trailing' ? '🪜 trailing' : p.stopKind === 'pareggio' ? '🛡 pareggio' : 'stop'} ${p.stopPct != null ? sgnP(p.stopPct) : '−' + nf(p.slPct, 1) + '%'}</div><div class="sub2" style="text-align:right">${p.nextLabel ? esc(p.nextLabel) + ' ' + sgnP(p.nextPct) : 'target +' + nf(p.tpPct, 1) + '%'} <button class="chip" data-closepos="${p.id}" style="margin-left:6px;padding:3px 8px">Chiudi</button></div></div>`;
     }).join('') || '<div class="empty">Nessuna posizione aperta: i bot entrano solo quando tutte le regole sono rispettate.</div>';
     $('#histN').textContent = s.trades.length ? `${s.trades.length} chiuse` : '';
-    $('#hist').innerHTML = s.trades.length ? `<table class="h">${s.trades.slice(0, 25).map((t) => `<tr><td>${hhmm(t.closedAt)}</td><td><b>$${esc(t.symbol)}</b><div class="mu" style="font-size:11px">${esc(t.reason)}</div></td><td class="r ${t.pnl >= 0 ? 'mint' : 'red'}">${t.pnl >= 0 ? '+' : ''}${nf(t.pnl, d)}<div style="font-size:11px">${nf(t.pnlPct, 2)}%</div></td><td class="r">${t.sigClose ? `<a href="https://solscan.io/tx/${t.sigClose}" target="_blank" rel="noopener">tx</a>` : '<span class="mu">sim</span>'}</td></tr>`).join('')}</table>` : '<div class="empty">Ancora nessuna operazione chiusa.</div>';
+    $('#hist').innerHTML = s.trades.length ? `<table class="h">${s.trades.slice(0, 25).map((t) => `<tr><td>${hhmm(t.closedAt)}</td><td><b>$${esc(t.symbol)}</b> <span class="side ${t.side === 'SHORT' ? 'short' : 'long'}">${t.side === 'SHORT' ? '▼ S' : '▲ L'}${t.lev > 1 ? ' ' + t.lev + 'x' : ''}</span><div class="mu" style="font-size:11px">${esc(t.reason)}</div></td><td class="r ${t.pnl >= 0 ? 'mint' : 'red'}">${t.pnl >= 0 ? '+' : ''}${nf(t.pnl, d)}<div style="font-size:11px">${nf(t.pnlPct, 2)}%</div></td><td class="r">${t.sigClose ? `<a href="https://solscan.io/tx/${t.sigClose}" target="_blank" rel="noopener">tx</a>` : '<span class="mu">sim</span>'}</td></tr>`).join('')}</table>` : '<div class="empty">Ancora nessuna operazione chiusa.</div>';
     // portafogli
     const wb = s.wallet.balances; const ub = s.user.balances;
     $('#wallet').innerHTML = `
@@ -583,7 +588,12 @@
         ${num('maxOpen', 'Posizioni max', '1')}${num('slippageBps', 'Slippage (bps, 100=1%)', '1')}
         ${num('maxPriceImpactPct', 'Impatto prezzo max %')}${num('cooldownMin', 'Pausa dopo un token (min)', '1')}
         ${num('maxHoldMin', 'Durata max posizione (min)', '1')}${num('feeReserveSol', 'Riserva SOL commissioni')}</div>
-        <p class="note">Solo spot (leva 1x): nessuna leva sui fondi reali. Stop-loss e target sono calcolati sulla volatilità (ATR).</p></div>
+        <p class="note">LONG sempre spot 1x. Stop-loss e target sono calcolati sulla volatilità (ATR).</p></div>
+      <div class="grp"><span class="lbl">Short (LONG + SHORT)</span>
+        <div class="switch"><span>Short su SOL, BTC, ETH (Jupiter Perps, collaterale USDC)</span><span class="toggle ${c.shortsOn ? 'on' : ''}" data-t="shortsOn"></span></div>
+        <div class="grid2">${num('leverage', 'Leva short (1–2x, massimo 2x)', '0.1')}</div>
+        <p class="note">Margine = ${c.maxTradePct}% del capitale, esposizione fino a ${nf(c.maxTradePct * Math.min(2, c.leverage || 2), 0)}%. Commissioni Jupiter: 0,06% apertura + 0,06% chiusura + prestito orario (oggi ~0,0001%/h, in simulazione contiamo 0,001%/h). Con 2x la liquidazione è a circa +49,7%: lo stop-loss resta sempre molto prima (max 40% della distanza) e il bot chiude comunque all'80%. Mai un long e uno short insieme sullo stesso asset.</p>
+        ${S.shorts && !S.shorts.realEnabled ? `<p class="note warnTxt">⚠️ ${esc(S.shorts.realMsg)}</p>` : ''}</div>
       <div class="grp"><span class="lbl">Uscite furbe</span>
         <div class="switch"><span>Uscite furbe (prese parziali, trailing, uscite rapide)</span><span class="toggle ${c.smartExits ? 'on' : ''}" data-t="smartExits"></span></div>
         <div class="switch"><span>Prese di profitto parziali</span><span class="toggle ${c.partialTp ? 'on' : ''}" data-t="partialTp"></span></div>

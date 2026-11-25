@@ -1,6 +1,6 @@
 'use strict';
 const { CORE, OLD_MEMES } = require('./tokens');
-const CFG_VERSION = 4; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
+const CFG_VERSION = 5; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
 const DEFAULTS = {
   cfgVersion: CFG_VERSION,
   mode: 'SIM', // SIM | REAL
@@ -25,6 +25,8 @@ const DEFAULTS = {
   trailOn: true, trailActR: 1.0, trailAtrMult: 1.5, // trailing attivo da +1R, distanza = 1,5 × ATR (mai più largo dello stop iniziale)
   memeExitMult: 0.75, // meme: prese e trailing più vicini (×0,75)
   timeStopOn: true, timeStopMin: 90, timeStopMinGainPct: 0.5, // dopo 90 min sotto +0,5% e senza prese → esce
+  // LONG + SHORT: short su SOL/BTC/ETH tramite Jupiter Perps, collaterale USDC, leva massima 2x (limite rigido)
+  shortsOn: true, leverage: 2,
   reversalExit: true, reversalPct: 3, // uscita rapida su crollo del momentum a 5 min o ondata di vendite
   cooldownMin: 20,
   cycleSec: 20,
@@ -42,7 +44,7 @@ const DEFAULTS = {
 const LIMITS = {
   budget: [0, 1e9], feeReserveSol: [0.01, 1], maxLossPct: [1, 90], maxLossAbs: [0, 1e9], dailyLossPct: [1, 90], maxTradePct: [1, 100],
   memeSizeMult: [0, 1], maxOpen: [1, 10], slippageBps: [10, 1000], maxPriceImpactPct: [0.1, 10], slAtrMult: [0.5, 6], slMinPct: [0.5, 20],
-  slMaxPct: [1, 40], rewardRisk: [0.8, 6], maxHoldMin: [5, 10080], tp1R: [0.3, 10], tp1Pct: [5, 90], tp2R: [0.5, 20], tp2Pct: [0, 90], beBufferPct: [0, 5], trailActR: [0.2, 10], trailAtrMult: [0.3, 6], memeExitMult: [0.3, 1.5], timeStopMin: [5, 10080], timeStopMinGainPct: [-20, 50], reversalPct: [0.5, 50], cooldownMin: [0, 1440], cycleSec: [10, 600], minLiquidityUsd: [0, 1e9],
+  slMaxPct: [1, 40], rewardRisk: [0.8, 6], maxHoldMin: [5, 10080], tp1R: [0.3, 10], tp1Pct: [5, 90], tp2R: [0.5, 20], tp2Pct: [0, 90], beBufferPct: [0, 5], trailActR: [0.2, 10], trailAtrMult: [0.3, 6], memeExitMult: [0.3, 1.5], timeStopMin: [5, 10080], timeStopMinGainPct: [-20, 50], reversalPct: [0.5, 50], leverage: [1, 2], cooldownMin: [0, 1440], cycleSec: [10, 600], minLiquidityUsd: [0, 1e9],
   minVolume24hUsd: [0, 1e10], minPairAgeMin: [0, 600000], minMcapUsd: [0, 1e12], maxPump1hPct: [1, 1000], maxDump24hPct: [1, 100],
   maxRugScore: [0, 100], maxWatch: [1, 30], priorityFeeMaxLamports: [0, 5000000], simPriorityLamports: [0, 5000000],
 };
@@ -64,6 +66,8 @@ const MIGRATIONS = {
   2: (c) => { c.maxTradePct = 7; c.minVolume24hUsd = 3000; c.minPairAgeMin = 1; c.memeSizeMult = 1; delete c.minPairAgeHours; },
   3: (c) => { for (const k of ['smartExits', 'partialTp', 'tp1R', 'tp1Pct', 'tp2R', 'tp2Pct', 'beBufferPct', 'trailOn', 'trailActR', 'trailAtrMult', 'memeExitMult', 'timeStopOn', 'timeStopMin', 'timeStopMinGainPct', 'reversalExit', 'reversalPct']) c[k] = DEFAULTS[k]; },
   // v4: niente meme, solo cripto principali (lista token aggiornata; i token aggiunti a mano restano, tranne i vecchi meme)
+  // v5: short attivi a 2x (resto della configurazione, wallet e PIN invariati)
+  5: (c) => { c.shortsOn = true; c.leverage = 2; },
   4: (c) => { c.scanMemes = false; const extra = (Array.isArray(c.tokens) ? c.tokens : []).filter((m) => !OLD_MEMES.includes(m) && !CORE.some((t) => t.mint === m)); c.tokens = [...CORE.map((t) => t.mint), ...extra]; if ((c.maxWatch || 0) < CORE.length + 1) c.maxWatch = CORE.length + 1; },
 };
 function migrateConfig(saved) {

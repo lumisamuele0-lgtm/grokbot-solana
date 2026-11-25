@@ -14,16 +14,33 @@ const VERSION = 1;
 
 const LABELS = {
   tipo: 'Tipo', eta: 'Età pool', vol: 'Volume 24h', liq: 'Liquidità', ora: 'Fascia oraria', atr: 'Volatilità', rsi: 'RSI',
-  flusso: 'Flusso acquisti', mom: 'Momentum 15m', trend5: 'Trend 5m', cond: 'Condizioni', mercato: 'Mercato SOL', pump: 'Variazione 1h',
+  flusso: 'Flusso acquisti', lato: 'Lato', pressione: 'Pressione vendite', mom: 'Momentum 15m', trend5: 'Trend 5m', cond: 'Condizioni', mercato: 'Mercato SOL', pump: 'Variazione 1h',
 };
 
 function bucket(v, edges, names) { if (v == null || !Number.isFinite(v)) return 'n/d'; for (let i = 0; i < edges.length; i++) if (v < edges[i]) return names[i]; return names[names.length - 1]; }
 
 // Caratteristiche di un candidato al momento dell'ingresso (dati gratuiti già disponibili).
 function romeHour(t = Date.now()) { try { return Number(new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', hour: 'numeric', hourCycle: 'h23' }).format(t)); } catch { return new Date(t).getHours(); } }
-function featuresOf({ s = {}, a = {}, f = {}, core = false, hour = romeHour(), solMom60 = null }) {
+function featuresOf({ s = {}, a = {}, f = {}, core = false, hour = romeHour(), solMom60 = null, side = 'long' }) {
   const h = hour; // ora italiana
+  if (side === 'short') {
+    // short: stesse famiglie, valori letti "al contrario" (RSI 28–50, momentum e flusso negativi = favorevoli)
+    const sh = a.short || {};
+    const out = [
+      'lato:short', 'tipo:' + (core ? 'principale' : 'meme'),
+      'vol:' + bucket(s.volume24h, [50e3, 500e3, 5e6], ['<50k', '50k-500k', '500k-5M', '>5M']),
+      'ora:' + bucket(h, [7, 13, 19], ['notte', 'mattina', 'pomeriggio', 'sera']),
+      'atr:' + bucket(a.atrPct, [0.5, 1.5, 3], ['bassa', 'media', 'alta', 'estrema']),
+      'rsi:' + bucket(a.rsi, [35, 42, 46], ['28-35', '35-42', '42-46', '46-50']),
+      'pressione:' + bucket(f.score != null ? -f.score : null, [0, 0.4], ['assente', 'neutra', 'forte']),
+      'mom:' + bucket(a.m15 != null ? -a.m15 : null, [0.5, 2], ['debole', 'medio', 'forte']),
+      'mercato:' + bucket(solMom60, [-1, 1], ['ribasso', 'laterale', 'rialzo']),
+    ];
+    if (sh.checks) out.push('cond:' + Object.values(sh.checks).filter(Boolean).length + '/' + Object.keys(sh.checks).length);
+    return out.filter((k) => !k.endsWith(':n/d')).map((k) => (k.startsWith('lato:') ? k : 'short.' + k)); // statistiche separate dai long
+  }
   const out = [
+    'lato:long',
     'tipo:' + (core ? 'principale' : 'meme'),
     'eta:' + (core ? 'storico' : bucket(s.ageHours, [1, 6, 24, 24 * 7], ['<1h', '1-6h', '6-24h', '1-7g', '>7g'])),
     'vol:' + bucket(s.volume24h, [50e3, 500e3, 5e6], ['<50k', '50k-500k', '500k-5M', '>5M']),
@@ -40,7 +57,7 @@ function featuresOf({ s = {}, a = {}, f = {}, core = false, hour = romeHour(), s
   if (a.checks) out.push('cond:' + Object.values(a.checks).filter(Boolean).length + '/' + Object.keys(a.checks).length);
   return out.filter((k) => !k.endsWith(':n/d'));
 }
-const label = (k) => { const [g, v] = k.split(':'); return `${LABELS[g] || g} ${v}`; };
+const label = (k) => { const [g0, v] = k.split(':'); const sh = g0.startsWith('short.'); const g = sh ? g0.slice(6) : g0; return `${sh ? 'Short · ' : ''}${LABELS[g] || g} ${v}`; };
 
 function empty() { return { v: VERSION, n: 0, wins: 0, sumR: 0, w: 0, sim: 0, real: 0, feats: {}, seen: [], updatedAt: null, lastLesson: null }; }
 
