@@ -103,6 +103,7 @@ Su iPhone il collegamento a Phantom funziona dentro l'app Phantom: tocca **Phant
 | Kill switch % | 20 | se il capitale scende del 20%, vende tutto (in USDC) e si ferma |
 | Kill switch assoluto | 0 (off) | come sopra ma in importo fisso |
 | Stop giornaliero | 8% | niente nuove operazioni fino a domani |
+| Cripto | solo principali | SOL, BTC (cbBTC), ETH, JUP, RAY, KMNO, JTO, PYTH, ORCA, RENDER, HNT, W · niente meme né pool nuovi (attivabili in Impostazioni) |
 | Rischio per operazione | 7% | del capitale (budget + utili realizzati) investito in ogni trade, meme compresi |
 | Posizioni max | 3 | |
 | Slippage | 100 bps (1%) | |

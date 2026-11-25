@@ -369,6 +369,7 @@
     tween('sR', $('#sR'), s.counters.rejected, (v) => Math.round(v).toLocaleString('it-IT'));
     tween('sO', $('#sO'), s.counters.approved, (v) => Math.round(v).toLocaleString('it-IT'));
     renderAgents();
+    $('#subTag').textContent = s.cfg.scanMemes ? 'Cripto principali + meme coin · gestione rischio rigorosa' : 'Solo cripto principali su Solana · niente meme · rischio ' + s.cfg.maxTradePct + '% per operazione';
     renderPnl(s);
     renderKnowledge(s);
     if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; requestAnimationFrame(drawSpark); }
@@ -571,7 +572,7 @@
   function settingsSheet() {
     const c = S.cfg;
     const num = (k, label, step = 'any') => `<label class="field"><span>${label}</span><input class="in" data-k="${k}" type="number" inputmode="decimal" step="${step}" value="${c[k]}"></label>`;
-    const core = [['SOL', 'So11111111111111111111111111111111111111112'], ['JUP', 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN'], ['BONK', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'], ['WIF', 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm'], ['JTO', 'jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL'], ['PYTH', 'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3'], ['RAY', '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R'], ['POPCAT', '7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr']];
+    const core = [['SOL', 'So11111111111111111111111111111111111111112'], ['BTC', 'cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij'], ['ETH', '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs'], ['JUP', 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN'], ['RAY', '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R'], ['KMNO', 'KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS'], ['JTO', 'jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL'], ['PYTH', 'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3'], ['ORCA', 'orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE'], ['RENDER', 'rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof'], ['HNT', 'hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux'], ['W', '85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ']];
     const custom = c.tokens.filter((m) => !core.some(([, x]) => x === m));
     openSheet(`<h4>Impostazioni</h4>
       <div class="grp"><span class="lbl">Modalità</span>
@@ -594,8 +595,8 @@
         <div class="switch"><span>Uscita rapida su inversione / ondata di vendite</span><span class="toggle ${c.reversalExit ? 'on' : ''}" data-t="reversalExit"></span></div>
         <div class="grid2">${num('reversalPct', 'Crollo 5 min oltre %')}</div>
         <p class="note">R = distanza dello stop-loss iniziale (dipende dalla volatilità). Esempio: stop −4% → presa 1 a +4% vende il 40%, lo stop sale a pareggio; presa 2 a +8% vende un altro 30%; il resto segue il trailing (distanza 1,5 × ATR, mai più larga dello stop iniziale). Sui meme le distanze sono ×0,75.</p></div>
-      <div class="grp"><span class="lbl">Token</span>
-        <div class="switch"><span>Scansiona meme coin (DexScreener)</span><span class="toggle ${c.scanMemes ? 'on' : ''}" data-t="scanMemes"></span></div>
+      <div class="grp"><span class="lbl">Cripto su cui lavora</span>
+        <div class="switch"><span>Meme coin e pool nuovi (spento = solo cripto principali)</span><span class="toggle ${c.scanMemes ? 'on' : ''}" data-t="scanMemes"></span></div>
         <div class="chips" id="sToks" style="margin-top:10px">${core.map(([s, m]) => `<button class="chip ${c.tokens.includes(m) ? 'on' : ''}" data-m="${m}">${s}</button>`).join('')}${custom.map((m) => `<button class="chip on" data-m="${m}">${short(m)}</button>`).join('')}</div>
         <label class="field"><span>Aggiungi token (indirizzo mint)</span><input class="in" id="sMint" placeholder="es. 7GCi…"></label>
         <div class="grid2">${num('minLiquidityUsd', 'Liquidità min ($)', '1000')}${num('minVolume24hUsd', 'Volume 24h min ($)', '1000')}${num('minPairAgeMin', 'Età min creazione token (minuti)', '1')}${num('maxRugScore', 'RugCheck max (0–100)', '1')}${num('minMcapUsd', 'Market cap min meme ($)', '1000')}${num('maxPump1hPct', 'Scarta se +% in 1h oltre')}</div></div>

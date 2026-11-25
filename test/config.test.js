@@ -41,3 +41,29 @@ test('motore: config.json esistente viene migrato e riscritto, wallet e stato no
   assert.ok(snap.pnlBox && typeof snap.pnlBox.total === 'number' && typeof snap.pnlBox.unrealized === 'number' && typeof snap.pnlBox.day === 'number');
   e.stop && e.stop();
 });
+
+test('v4: solo cripto principali, niente meme, token aggiunti a mano conservati', () => {
+  const { CORE, OLD_MEMES } = require('../src/tokens');
+  assert.strictEqual(DEFAULTS.scanMemes, false);
+  for (const m of OLD_MEMES) assert.ok(!CORE.some((t) => t.mint === m), 'nessun meme nella lista');
+  assert.ok(CORE.every((t) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(t.mint) && t.decimals > 0));
+  const custom = 'Custom111111111111111111111111111111111111';
+  const { cfg } = migrateConfig({ cfgVersion: 3, scanMemes: true, maxTradePct: 7, budget: 2, tokens: [CORE[0].mint, OLD_MEMES[0], OLD_MEMES[2], custom] });
+  assert.strictEqual(cfg.scanMemes, false); assert.strictEqual(cfg.budget, 2); assert.strictEqual(cfg.maxTradePct, 7);
+  assert.ok(!cfg.tokens.some((m) => OLD_MEMES.includes(m))); assert.ok(cfg.tokens.includes(custom));
+  assert.strictEqual(cfg.tokens.filter((m) => m === CORE[0].mint).length, 1);
+  assert.ok(CORE.every((t) => cfg.tokens.includes(t.mint)));
+});
+test('v4: il ciclo non apre meme, ma le posizioni meme già aperte restano gestite', async () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sbv4-'));
+  fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ budget: 100, cfgVersion: 3, scanMemes: true }));
+  const e = new Engine({ dataDir: d, keystore: new Keystore(path.join(d, 'w.json')) });
+  assert.strictEqual(e.cfg.scanMemes, false);
+  const MEME = 'Meme1111111111111111111111111111111111111111';
+  e.watch.set(MEME, { symbol: 'MEME', core: false });
+  e.market.stats[MEME] = { symbol: 'MEME', buys1h: 10, sells1h: 1 }; e.market.candles[MEME] = Array.from({ length: 100 }, (_, i) => ({ t: i, o: 1, h: 1, l: 1, c: 1 + i * 0.001 }));
+  await e.pipeline();
+  assert.ok(!(e.st.agents.CAPO && /MEME/.test(e.st.agents.CAPO.text || '')), 'meme ignorato dal CAPO');
+  e.book.positions.push({ id: 'p1', mint: MEME, symbol: 'MEME', qty: 1, qtyRaw: '1000000', decimals: 6, costBase: 5, feesBase: 0, entryPrice: 1, slPct: 5, tpPct: 9, openedAt: Date.now(), core: false });
+  assert.ok(e.tradeMints().includes(MEME), 'prezzo della posizione meme ancora seguito');
+});

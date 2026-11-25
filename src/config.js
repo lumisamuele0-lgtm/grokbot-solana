@@ -1,6 +1,6 @@
 'use strict';
-const { CORE } = require('./tokens');
-const CFG_VERSION = 3; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
+const { CORE, OLD_MEMES } = require('./tokens');
+const CFG_VERSION = 4; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
 const DEFAULTS = {
   cfgVersion: CFG_VERSION,
   mode: 'SIM', // SIM | REAL
@@ -28,11 +28,11 @@ const DEFAULTS = {
   reversalExit: true, reversalPct: 3, // uscita rapida su crollo del momentum a 5 min o ondata di vendite
   cooldownMin: 20,
   cycleSec: 20,
-  scanMemes: true,
+  scanMemes: false, // solo cripto principali: lo scanner non cerca meme né pool nuovi
   tokens: CORE.map((t) => t.mint),
   minLiquidityUsd: 40000, minVolume24hUsd: 3000, minPairAgeMin: 1, minMcapUsd: 300000,
   maxPump1hPct: 35, maxDump24hPct: 40, maxRugScore: 30,
-  maxWatch: 12,
+  maxWatch: 13,
   rpcUrl: 'https://api.mainnet-beta.solana.com',
   priorityFeeMaxLamports: 300000,
   simPriorityLamports: 30000,
@@ -63,6 +63,8 @@ function sanitize(patch, current) {
 const MIGRATIONS = {
   2: (c) => { c.maxTradePct = 7; c.minVolume24hUsd = 3000; c.minPairAgeMin = 1; c.memeSizeMult = 1; delete c.minPairAgeHours; },
   3: (c) => { for (const k of ['smartExits', 'partialTp', 'tp1R', 'tp1Pct', 'tp2R', 'tp2Pct', 'beBufferPct', 'trailOn', 'trailActR', 'trailAtrMult', 'memeExitMult', 'timeStopOn', 'timeStopMin', 'timeStopMinGainPct', 'reversalExit', 'reversalPct']) c[k] = DEFAULTS[k]; },
+  // v4: niente meme, solo cripto principali (lista token aggiornata; i token aggiunti a mano restano, tranne i vecchi meme)
+  4: (c) => { c.scanMemes = false; const extra = (Array.isArray(c.tokens) ? c.tokens : []).filter((m) => !OLD_MEMES.includes(m) && !CORE.some((t) => t.mint === m)); c.tokens = [...CORE.map((t) => t.mint), ...extra]; if ((c.maxWatch || 0) < CORE.length + 1) c.maxWatch = CORE.length + 1; },
 };
 function migrateConfig(saved) {
   const c = { ...(saved || {}) };

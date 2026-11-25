@@ -184,8 +184,10 @@ class Engine extends EventEmitter {
         }
       }
       if (reasons.length) { if (this.watch.has(m) && !this.holding(m)) this.watch.delete(m); continue; }
+      if (!core && !cfg.scanMemes) continue; // modalità solo cripto principali: niente meme in osservazione
       if (!this.watch.has(m)) this.watch.set(m, { symbol: s.symbol, approvedAt: now, core });
     }
+    if (!cfg.scanMemes) for (const [m, w] of [...this.watch]) if (!w.core && !this.holding(m)) this.watch.delete(m);
     // limita la watchlist: core + meme più liquidi
     if (this.watch.size > cfg.maxWatch) {
       // ordine: token principali, poi ciò che il MENTORE ha visto funzionare, poi volume
@@ -223,6 +225,7 @@ class Engine extends EventEmitter {
     const cands = [];
     for (const [m, w] of this.watch) {
       if (b.positions.some((p) => p.mint === m)) continue;
+      if (!cfg.scanMemes && !coreMints.has(m)) continue; // mai nuovi ingressi su meme
       if (b.cooldown[m] && b.cooldown[m] > now) continue;
       const s = this.market.stats[m]; const c = this.market.candles[m];
       if (!s || !c) continue;
