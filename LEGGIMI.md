@@ -50,12 +50,21 @@ Bot di trading **completamente automatico** su Solana. Gira sul **tuo computer**
 | ESECUZIONE | quote e swap su Jupiter (gratuito), firma con il wallet del bot, conferma on-chain |
 | SORVEGLIANZA | controlla le posizioni e chiude a target, stop, trailing o tempo massimo |
 
+### La partita: Fulmini Rossi contro Squali Blu (14 bot)
+Al posto dei 9 bot ci sono **2 squadre da 7**: 6 giocatori + 1 allenatore. Premi **Avvia** = calcio d'inizio: **20 minuti**, vince la squadra che fa **più profitto**. Poi compare **«Nuova partita?» Sì / No**.
+- **Cassa**: metà del capitale disponibile a ciascuna squadra, con gli stessi limiti di sempre (margine 7%, leva minima 5x, stop prima della liquidazione, uscite intelligenti, limiti giornalieri, kill switch).
+- **Giocatori**: ognuno è specialista di una cripto e di una direzione (SOL/BTC/ETH × long/short) e fa per la sua operazione tutto il lavoro dei vecchi bot (scansione, verifica, flusso, scelta, dimensione, rischio, esecuzione, sorveglianza). I **Fulmini Rossi** giocano su trend e momentum, gli **Squali Blu** in contropiede sugli eccessi (RSI, Bande di Bollinger, funding…).
+- **Allenatori** (Mister Fiamma, Mister Ghiaccio): ricevono le lezioni del **Mentore** e le notizie, e possono solo: piccola spinta di punteggio a chi è in forma (max +0,5), focus su una cripto (+0,2), più selettività dopo 2 perdite di fila, time-out di 2 minuti dopo 3 perdite. **Non toccano mai** margine, leva, stop o kill switch.
+- **Fine partita**: si chiudono le posizioni della partita (in simulazione al prezzo di mercato), si proclama il vincitore e il migliore in campo; storico e vittorie sono salvati in `data/matches.json`. La partita sopravvive ai riavvii (dopo un riavvio il bot è in pausa: premi **Avvia**; il cronometro intanto continua).
+- **REALE**: la partita segue la modalità scelta, ma in REALE i perps restano bloccati finché non approvi il test con 5-10 USDC: l'app lo scrive chiaramente e non invia nessun ordine reale.
+- **Animazioni**: stadio con tifosi, tabellone e cronometro; giocatori con maglie e accessori diversi che camminano, palleggiano la posizione aperta, esultano o si rattristano; monete che volano tra la cassa della squadra e la Borsa; fumetti degli allenatori; ultimo minuto con battito rosso e numeroni finali; coppa, coriandoli e fuochi d'artificio per chi vince, nuvoletta di pioggia per chi perde, stretta di mano in caso di pareggio. Con «Riduci movimento» attivo su iPhone gli effetti sono ridotti.
+
 ## 5. I pulsanti
 
 - **Phantom**: collega il tuo wallet.
 - **Budget**: cambia capitale e modalità.
 - **Deposita**: sposta il budget da Phantom al wallet del bot (lo confermi tu in Phantom).
-- **Avvia / Pausa**: accende o ferma i bot.
+- **Avvia / Pausa**: calcio d'inizio di una nuova partita (o ripresa di quella in corso) / pausa dei bot.
 - **Preleva**: vende tutto e rimanda tutti i fondi al tuo Phantom.
 - **Impostazioni**: rischio, token, RPC, wallet del bot, accesso da iPhone, stop di emergenza.
 

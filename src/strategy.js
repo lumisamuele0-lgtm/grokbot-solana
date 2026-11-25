@@ -210,4 +210,27 @@ function exitPlanCore(pos, price, now, cfg, ctx = {}) {
   return { action: 'none', change: ch, events, levels: L };
 }
 
-module.exports = { effectiveStop, shortStopCap, exitLevels, exitPlan, filterRules, safetyRules, analyze, flowScore, riskPlan, sizePosition, checkLimits, exitCheck };
+// Segnale "contropiede" (mean reversion su candele 1m), usato dalla squadra contrarian:
+// LONG dopo un eccesso di vendite (RSI ≤ 30, chiusura sotto la banda di Bollinger bassa) con candela di inversione;
+// SHORT specchiato. Stesse regole di rischio di tutti gli altri ingressi.
+function reversion(c1) {
+  if (!c1 || c1.length < 60) return { ok: false, LONG: { signal: false, conf: 0, score: -9, reason: 'Dati insufficienti', checks: {} }, SHORT: { signal: false, conf: 0, score: -9, reason: 'Dati insufficienti', checks: {} } };
+  const closes = c1.map((x) => x.c); const n = 20; const w = closes.slice(-n);
+  const m = w.reduce((a, b) => a + b, 0) / n; const sd = Math.sqrt(w.reduce((a, b) => a + (b - m) ** 2, 0) / n);
+  const r = rsi(closes, 14); const last = closes[closes.length - 1], prev = closes[closes.length - 2], prev2 = closes[closes.length - 3];
+  const lo = m - 2 * sd, hi = m + 2 * sd; const m60 = momentum(closes, 60);
+  const minLow = Math.min(...c1.slice(-3).map((x) => x.l)), maxHigh = Math.max(...c1.slice(-3).map((x) => x.h));
+  const mk = (dir) => {
+    const checks = dir > 0
+      ? { 'RSI ≤ 32': r != null && r <= 32, 'Eccesso sotto la banda bassa': minLow < lo, 'Candela di inversione': last > prev && prev <= prev2, 'Niente crollo > 6% in 1h': m60 == null || m60 > -6 }
+      : { 'RSI ≥ 68': r != null && r >= 68, 'Eccesso sopra la banda alta': maxHigh > hi, 'Candela di inversione': last < prev && prev >= prev2, 'Niente razzo > 6% in 1h': m60 == null || m60 < 6 };
+    const passed = Object.values(checks).filter(Boolean).length; const conf = passed / 4;
+    const signal = passed === 4;
+    const stretch = sd > 0 ? (dir > 0 ? (m - last) / sd : (last - m) / sd) : 0;
+    const score = clamp(stretch, -2, 3) + (r == null ? 0 : dir > 0 ? clamp((50 - r) / 10, -2, 2) : clamp((r - 50) / 10, -2, 2));
+    return { signal, conf, score, checks, rsi: r, reason: signal ? null : dir > 0 ? 'Nessun eccesso di vendite' : 'Nessun eccesso di acquisti' };
+  };
+  return { ok: true, LONG: mk(1), SHORT: mk(-1), rsi: r, mid: m, lo, hi };
+}
+
+module.exports = { reversion, effectiveStop, shortStopCap, exitLevels, exitPlan, filterRules, safetyRules, analyze, flowScore, riskPlan, sizePosition, checkLimits, exitCheck };

@@ -365,13 +365,25 @@
 
   // ---------- agenti
   function buildAgents() {
+    $('#teams').addEventListener('click', (e) => { const b = e.target.closest('[data-pl]'); if (b) playerSheet(b.dataset.pl); });
+    $('#matchCard').addEventListener('click', async (e) => {
+      if (e.target.closest('[data-mstop]')) openSheet(`<h4>Terminare la partita?</h4><p class="note">Fischio finale anticipato: chiudo le posizioni della partita al prezzo di mercato e dichiaro il vincitore con il punteggio attuale.</p><div class="btns"><button class="btn ghost" data-close>Annulla</button><button class="btn pri" id="mStopGo">Termina</button></div>`, (b) => $('#mStopGo', b).addEventListener('click', async () => { closeSheet(); try { await api('/api/match/stop', {}); } catch (er) { toast(er.message); } }));
+      if (e.target.closest('[data-mstart]')) { try { await api('/api/match/start', {}); toast("⚽ Calcio d'inizio!"); } catch (er) { toast(er.message, 4500); } }
+    });
+    $('#matchEnd').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-mend]'); if (!b) return;
+      const id = S.match && S.match.id; endSeen[id] = 1; $('#matchEnd').classList.add('hidden');
+      try { if (b.dataset.mend === 'yes') { await api('/api/match/start', {}); toast("⚽ Nuova partita: calcio d'inizio!"); } else await api('/api/match/dismiss', {}); } catch (er) { toast(er.message, 4500); }
+    });
+    setInterval(tickClock, 1000);
+    if (!$('#agents')) { $('#know').addEventListener('click', () => agentSheet('MENTORE')); $('#research').addEventListener('click', () => agentSheet('MENTORE')); $('#mentorDiary').addEventListener('click', () => agentSheet('MENTORE')); return; }
     $('#agents').innerHTML = S.agents.map((a) => `
       <button class="ag" data-id="${a.id}">
         <span class="ic" style="background:${a.color};color:${a.color}">${ICONS[a.icon] || ''}</span>
         <span class="tx"><div class="nm">${a.id}<small>${esc(a.role)}</small></div><div class="act" data-act>in attesa…</div></span>
         <span class="cnt" data-cnt>0</span>
       </button>`).join('');
-    $('#agN').textContent = S.agents.length;
+    if ($('#agN')) $('#agN').textContent = S.agents.length;
     $('#agents').addEventListener('click', (e) => { const b = e.target.closest('.ag'); if (b) agentSheet(b.dataset.id); });
     $('#know').addEventListener('click', () => agentSheet('MENTORE'));
     $('#research').addEventListener('click', () => agentSheet('MENTORE'));
@@ -391,6 +403,17 @@
   function onBotTap(id, x, y) {
     $$('.bubble').forEach((b) => b.remove());
     if (!id) return;
+    const pf = findPlayer(id);
+    if (pf) {
+      const { T, p, coach } = pf; const d = document.createElement('div'); d.className = 'bubble';
+      const box = $('#sceneBox').getBoundingClientRect();
+      d.style.left = Math.max(125, Math.min(box.width - 125, x)) + 'px'; d.style.top = Math.max(70, y) + 'px';
+      d.innerHTML = coach
+        ? `<b style="color:${T.color}">${esc(p.name)} · allenatore ${esc(T.name)}</b>${esc(T.coach.lastTalk ? '«' + T.coach.lastTalk.text + '»' : 'Pronto a guidare la squadra.')}<small>selettività ${T.coach.selectivity}/2${T.coach.focus ? ' · focus ' + T.coach.focus : ''} · tocca per dettagli</small>`
+        : `<b style="color:${T.color}">#${p.num} ${esc(p.name)} · ${esc(T.name)}</b>${esc(p.role)} · ${p.holding ? '⚽ in campo con una posizione' : 'in attesa del segnale'}<small>${money(p.pnl)} · ${p.trades} trade (${p.wins}V/${p.losses}P)${p.bonus ? ' · ⚡ spinta +' + nf(p.bonus, 2) : ''} · tocca per dettagli</small>`;
+      d.addEventListener('click', () => { d.remove(); playerSheet(id); });
+      $('#sceneBox').appendChild(d); setTimeout(() => d.remove(), 7000); return;
+    }
     const a = S.agents.find((z) => z.id === id); if (!a) return;
     const d = document.createElement('div'); d.className = 'bubble';
     const box = $('#sceneBox').getBoundingClientRect();
@@ -416,6 +439,9 @@
   // ---------- eventi live
   function onEv(e) {
     Scene.event(e);
+    if (e.type === 'match' && e.phase === 'start') toast("⚽ Calcio d'inizio! Fulmini Rossi contro Squali Blu");
+    if (e.type === 'match' && e.phase === 'whistle') toast('🏁 Fischio finale: chiudo le posizioni della partita');
+    if (e.type === 'trade' && e.team && S && S.match) { const pf = findPlayer(e.player); if (pf) { e = { ...e, symbol: `${e.symbol} · ${pf.p.name} (${pf.T.short})` }; } }
     if (e.type === 'log') appendLog(e);
     if (e.type === 'cash') cashFx(e);
     if (e.type === 'agent' && e.agent === 'CAPO' && e.token && S) {
@@ -439,6 +465,93 @@
     c.insertAdjacentHTML('beforeend', logLine(l));
     while (c.children.length > 200) c.firstChild.remove();
     if (stick) c.scrollTop = c.scrollHeight;
+  }
+
+  // ---------- PARTITA a squadre
+  const endSeen = {};
+  const money = (v, sign = true) => { const d = S && S.base === 'SOL' ? 4 : 2; return (sign ? (v >= 0 ? '+' : '−') : '') + nf(Math.abs(v || 0), d) + (S && S.base === 'SOL' ? ' ◎' : ' $'); };
+  function findPlayer(id) {
+    const m = S && S.match; if (!m || !m.teams) return null;
+    for (const T of m.teams) { if (T.coach.id === id) return { T, p: T.coach, coach: true }; const p = T.players.find((x) => x.id === id); if (p) return { T, p, coach: false }; }
+    return null;
+  }
+  const clockTxt = (ms) => { const s = Math.ceil(Math.max(0, ms) / 1000); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+  let clockSkew = 0;
+  function tickClock() {
+    const m = S && S.match; const el = $('#mcClock'); if (!m || !el || m.state !== 'live') return;
+    const rem = m.endAt - (Date.now() + clockSkew); el.textContent = clockTxt(rem);
+    el.classList.toggle('tense', rem < 60e3); el.classList.toggle('final10', rem < 10e3);
+    const bar = $('#mcBar'); if (bar) bar.style.width = Math.min(100, (1 - rem / m.durationMs) * 100) + '%';
+  }
+  const LOOK_EMO = { cap: '🧢', beanie: '🧶' };
+  function teamHtml(T, m) {
+    const c = T.coach; const now = Date.now() + clockSkew;
+    const coachSt = [`selettività ${c.selectivity}/2`, c.focus ? `focus ${c.focus}` : null, c.timeoutUntil > now ? `time-out ${clockTxt(c.timeoutUntil - now)}` : null].filter(Boolean).join(' · ');
+    return `<div class="team" style="--c:${T.color};--c2:${T.color2}">
+      <div class="tm-hd"><span class="kit" aria-hidden="true"></span><div class="tm-n"><b>${esc(T.name)}</b><small>${esc(T.styleLabel)} · «${esc(T.motto)}»</small></div>
+        <div class="tm-s"><b class="${T.pnl >= 0 ? 'mint' : 'red'}">${money(T.pnl)}</b><small>${nf(T.pct, 2)}% · ${T.trades} trade · ${m.tally ? m.tally[T.id] : 0} vittorie</small></div></div>
+      <button class="pl coach" data-pl="${c.id}"><span class="av">${LOOK_EMO[c.look] || '📋'}</span><span class="tx"><b>${esc(c.name)} <small>allenatore</small></b><small>${esc(coachSt)}</small>${c.lastTalk ? `<span class="say">«${esc(c.lastTalk.text)}»</span>` : ''}</span></button>
+      ${T.players.map((p) => `<button class="pl${p.holding ? ' hold' : ''}" data-pl="${p.id}"><span class="av num">${p.num}</span><span class="tx"><b>${esc(p.name)}${p.holding ? ' ⚽' : ''}${p.bonus ? ` <i class="bz">⚡+${nf(p.bonus, 2)}</i>` : ''}</b><small>${esc(p.role)}</small></span><span class="r"><b class="${p.pnl > 0 ? 'mint' : p.pnl < 0 ? 'red' : ''}">${money(p.pnl)}</b><small>${p.trades} trade${p.trades ? ` · ${p.wins}V/${p.losses}P` : ''}</small></span></button>`).join('')}
+      ${T.actions.length ? `<div class="tm-act">${T.actions.slice(0, 3).map((a) => `<div><span>${hhmm(a.t)}</span> ${esc(a.text)}</div>`).join('')}</div>` : ''}
+    </div>`;
+  }
+  function renderMatch(s) {
+    const m = s.match; if (!m || !m.teams) return;
+    clockSkew = (m.now || Date.now()) - Date.now();
+    const [A, B] = m.teams; const live = m.state === 'live'; const real = m.mode === 'REAL';
+    const stateTxt = live ? (s.trading ? 'IN CORSO' : 'IN PAUSA · premi Avvia') : m.state === 'closing' ? 'FISCHIO FINALE · chiusura posizioni' : m.state === 'ended' ? 'FINITA' : 'PRONTA';
+    const diff = A.pnl - B.pnl; const span = Math.max(Math.abs(A.pnl) + Math.abs(B.pnl), 0.01); const tug = 50 + Math.max(-48, Math.min(48, (diff / span) * 48));
+    const res = m.result; const tl = m.tally || { A: 0, B: 0, draws: 0 };
+    const h = `<div class="mc-top"><span>${m.number ? 'PARTITA N.' + m.number : 'PARTITA'} · ${real ? 'REALE' : 'SIMULAZIONE'}</span><span class="mc-st${live && s.trading ? ' on' : ''}">${stateTxt}</span></div>
+      <div class="mc-score">
+        <div class="mc-team" style="--c:${A.color}"><b>${esc(A.name)}</b><span class="mc-pnl ${A.pnl >= 0 ? 'mint' : 'red'}">${money(A.pnl)}</span><small>${nf(A.pct, 2)}% · ${A.trades} trade · ${A.open} aperte</small></div>
+        <div class="mc-mid"><div class="mc-clock" id="mcClock">${live ? clockTxt(m.remainingMs) : m.state === 'ended' ? 'FINE' : m.state === 'closing' ? '00:00' : '20:00'}</div><small>${live ? 'minuti rimasti' : m.state === 'ended' ? (res && res.winner ? 'vince ' + esc(res.winner === 'A' ? A.short : B.short) : 'pareggio') : '20 minuti'}</small></div>
+        <div class="mc-team r" style="--c:${B.color}"><b>${esc(B.name)}</b><span class="mc-pnl ${B.pnl >= 0 ? 'mint' : 'red'}">${money(B.pnl)}</span><small>${nf(B.pct, 2)}% · ${B.trades} trade · ${B.open} aperte</small></div>
+      </div>
+      <div class="mc-tug" aria-hidden="true" style="--a:${A.color};--b:${B.color}"><i style="left:${tug}%"></i></div>
+      <div class="mc-bar"><i id="mcBar" style="width:${live ? Math.min(100, (1 - m.remainingMs / m.durationMs) * 100) : m.state === 'none' ? 0 : 100}%"></i></div>
+      <div class="mc-cap">Cassa per squadra: ${money(A.bankroll, false)} (metà del disponibile ciascuna) · stessi limiti di rischio: margine ${s.cfg.maxTradePct}%, leva ${s.cfg.leverage || 5}x, stop prima della liquidazione</div>
+      ${m.realWaiting ? `<div class="mc-real">⏳ ${esc(m.realWaiting)}</div>` : ''}
+      <div class="mc-foot"><span>Vittorie: ${esc(A.short)} ${tl.A} · ${esc(B.short)} ${tl.B} · pareggi ${tl.draws}</span>${live ? '<button class="chip" data-mstop>Termina</button>' : m.state !== 'closing' ? '<button class="chip pri" data-mstart>Nuova partita</button>' : ''}</div>`;
+    const mc = $('#matchCard'); if (mc.dataset.h !== h) { mc.dataset.h = h; mc.innerHTML = h; }
+    const th = m.teams.map((T) => teamHtml(T, m)).join('');
+    const te = $('#teams'); if (te.dataset.h !== th) { te.dataset.h = th; te.innerHTML = th; }
+    // popup di fine partita: "Nuova partita?"
+    const me = $('#matchEnd');
+    if (m.state === 'ended' && m.awaitingNew && res && !endSeen[m.id]) {
+      const W = res.winner ? (res.winner === 'A' ? A : B) : null;
+      const body = `<div class="mend-ic">${W ? '🏆' : '🤝'}</div><h4>${W ? `Vincono i ${esc(W.name)}!` : 'Pareggio!'}</h4>
+        <div class="mend-sc"><div style="--c:${A.color}"><b>${esc(A.name)}</b><span class="${res.score.A.pnl >= 0 ? 'mint' : 'red'}">${money(res.score.A.pnl)}</span><small>${nf(res.score.A.pct, 2)}% · ${res.score.A.trades} trade</small></div><div style="--c:${B.color}"><b>${esc(B.name)}</b><span class="${res.score.B.pnl >= 0 ? 'mint' : 'red'}">${money(res.score.B.pnl)}</span><small>${nf(res.score.B.pct, 2)}% · ${res.score.B.trades} trade</small></div></div>
+        ${res.mvp ? `<p class="note">⭐ Migliore in campo: <b>${esc(res.mvp.name)}</b> (${money(res.mvp.pnl)})</p>` : ''}
+        <p class="note">${esc(res.reason || 'Fine dei 20 minuti')}${res.stillOpen ? ` · ${res.stillOpen} posizioni ancora in chiusura` : ''} · Vittorie: ${esc(A.short)} ${tl.A} · ${esc(B.short)} ${tl.B} · pareggi ${tl.draws}</p>
+        ${m.realWaiting ? `<p class="note red">${esc(m.realWaiting)}</p>` : ''}
+        <h4 style="margin-top:6px">Nuova partita?</h4>
+        <div class="btns"><button class="btn ghost" data-mend="no">No</button><button class="btn pri" data-mend="yes">Sì, si gioca!</button></div>`;
+      if ($('#matchEndBody').dataset.h !== body) { $('#matchEndBody').dataset.h = body; $('#matchEndBody').innerHTML = body; }
+      if (me.classList.contains('hidden')) setTimeout(() => { if (S.match && S.match.id === m.id && S.match.awaitingNew && !endSeen[m.id]) me.classList.remove('hidden'); }, firstRender ? 0 : 3500); // prima la festa in campo, poi la domanda
+    } else me.classList.add('hidden');
+  }
+  function playerSheet(id) {
+    const draw = () => {
+      const pf = findPlayer(id); if (!pf) return '<p class="note">Bot non trovato.</p><div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>';
+      const { T, p, coach } = pf; const m = S.match;
+      if (coach) {
+        return `<div class="row"><span class="pav" style="--c:${T.color};--c2:${T.color2}">${LOOK_EMO[p.look] || '📋'}</span><div><h4>${esc(p.name)}</h4><div class="mu" style="font-size:13px">allenatore dei ${esc(T.name)} · ${esc(T.styleLabel)}</div></div></div>
+          <div class="card" style="margin-top:14px"><div class="lbl">Come potenzia la squadra</div><div style="margin-top:6px;font-size:14px;line-height:1.5">Riceve le lezioni del Mentore e le notizie. Può dare una piccola spinta di punteggio a chi è in forma (max +0,5), mettere il focus su una cripto (+0,2), alzare la selettività dopo 2 perdite di fila (max 2) e chiamare un time-out di 2 minuti dopo 3 perdite. <b>Non cambia mai</b> margine (${S.cfg.maxTradePct}%), leva (${S.cfg.leverage || 5}x), stop o kill switch.</div></div>
+          <div class="card" style="margin-top:12px"><div class="kv"><span>Selettività</span><span>${p.selectivity}/2</span></div><div class="kv"><span>Focus</span><span>${p.focus || '—'}</span></div><div class="kv"><span>Time-out</span><span>${p.timeoutUntil > Date.now() + clockSkew ? 'in corso' : 'no'}</span></div></div>
+          <div class="grp"><span class="lbl">Ultime azioni dell'allenatore</span><div class="console mono" style="height:auto;max-height:260px">${T.actions.map((a) => `<div>${hhmm(a.t)} ${esc(a.text)}</div>`).join('') || '<div>nessuna azione ancora</div>'}</div></div>
+          <div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>`;
+      }
+      const trs = (S.trades || []).filter((t) => t.player === id && m && t.matchId === m.id);
+      const pos = (S.positions || []).find((x) => x.player === id);
+      return `<div class="row"><span class="pav" style="--c:${T.color};--c2:${T.color2}">${p.num}</span><div><h4>${esc(p.name)} <small class="mu">${esc(T.name)}</small></h4><div class="mu" style="font-size:13px">${esc(p.role)} · stile ${esc(T.styleLabel)}</div></div></div>
+        <div class="card" style="margin-top:14px"><div class="kv"><span>Profitto in partita</span><span class="${p.pnl >= 0 ? 'mint' : 'red'}">${money(p.pnl)}</span></div><div class="kv"><span>Operazioni</span><span>${p.trades} (${p.wins} vinte / ${p.losses} perse)</span></div><div class="kv"><span>Spinta dell'allenatore</span><span>${p.bonus ? '⚡ +' + nf(p.bonus, 2) : '—'}</span></div>
+        ${pos ? `<div class="kv"><span>In campo ora</span><span>${pos.side === 'SHORT' ? '▼ SHORT' : '▲ LONG'} ${pos.lev}x · <b class="${pos.pnl >= 0 ? 'mint' : 'red'}">${money(pos.pnl)} (${nf(pos.pnlPct, 2)}%)</b></span></div>` : ''}</div>
+        <div class="card" style="margin-top:12px"><div class="lbl">Cosa fa</div><div style="margin-top:6px;font-size:14px;line-height:1.5">Specialista di <b>${esc(p.asset)} ${p.side === 'SHORT' ? 'short ▼' : 'long ▲'}</b>: per la sua operazione fa tutto il lavoro dei vecchi bot (scansione, verifica, flusso, scelta, dimensione, rischio, esecuzione, sorveglianza) con le regole di sempre. ${T.style === 'trend' ? 'Entra quando il trend corre (EMA, ADX, MACD, Donchian…).' : 'Entra in contropiede sugli eccessi (RSI, Bande di Bollinger, funding, paura/avidità…).'}</div></div>
+        <div class="grp"><span class="lbl">Operazioni in questa partita</span>${trs.length ? `<table class="h">${trs.map((t) => `<tr><td>${hhmm(t.closedAt)}</td><td>${t.side === 'SHORT' ? '▼' : '▲'} ${t.lev}x<div class="mu" style="font-size:11px">${esc(t.reason)}</div></td><td class="r ${t.pnl >= 0 ? 'mint' : 'red'}">${money(t.pnl)}</td></tr>`).join('')}</table>` : '<div class="empty">ancora nessuna operazione chiusa</div>'}</div>
+        <div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>`;
+    };
+    openSheet(draw, null, true);
   }
 
   // ---------- render dashboard
@@ -466,6 +579,7 @@
     tween('sR', $('#sR'), s.counters.rejected, (v) => Math.round(v).toLocaleString('it-IT'));
     tween('sO', $('#sO'), s.counters.approved, (v) => Math.round(v).toLocaleString('it-IT'));
     renderAgents();
+    renderMatch(s);
     $('#subTag').textContent = `SOL · BTC · ETH sempre con leva ${s.cfg.leverage || 5}x · margine ${s.cfg.maxTradePct}% per operazione`;
     const eb = $('#entryBlock'); if (eb) { eb.classList.toggle('hidden', !s.entryBlock); eb.textContent = s.entryBlock ? '⏸ ' + s.entryBlock + ' Le posizioni già aperte restano gestite.' : ''; }
     renderPnl(s);
@@ -581,7 +695,10 @@
       if (a === 'phantom') { if (S.user.address && provider()) phantomSheet(); else if (S.user.address) phantomSheet(); else await connectPhantom(); }
       if (a === 'budget') openSetup(true);
       if (a === 'deposit') depositSheet();
-      if (a === 'toggle') { await api('/api/trading', { on: !S.trading }); toast(S.trading ? 'Bot in pausa' : 'Bot avviati'); }
+      if (a === 'toggle') {
+        if (S.trading) { await api('/api/trading', { on: false }); toast('Bot in pausa (il cronometro della partita continua)'); }
+        else { const live = S.match && S.match.state === 'live'; await api('/api/match/start', {}); toast(live ? '▶ Si riprende a giocare!' : "⚽ Calcio d'inizio! 20 minuti di partita"); }
+      }
       if (a === 'withdraw') withdrawSheet();
       if (a === 'settings') settingsSheet();
     } catch (er) { toast(er.message, 4500); }

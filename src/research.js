@@ -149,13 +149,14 @@ class Research {
   }
 
   // ---------- consiglio al CAPO: punteggio delle strategie attive che hanno appena dato un segnale
-  signalFor(symbol, side) {
+  signalFor(symbol, side, allow = null) {
     const a = SYMBOL_ASSET[symbol]; const live = a && this.st.live[a]; const res = a && this.st.results[a];
     const out = { score: 0, against: 0, strategies: [], opposite: [], atrPct: null };
     if (!live || !res) return out;
     const now = Date.now(); const want = side === 'SHORT' ? -1 : 1;
     for (const sg of live.signals) {
       if (sg.until < now) continue;
+      if (allow && !allow.includes(sg.id)) continue; // ogni squadra ascolta solo le strategie del suo stile
       const r = res[sg.id]; if (!r || !r.active) continue;
       if (live.regime && r.regimeOff.includes(live.regime)) continue; // perdente in questo regime di mercato
       if (sg.dir === want) { out.score += r.weight; out.strategies.push(sg.id); if (out.atrPct == null || r.weight > 1) out.atrPct = sg.atrPct; }

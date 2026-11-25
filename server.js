@@ -137,6 +137,10 @@ app.post('/api/trading', wrap(async (req) => { engine.setTrading(!!req.body.on);
 app.post('/api/mode', wrap(async (req) => { await engine.setMode(req.body.mode === 'REAL' ? 'REAL' : 'SIM', req.body.confirm); }));
 app.post('/api/reset-sim', wrap(async () => { engine.resetSim(); }));
 app.post('/api/rearm', wrap(async () => { engine.rearm(); }));
+// PARTITA a squadre: "Sì" nel popup / Avvia = nuova partita, "Termina" = fischio finale anticipato, "No" = chiudi il popup
+app.post('/api/match/start', wrap(async () => { engine.match.dismiss(); engine.setTrading(true); return engine.match.view(); }));
+app.post('/api/match/stop', wrap(async () => { if (!engine.match.live()) throw new Error('Nessuna partita in corso'); await engine.match.end('Terminata da te'); return engine.match.view(); }));
+app.post('/api/match/dismiss', wrap(async () => { engine.match.dismiss(); }));
 app.post('/api/close', wrap(async (req) => {
   if (req.body.id === 'all') return engine.closeAll();
   const p = engine.book.positions.find((x) => x.id === req.body.id); if (!p) throw new Error('Posizione non trovata');

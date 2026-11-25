@@ -110,9 +110,9 @@
     </div>
     <div id="killBox" class="kill hidden"></div>
     <canvas id="spark" aria-label="Andamento del saldo"></canvas>
+    <div class="card match" id="matchCard" role="region" aria-label="Partita: Fulmini Rossi contro Squali Blu"></div>
     <div class="scenebox" id="sceneBox">
-      <div class="scenehd">SALA OPERATIVA · TOCCA UN BOT</div>
-      <canvas id="scene" aria-label="I 9 bot al lavoro"></canvas>
+      <canvas id="scene" aria-label="Le due squadre di bot in campo"></canvas>
     </div>
     <div class="stats">
       <div class="stat"><div class="lbl">Token analizzati</div><div class="n" id="sA">0</div></div>
@@ -125,8 +125,8 @@
     <div id="hist"></div>
    </div>
    <div>
-    <div class="sec"><h3>Banco · <span id="agN">9</span> agenti</h3><span>tocca per i dettagli</span></div>
-    <div class="agents" id="agents"></div>
+    <div class="sec"><h3>Squadre · 14 bot</h3><span>tocca un bot per i dettagli</span></div>
+    <div class="teams" id="teams"></div>
     <div class="sec"><h3>Conoscenze del Mentore</h3><span>tocca per i dettagli</span></div>
     <button class="card know" id="know" type="button"></button>
     <div class="sec"><h3>Diario del Mentore</h3><span>errori, correzioni, notizie · tocca</span></div>
@@ -153,6 +153,7 @@
   <button data-a="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg><span>Impostazioni</span></button>
 </div></nav>
 
+<div class="mend-bg hidden" id="matchEnd" role="dialog" aria-modal="true" aria-label="Fine partita"><div class="mend" id="matchEndBody"></div></div>
 <div class="sheetbg hidden" id="sheetBg"></div>
 <div class="sheet" id="sheet" role="dialog" aria-modal="true"><div class="grab"></div><div id="sheetBody"></div></div>
 
