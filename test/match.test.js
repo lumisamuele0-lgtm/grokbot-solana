@@ -33,7 +33,7 @@ test('timer: fischio finale a 20:00, risultato salvato in /data, trading in paus
   await e.match.tick(MATCH_MS);
   assert.strictEqual(e.match.m.state, 'ended'); assert.strictEqual(e.match.m.result.winner, null, 'nessun trade: pareggio');
   assert.strictEqual(e.cfg.trading, false); assert.strictEqual(e.match.view().awaitingNew, true);
-  const saved = JSON.parse(fs.readFileSync(path.join(e.dir, 'matches.json'), 'utf8')); assert.strictEqual(saved.tally.draws, 1); assert.strictEqual(saved.history[0].id, m.id);
+  const saved = require('../src/store').readJson(path.join(e.dir, 'matches.json'), null); assert.strictEqual(saved.tally.draws, 1); assert.strictEqual(saved.history[0].id, m.id);
   e.match.dismiss(); assert.strictEqual(e.match.view().awaitingNew, false);
   e.setTrading(true); assert.strictEqual(e.match.m.state, 'live', '"Sì" / Avvia = nuova partita'); assert.notStrictEqual(e.match.m.id, m.id);
 });

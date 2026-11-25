@@ -74,7 +74,7 @@ test('persistenza: knowledge.json sopravvive al riavvio e impara dallo storico e
   const e1 = mk(); assert.strictEqual(e1.kb.n, 4);
   e1.mentorLearn({ id: 'new1', symbol: 'Y', pnlPct: 3, mode: 'SIM', feat: ['tipo:meme', 'ora:sera'] });
   e1.kbWriter.flush();
-  const disk = JSON.parse(fs.readFileSync(path.join(d, 'knowledge.json'), 'utf8'));
+  const disk = require('../src/store').readJson(path.join(d, 'knowledge.json'), null);
   assert.strictEqual(disk.n, 5); assert.ok(disk.feats['ora:sera']);
   const e2 = mk(); assert.strictEqual(e2.kb.n, 5); // niente doppio conteggio dello storico
   assert.strictEqual(e2.snapshot().knowledge.trades, 5);

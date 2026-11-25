@@ -3,7 +3,7 @@
 const {
   Connection, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction, TransactionInstruction, LAMPORTS_PER_SOL,
 } = require('@solana/web3.js');
-const { sleep } = require('./util');
+const { sleep, assertTls } = require('./util');
 
 const TOKEN_PROGRAM = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
@@ -11,7 +11,7 @@ const ATA_PROGRAM = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'
 
 let conn = null; let connUrl = null;
 function connection(url) {
-  const u = url || 'https://api.mainnet-beta.solana.com';
+  const u = url || 'https://api.mainnet-beta.solana.com'; assertTls(u); // RPC solo via TLS
   if (!conn || connUrl !== u) { conn = new Connection(u, { commitment: 'confirmed' }); connUrl = u; }
   return conn;
 }

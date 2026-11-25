@@ -26,11 +26,16 @@
     eye: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   };
 
-  async function api(path, body) {
-    const r = await fetch(path, body === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-sb': '1' }, body: JSON.stringify(body) });
+  // token CSRF legato alla sessione (lo dà il server dopo l'accesso); se manca o è scaduto si rinnova una volta e si riprova
+  let csrf = null;
+  async function refreshCsrf() { try { const st = await (await fetch('/api/auth/status', { credentials: 'same-origin' })).json(); csrf = st.csrf || null; return st; } catch { return null; } }
+  async function api(path, body, retry = true) {
+    const r = await fetch(path, body === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-sb': '1', ...(csrf ? { 'x-csrf': csrf } : {}) }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
-    if (r.status === 401) { showLogin(); throw new Error(j.error || 'Accesso richiesto'); }
+    if (r.status === 401) { csrf = null; showLogin(); throw new Error(j.error || 'Accesso richiesto'); }
+    if (r.status === 403 && j.csrf && retry) { await refreshCsrf(); return api(path, body, false); }
     if (!r.ok) throw new Error(j.error || 'Errore ' + r.status);
+    if (j && typeof j.csrf === 'string') csrf = j.csrf;
     return j;
   }
   function toast(msg, ms = 3200) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = msg; document.body.appendChild(d); setTimeout(() => d.remove(), ms); }
@@ -40,7 +45,7 @@
   let setupMode = false;
   async function boot() {
     let st;
-    try { st = await (await fetch('/api/auth/status')).json(); } catch { $('#loginErr').textContent = 'Server non raggiungibile'; show('login'); return; }
+    st = await refreshCsrf(); if (!st) { $('#loginErr').textContent = 'Server non raggiungibile'; show('login'); return; }
     if (!st.loggedIn) return showLogin(st);
     await start();
   }

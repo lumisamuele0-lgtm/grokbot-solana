@@ -4,6 +4,7 @@ const path = require('path');
 const EventEmitter = require('events');
 const { PublicKey, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const { readJson, debounceWriter } = require('./store');
+const { redact, maskUrl, isMasked } = require('./redact');
 const { DEFAULTS, LEVERAGES, snapLeverage, sanitize, migrateConfig } = require('./config');
 const { CORE, BASES, SOL, USDC } = require('./tokens');
 const S = require('./strategy');
@@ -98,12 +99,13 @@ class Engine extends EventEmitter {
   save() { this.stWriter.schedule(); }
 
   log(agent, text, level = 'info') {
-    const e = { t: Date.now(), agent, level, text };
+    const e = { t: Date.now(), agent, level, text: redact(text) };
     this.st.log.push(e); if (this.st.log.length > 500) this.st.log.splice(0, this.st.log.length - 500);
     this.emit('ev', { type: 'log', ...e });
     this.save();
   }
   agent(id, text, action = 'work', extra = {}) {
+    text = redact(text);
     this.st.agents[id] = { text, t: Date.now(), action, ...extra };
     this.emit('ev', { type: 'agent', agent: id, action, text, ...extra });
     if (['fail', 'block', 'kill'].includes(action) && this.st.lastAgentLog !== id + text) { this.st.lastAgentLog = id + text; this.log(id, text, action === 'block' ? 'info' : 'warn'); }
@@ -861,6 +863,7 @@ class Engine extends EventEmitter {
   // ---------- azioni utente
   setConfig(patch) {
     const before = this.cfg;
+    if (patch && isMasked(patch.rpcUrl)) { patch = { ...patch }; delete patch.rpcUrl; } // URL mascherato rimandato com'è: resta quello salvato
     this.cfg = { ...sanitize(patch, this.cfg), mode: before.mode, trading: before.trading };
     if (this.cfg.baseCurrency !== before.baseCurrency) {
       if (before.trading) throw new Error('Metti in pausa il bot prima di cambiare la valuta base');
@@ -1166,7 +1169,7 @@ class Engine extends EventEmitter {
     };
     return {
       t: Date.now(), mode: cfg.mode, trading: cfg.trading, killed: b.killed, killReason: b.killReason, busy: this.busy,
-      cfg: { ...cfg }, base: cfg.baseCurrency, entryBlock: this.entryBlock(), shorts: { realEnabled: P.REAL_SHORTS_ENABLED, realMsg: P.REAL_SHORTS_BLOCK_MSG, markets: Object.values(P.SHORT_MARKETS), maxLev: P.MAX_LEV, leverages: LEVERAGES, liqDist: Object.fromEntries(LEVERAGES.map((l) => [l, P.liqDistancePct(l)])), fees: P.FEES },
+      cfg: { ...cfg, rpcUrl: maskUrl(cfg.rpcUrl) }, base: cfg.baseCurrency, entryBlock: this.entryBlock(), shorts: { realEnabled: P.REAL_SHORTS_ENABLED, realMsg: P.REAL_SHORTS_BLOCK_MSG, markets: Object.values(P.SHORT_MARKETS), maxLev: P.MAX_LEV, leverages: LEVERAGES, liqDist: Object.fromEntries(LEVERAGES.map((l) => [l, P.liqDistancePct(l)])), fees: P.FEES },
       equity: eq, equityEur: toEur(eq), startEquity: b.startEquity, pnl: eq - b.startEquity, pnlEur: toEur(eq - b.startEquity),
       roi: b.startEquity > 0 ? eq / b.startEquity : 1, realizedPnl: b.realizedPnl, fees: b.feesBase, cash: b.cash, solReserve: b.solReserve,
       capital: (({ positions: _ps, ...c }) => c)(this.capital(b)),

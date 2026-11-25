@@ -14,3 +14,8 @@ data/
 /auth.json
 /wallet*.json
 /keystore*.json
+
+# chiave dell archivio cifrato e file messi da parte: mai nel repository
+.sb-datakey
+**/.sb-datakey*
+*.corrupt-*

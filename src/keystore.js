@@ -1,11 +1,14 @@
 'use strict';
-// Portafoglio del bot cifrato su disco: scrypt (KDF) + AES-256-GCM. La chiave non lascia mai questo PC.
+// Portafoglio del bot cifrato su disco: scrypt (KDF, N=2^17) + AES-256-GCM con la password del wallet. La chiave non lascia mai il server.
+// Volutamente NON dipende dalla chiave dell'archivio dati: con la sola password (o il backup WALLET_ENC_JSON) il wallet si apre sempre.
+// I file con il vecchio scrypt (N=2^15) restano validi e vengono ricifrati col nuovo al primo sblocco riuscito (scrittura atomica, verificata).
 const crypto = require('crypto');
 const fs = require('fs');
 const { Keypair } = require('@solana/web3.js');
 const bs58 = require('bs58').default;
 
-const KDF = { N: 1 << 15, r: 8, p: 1, keylen: 32 };
+const KDF = { N: 1 << 17, r: 8, p: 1, keylen: 32 };
+const { writeAtomic } = require('./store');
 
 function deriveKey(password, salt, kdf = KDF) {
   return crypto.scryptSync(String(password).normalize('NFKC'), salt, kdf.keylen, { N: kdf.N, r: kdf.r, p: kdf.p, maxmem: 256 * 1024 * 1024 });
@@ -48,7 +51,7 @@ class Keystore {
     const kp = Keypair.generate();
     const blob = encryptSecret(kp.secretKey, password);
     const out = { publicKey: kp.publicKey.toBase58(), createdAt: new Date().toISOString(), ...blob };
-    fs.writeFileSync(this.file, JSON.stringify(out, null, 2), { mode: 0o600 });
+    writeAtomic(this.file, JSON.stringify(out, null, 2));
     this.kp = kp;
     return out.publicKey;
   }
@@ -59,7 +62,18 @@ class Keystore {
     sk.fill(0);
     if (kp.publicKey.toBase58() !== j.publicKey) throw new Error('File portafoglio corrotto');
     this.kp = kp;
+    if (!j.kdf || j.kdf.N < KDF.N) this.upgrade(j, password, kp);
     return j.publicKey;
+  }
+  // ricifra col KDF più forte; scrive solo dopo aver verificato che il nuovo file si apre e dà la stessa chiave
+  upgrade(j, password, kp) {
+    try {
+      const blob = encryptSecret(kp.secretKey, password);
+      const chk = decryptSecret(blob, password); const same = Buffer.compare(chk, Buffer.from(kp.secretKey)) === 0; chk.fill(0);
+      if (!same) return false;
+      writeAtomic(this.file, JSON.stringify({ publicKey: j.publicKey, createdAt: j.createdAt, ...blob }, null, 2));
+      return true;
+    } catch { return false; }
   }
   verify(password) {
     const j = JSON.parse(fs.readFileSync(this.file, 'utf8'));

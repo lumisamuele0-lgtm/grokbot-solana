@@ -113,7 +113,7 @@ class Market {
     const out = { ts: Date.now(), rugScore: null, danger: [], holderRisk: false, mintAuthority: null, freezeAuthority: null, token2022Ext: false, risks: [] };
     try {
       const mi = await chainMintInfo(mint);
-      out.mintAuthority = mi.mintAuthority; out.freezeAuthority = mi.freezeAuthority; out.token2022Ext = mi.risky2022.length > 0; out.decimals = mi.decimals;
+      out.mintAuthority = mi.mintAuthority; out.freezeAuthority = mi.freezeAuthority; out.token2022Ext = mi.risky2022.length > 0; out.decimals = mi.decimals; // gitleaks:allow (falso positivo: nessun segreto)
     } catch (e) { out.rpcError = e.message; }
     try {
       const r = await rq(() => fetchJson(`https://api.rugcheck.xyz/v1/tokens/${mint}/report/summary`, { retries: 1 }));

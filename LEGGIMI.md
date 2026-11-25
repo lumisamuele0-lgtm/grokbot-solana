@@ -181,6 +181,16 @@ Ogni ~90 secondi legge anche le **notizie** da 6 feed RSS gratuiti (CoinDesk, Co
 - `data/` (creata al primo avvio): impostazioni, stato, storico, `wallet.enc.json` (chiave cifrata), `auth.json` (PIN cifrato). **Fai un backup di `wallet.enc.json`** se usi soldi veri. Non condividere mai questi file.
 - Per ricominciare da zero: chiudi il bot e cancella la cartella `data/` (prima **preleva tutto**!).
 
+## 11b. Sicurezza e protezione dei dati
+
+- **Archivio cifrato**: tutti i file dati (`config`, `state`, `knowledge`, `mentor`, `matches`, `research`, `auth`) sono cifrati con **AES-256-GCM** e firmati con **HMAC-SHA256** (doppio controllo d'integrità; il nome del file è legato al contenuto). Scrittura atomica, permessi `0600`. I vecchi file in chiaro vengono cifrati da soli alla prima lettura.
+- **Chiave dati**: 32 byte casuali in `data/.sb-datakey` (permessi `0600`, mai in git; chiavi di lavoro derivate con HKDF-SHA256). Facoltativa la variabile `DATA_ENC_KEY` in aggiunta: **se la imposti non toglierla più**. Se perdi `.sb-datakey` i dati del bot ripartono dai valori iniziali, ma **PIN (con `SETUP_PIN`) e wallet restano accessibili**.
+- **PIN**: scrypt (N=2^17) + sale + "pepe" HMAC-SHA256, confronto a tempo costante; i vecchi hash vengono rifatti al primo accesso. 5 errori dallo stesso indirizzo → blocco 5 min (poi 10, 20… max 1 ora).
+- **Sessioni**: cookie `HttpOnly; Secure; SameSite=Strict`, sul disco solo lo SHA-256 del token, scadenza 30 giorni (14 di inattività), rotazione ogni 12 ore, protezione CSRF su ogni comando.
+- **Wallet**: scrypt (N=2^17) + AES-256-GCM con la tua password, **indipendente** dalla chiave dati: si apre sempre con la password o con il backup `WALLET_ENC_JSON`.
+- **Rete**: intestazioni di sicurezza (CSP, HSTS, frame-ancestors, nosniff, Referrer-Policy, Permissions-Policy), limiti di richieste, validazione di tutti i parametri, solo HTTPS per le chiamate esterne, nessun segreto nei log o nelle risposte.
+- **Test**: `node --test tests/security/` (accessi senza PIN su ogni rotta, forza bruta, sessioni, CSRF, intestazioni, path traversal, input malevoli, cifratura e manomissioni, fughe di segreti, TLS).
+
 ## 12. Per chi è tecnico
 
 - `npm test` — test unitari (indicatori, filtri, rischio, uscite, cifratura, PIN, depositi, prelievo).

@@ -35,7 +35,7 @@ test('motore: config.json esistente viene migrato e riscritto, wallet e stato no
   const wallet = '{"publicKey":"x","enc":"y"}'; fs.writeFileSync(path.join(d, 'w.json'), wallet);
   const e = new Engine({ dataDir: d, keystore: new Keystore(path.join(d, 'w.json')) });
   assert.strictEqual(e.cfg.maxTradePct, 7); assert.strictEqual(e.cfg.minVolume24hUsd, 100000); assert.strictEqual(e.cfg.minPairAgeMin, 1440); assert.strictEqual(e.cfg.budget, 50);
-  const disk = JSON.parse(fs.readFileSync(path.join(d, 'config.json'), 'utf8'));
+  const disk = require('../src/store').readJson(path.join(d, 'config.json'), null); assert.ok(require('../src/store').isEncrypted(path.join(d, 'config.json')), 'config cifrata su disco');
   assert.strictEqual(disk.maxTradePct, 7); assert.strictEqual(disk.cfgVersion, CFG_VERSION); assert.ok(!('minPairAgeHours' in disk));
   assert.strictEqual(fs.readFileSync(path.join(d, 'w.json'), 'utf8'), wallet);
   const snap = e.snapshot();
