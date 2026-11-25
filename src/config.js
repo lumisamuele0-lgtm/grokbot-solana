@@ -1,6 +1,6 @@
 'use strict';
 const { CORE, OLD_MEMES } = require('./tokens');
-const CFG_VERSION = 9; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
+const CFG_VERSION = 10; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
 const DEFAULTS = {
   cfgVersion: CFG_VERSION,
   mode: 'SIM', // SIM | REAL
@@ -31,6 +31,8 @@ const DEFAULTS = {
   // PARTITA: ogni squadra su max 3 cripto fra tutte quelle di Solana/Phantom. Leva e short solo dove ci sono i perps (SOL/BTC/ETH);
   // sulle altre spot 1x solo long. In REALE lo spot vero (swap Jupiter) parte solo se lo attivi tu (realSpot).
   spotLongs: true, realSpot: false,
+  // MEMECOIN: filtri allentati per avere molte più memecoin (anti-truffa sempre attivi: via di vendita, niente mint/freeze, RugCheck, holder, pump/crolli)
+  memeLoose: true, memeMinLiqUsd: 50000, memeMinVol24hUsd: 100000, memeMinMcapUsd: 1000000, memeMinAgeHours: 24, memeMinOrganic: 20, memeMaxTopHoldersPct: 60,
   derby: true, // DERBY: squadre più agguerrite in partita, sempre entro i limiti rigidi (margine 7%, leva 5–10x, stop, kill switch, limiti giornalieri)
   uniMinLiqUsd: 250000, uniMinVol24hUsd: 500000, uniMinMcapUsd: 10000000, uniMinAgeDays: 7, uniMinOrganic: 50, uniMaxTopHoldersPct: 50,
   reversalExit: true, reversalPct: 3, // uscita rapida su crollo del momentum a 5 min o ondata di vendite
@@ -52,7 +54,7 @@ const LIMITS = {
   memeSizeMult: [0, 1], maxOpen: [1, 10], slippageBps: [10, 1000], maxPriceImpactPct: [0.1, 10], slAtrMult: [0.5, 6], slMinPct: [0.5, 20],
   slMaxPct: [1, 40], rewardRisk: [0.8, 6], maxHoldMin: [5, 10080], tp1R: [0.3, 10], tp1Pct: [5, 90], tp2R: [0.5, 20], tp2Pct: [0, 90], beBufferPct: [0, 5], trailActR: [0.2, 10], trailAtrMult: [0.3, 6], memeExitMult: [0.3, 1.5], timeStopMin: [5, 10080], timeStopMinGainPct: [-20, 50], reversalPct: [0.5, 50], leverage: [1, 10], cooldownMin: [0, 1440], cycleSec: [10, 600], minLiquidityUsd: [0, 1e9],
   minVolume24hUsd: [0, 1e10], minPairAgeMin: [0, 600000], minMcapUsd: [0, 1e12], maxPump1hPct: [1, 1000], maxDump24hPct: [1, 100],
-  maxRugScore: [0, 100], uniMinLiqUsd: [50000, 1e10], uniMinVol24hUsd: [50000, 1e11], uniMinMcapUsd: [1e6, 1e13], uniMinAgeDays: [1, 3650], uniMinOrganic: [0, 100], uniMaxTopHoldersPct: [5, 100], maxWatch: [1, 30], priorityFeeMaxLamports: [0, 5000000], simPriorityLamports: [0, 5000000],
+  maxRugScore: [0, 100], uniMinLiqUsd: [50000, 1e10], uniMinVol24hUsd: [50000, 1e11], uniMinMcapUsd: [1e6, 1e13], uniMinAgeDays: [1, 3650], uniMinOrganic: [0, 100], uniMaxTopHoldersPct: [5, 100], memeMinLiqUsd: [20000, 1e10], memeMinVol24hUsd: [20000, 1e11], memeMinMcapUsd: [250000, 1e13], memeMinAgeHours: [6, 87600], memeMinOrganic: [0, 100], memeMaxTopHoldersPct: [5, 80], maxWatch: [1, 30], priorityFeeMaxLamports: [0, 5000000], simPriorityLamports: [0, 5000000],
 };
 const LEVERAGES = [5, 10];
 // solo 5x o 10x: sotto 5 → 5x (leva minima voluta da Samuele), sopra 10 → 10x, in mezzo l'opzione più vicina
@@ -91,6 +93,8 @@ const MIGRATIONS = {
   },
   // v9: modalità DERBY attiva (solo questa chiave; leva, margine, stop e limiti invariati)
   9: (c) => { c.derby = true; if (!(Number(c.leverage) >= 5)) c.leverage = 5; },
+  // v10: «Memecoin: filtri allentati» attivo (scelta di Samuele); soglie memecoin ai valori predefiniti, resto invariato
+  10: (c) => { c.memeLoose = true; for (const k of ['memeMinLiqUsd', 'memeMinVol24hUsd', 'memeMinMcapUsd', 'memeMinAgeHours', 'memeMinOrganic', 'memeMaxTopHoldersPct']) c[k] = DEFAULTS[k]; },
   4: (c) => { c.scanMemes = false; const extra = (Array.isArray(c.tokens) ? c.tokens : []).filter((m) => !OLD_MEMES.includes(m) && !CORE.some((t) => t.mint === m)); c.tokens = [...CORE.map((t) => t.mint), ...extra]; if ((c.maxWatch || 0) < CORE.length + 1) c.maxWatch = CORE.length + 1; },
 };
 function migrateConfig(saved) {

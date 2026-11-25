@@ -121,6 +121,7 @@ class Market {
       out.risks = (r.risks || []).map((x) => `${x.name}${x.level === 'danger' ? ' ⚠' : ''}`);
       out.danger = (r.risks || []).filter((x) => x.level === 'danger').map((x) => x.name);
       out.holderRisk = (r.risks || []).some((x) => /holder/i.test(x.name) && x.level !== 'info');
+      out.holderDanger = (r.risks || []).some((x) => /holder/i.test(x.name) && x.level === 'danger');
       out.lpLockedPct = r.lpLockedPct;
     } catch (e) { out.rugError = e.message; }
     if (out.rpcError && out.rugError) { out.ts = Date.now() - 25 * 60000; }

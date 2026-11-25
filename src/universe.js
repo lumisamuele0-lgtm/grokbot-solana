@@ -3,7 +3,12 @@
 // (lista token gratuita di Jupiter: più scambiate e con più volume "organico" nelle 24h) + i token presenti nel tuo Phantom.
 // Filtri di sicurezza: token verificato su Jupiter, niente autorità di mint/freeze, niente Token-2022, niente stablecoin,
 // azioni tokenizzate o "liquid staking", liquidità/volume/capitalizzazione/età minime, holder non troppo concentrati,
-// niente pump o crolli estremi. Leva e short SOLO dove esistono i mercati Jupiter Perps (SOL, BTC, ETH): il resto è spot 1x, solo long.
+// niente pump o crolli estremi.
+// MEMECOIN (cfg.memeLoose, «Memecoin: filtri allentati»): soglie più basse (liquidità, volume, capitalizzazione, età, volume organico)
+// e ammessi anche i token "community"/"strict" di Jupiter e i Token-2022 (che poi passano il controllo on-chain: niente commissioni di
+// trasferimento, hook, delegati permanenti, blocchi). Restano SEMPRE: via di vendita su Jupiter (anti-honeypot), niente autorità
+// di mint/freeze, RugCheck senza rischi 'danger', tetto alla concentrazione degli holder, niente pump/crolli estremi.
+// Leva e short SOLO dove esistono i mercati Jupiter Perps (SOL, BTC, ETH): il resto è spot 1x, solo long.
 const { fetchJson } = require('./util');
 const { JUP_BASE, jupQueue: jq } = require('./jupiter');
 const P = require('./perps');
@@ -12,6 +17,11 @@ const { USDC, SOL } = require('./tokens');
 const TOKENS_API = `${JUP_BASE}/tokens/v2`;
 const REFRESH_MS = 10 * 60e3;
 const STABLE_RE = /^(usd|usdc|usdt|usds|usde|pyusd|fdusd|usdg|usdgo|eurc|europ|eur|ausd|usdy|susd|usdai|susdai|usd1|dai|frax|tusd|usdh|uxd|usdx|husd|gusd)/i;
+const TOKENKEG = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+const T22 = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+const LISTED_TAGS = ['verified', 'community', 'strict']; // liste di Jupiter (community = votati dalla community, strict = vecchia lista rigorosa)
+// non meme: progetti/infrastruttura noti (il resto fuori dai perps è trattato come memecoin 🐸)
+const NOT_MEME = new Set(['JUP', 'JTO', 'PYTH', 'RAY', 'W', 'ORCA', 'JLP', 'HNT', 'RENDER', 'KMNO', 'DRIFT', 'MET', 'TNSR', 'CLOUD', 'ZEUS', 'SONIC', 'MOBILE', 'IO', 'GRASS', 'NOS', 'SHDW', 'BLZE', 'MNDE', 'HONEY', 'PRCL', 'SAROS', 'ZEX', 'LAYER', 'SEND', 'DBR', 'FIDA', 'STEP', 'SNS', 'ACS', 'PUMP', 'ZBCN', 'BIO', 'XBG', 'NATIX', 'MANIFEST', 'FLOAT', 'SI', 'USDE']);
 const BAD_TAGS = ['stocks', 'rwa', 'xstocks', 'equities', 'prestocks', 'pre-ipo', 'lst', 'stable', 'stablecoin'];
 // colori fissi dei mercati con leva (le altre cripto hanno un colore calcolato dal mint)
 const PERP_INFO = { SOL: { name: 'Solana', color: '#9945FF' }, BTC: { name: 'Bitcoin', color: '#F7931A' }, ETH: { name: 'Ethereum', color: '#7B8CFF' } };
@@ -35,7 +45,15 @@ function fromJup(t, phantom = false) {
     change5m: num(s5.priceChange), change1h: num(s1h.priceChange), change6h: num(s6.priceChange), change24h: num(s24.priceChange),
     buys1h: num(s1h.numBuys) || 0, sells1h: num(s1h.numSells) || 0, volChange1h: num(s1h.volumeChange),
     ageDays: created ? (Date.now() - Date.parse(created)) / 864e5 : null, usdPrice: num(t.usdPrice),
+    meme: !perp && !NOT_MEME.has(String(t.symbol || '').replace(/^\$+/, '').toUpperCase()),
   };
+}
+// soglie effettive del filtro: con «Memecoin: filtri allentati» si usa la più bassa fra le due (mai più severe di prima)
+function thresholds(cfg) {
+  const loose = !!cfg.memeLoose;
+  return { loose, liq: loose ? Math.min(cfg.uniMinLiqUsd, cfg.memeMinLiqUsd) : cfg.uniMinLiqUsd, vol: loose ? Math.min(cfg.uniMinVol24hUsd, cfg.memeMinVol24hUsd) : cfg.uniMinVol24hUsd,
+    mcap: loose ? Math.min(cfg.uniMinMcapUsd, cfg.memeMinMcapUsd) : cfg.uniMinMcapUsd, ageDays: loose ? Math.min(cfg.uniMinAgeDays, cfg.memeMinAgeHours / 24) : cfg.uniMinAgeDays,
+    organic: loose ? Math.min(cfg.uniMinOrganic, cfg.memeMinOrganic) : cfg.uniMinOrganic, top: loose ? Math.max(cfg.uniMaxTopHoldersPct, cfg.memeMaxTopHoldersPct) : cfg.uniMaxTopHoldersPct };
 }
 // regole del filtro (pure, testate): ritorna l'elenco dei motivi di scarto
 function screen(c, cfg) {
@@ -45,22 +63,24 @@ function screen(c, cfg) {
     if (c.change24h != null && c.change24h < -cfg.maxDump24hPct) out.push(`crollo 24h > ${cfg.maxDump24hPct}%`);
     return out;
   }
-  if (!c.verified) out.push('non verificato su Jupiter');
+  const th = thresholds(cfg); const tags = c.tags || [];
+  if (th.loose ? !(c.verified || tags.some((t) => LISTED_TAGS.includes(t))) : !c.verified) out.push(th.loose ? 'non in lista Jupiter (verified/community/strict)' : 'non verificato su Jupiter');
   if (c.mintAuthority || c.freezeAuthority) out.push('autorità mint/freeze attive');
-  if (c.tokenProgram && c.tokenProgram !== 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') out.push('Token-2022');
-  if (STABLE_RE.test(c.symbol) || c.tags.some((t) => BAD_TAGS.includes(t))) out.push('stablecoin/azione/staking');
-  if (c.liquidityUsd < cfg.uniMinLiqUsd) out.push(`liquidità < ${k(cfg.uniMinLiqUsd)} $`);
-  if (c.volume24h < cfg.uniMinVol24hUsd) out.push(`volume 24h < ${k(cfg.uniMinVol24hUsd)} $`);
-  if (c.mcapUsd < cfg.uniMinMcapUsd) out.push(`capitalizzazione < ${k(cfg.uniMinMcapUsd)} $`);
-  if (c.ageDays == null || c.ageDays < cfg.uniMinAgeDays) out.push(`età < ${cfg.uniMinAgeDays} giorni`);
-  if (c.organic < cfg.uniMinOrganic) out.push(`volume organico basso (${Math.round(c.organic)})`);
-  if (c.topHoldersPct != null && c.topHoldersPct > cfg.uniMaxTopHoldersPct) out.push(`holder concentrati (${Math.round(c.topHoldersPct)}%)`);
+  // Token-2022: con i filtri allentati è ammesso, ma all'acquisto il controllo on-chain scarta commissioni di trasferimento, hook, delegati, blocchi
+  if (c.tokenProgram && c.tokenProgram !== TOKENKEG && !(th.loose && c.tokenProgram === T22)) out.push('Token-2022');
+  if (STABLE_RE.test(c.symbol) || tags.some((t) => BAD_TAGS.includes(t))) out.push('stablecoin/azione/staking');
+  if (c.liquidityUsd < th.liq) out.push(`liquidità < ${k(th.liq)} $`);
+  if (c.volume24h < th.vol) out.push(`volume 24h < ${k(th.vol)} $`);
+  if (c.mcapUsd < th.mcap) out.push(`capitalizzazione < ${k(th.mcap)} $`);
+  if (c.ageDays == null || c.ageDays < th.ageDays) out.push(th.loose && th.ageDays <= 2 ? `età < ${Math.round(th.ageDays * 24)} ore` : `età < ${+th.ageDays.toFixed(1)} giorni`);
+  if (c.organic < th.organic) out.push(`volume organico basso (${Math.round(c.organic)})`);
+  if (c.topHoldersPct != null && c.topHoldersPct > th.top) out.push(`holder concentrati (${Math.round(c.topHoldersPct)}%)`);
   if (c.change1h != null && c.change1h > cfg.maxPump1hPct) out.push(`pump 1h > ${cfg.maxPump1hPct}%`);
   if (c.change24h != null && c.change24h < -cfg.maxDump24hPct) out.push(`crollo 24h > ${cfg.maxDump24hPct}%`);
   return out;
 }
 // offerta di trading: leva + long/short solo dove Jupiter Perps lo permette
-function offer(c, lev) { return c.perp ? { lev, sides: ['LONG', 'SHORT'], label: `${lev}x · L/S` } : { lev: 1, sides: ['LONG'], label: 'Spot · Long' }; }
+function offer(c, lev) { return c.perp ? { lev, sides: ['LONG', 'SHORT'], label: `${lev}x · L/S` } : { lev: 1, sides: ['LONG'], label: c.meme ? '🐸 Meme · Spot · Long' : 'Spot · Long' }; }
 
 class Universe {
   constructor({ log = () => {}, getCfg, phantomMints = () => [], fetch = fetchJson } = {}) {
@@ -73,7 +93,9 @@ class Universe {
     try {
       const cfg = this.getCfg(); const got = {};
       const add = (arr, phantom) => { for (const t of arr || []) if (t && t.id) { const c = fromJup(t, phantom || (got[t.id] && got[t.id].phantom)); got[t.id] = c; } };
-      for (const u of [`${TOKENS_API}/toptraded/24h?limit=100`, `${TOKENS_API}/toporganicscore/24h?limit=100`]) {
+      const lists = [`${TOKENS_API}/toptraded/24h?limit=100`, `${TOKENS_API}/toporganicscore/24h?limit=100`];
+      if (cfg.memeLoose) lists.push(`${TOKENS_API}/toptrending/24h?limit=100`, `${TOKENS_API}/toptraded/1h?limit=100`, `${TOKENS_API}/toptrending/1h?limit=100`, `${TOKENS_API}/toporganicscore/1h?limit=100`);
+      for (const u of lists) {
         try { add(await jq(() => this.fetch(u, { retries: 1, timeout: 15000 }))); } catch (e) { this.err = `lista Jupiter: ${e.message}`; }
       }
       // i mercati con leva ci sono sempre; poi i token del tuo Phantom
@@ -86,7 +108,7 @@ class Universe {
       for (const c of Object.values(got)) c.reasons = screen(c, cfg);
       if (Object.keys(got).length) { this.coins = got; this.ts = Date.now(); this.err = null; }
       const ok = this.eligible().length;
-      this.log('SCANSIONE', `Universo cripto aggiornato: ${Object.keys(got).length} token letti da Jupiter${ph.length ? ` (+${ph.length} dal tuo Phantom)` : ''}, ${ok} superano i filtri di sicurezza`);
+      this.log('SCANSIONE', `Universo cripto aggiornato: ${Object.keys(got).length} token letti da Jupiter${ph.length ? ` (+${ph.length} dal tuo Phantom)` : ''}, ${ok} superano i filtri di sicurezza${cfg.memeLoose ? ` (filtri memecoin allentati: ${this.eligible().filter((c) => c.meme).length} memecoin 🐸)` : ''}`);
     } finally { this.busy = false; }
     return this.list();
   }
@@ -97,9 +119,9 @@ class Universe {
   setCoins(arr, cfg) { this.coins = {}; for (const c of arr) { c.reasons = screen(c, cfg || this.getCfg()); this.coins[c.mint] = c; } this.ts = Date.now(); }
   status() {
     const all = this.list(); const ok = this.eligible();
-    return { ts: this.ts, total: all.length, eligible: ok.length, err: this.err,
+    return { ts: this.ts, total: all.length, eligible: ok.length, memes: ok.filter((c) => c.meme).length, err: this.err,
       phantom: all.filter((c) => c.phantom).map((c) => ({ symbol: c.symbol, mint: c.mint, icon: c.icon, ok: !c.reasons.length, why: c.reasons.slice(0, 2) })).slice(0, 30),
-      top: ok.sort((a, b) => b.volume24h - a.volume24h).slice(0, 12).map((c) => ({ symbol: c.symbol, mint: c.mint, icon: c.icon, perp: c.perp })) };
+      top: ok.sort((a, b) => b.volume24h - a.volume24h).slice(0, 16).map((c) => ({ symbol: c.symbol, mint: c.mint, icon: c.icon, perp: c.perp, meme: !!c.meme })) };
   }
 }
-module.exports = { Universe, screen, fromJup, offer, coinColor, PERP_INFO };
+module.exports = { Universe, screen, fromJup, offer, coinColor, thresholds, PERP_INFO };

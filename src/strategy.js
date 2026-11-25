@@ -27,7 +27,9 @@ function safetyRules(sf, cfg, core) {
   if (sf.mintAuthority || sf.freezeAuthority) out.push({ key: 'AUTH', label: 'Mint/Freeze attivi' });
   if (sf.rugScore != null && sf.rugScore > cfg.maxRugScore) out.push({ key: 'RUG', label: `Rugcheck > ${cfg.maxRugScore}` });
   if (sf.danger && sf.danger.length) out.push({ key: 'RUG', label: `Rugcheck > ${cfg.maxRugScore}` });
-  if (sf.holderRisk) out.push({ key: 'HOLD', label: 'Holder concentrati' });
+  // memecoin con filtri allentati: avvisi RugCheck sugli holder tollerati (c'è già il tetto top holder di Jupiter), mai i 'danger'
+  const holderBad = cfg.memeLoose ? (sf.holderDanger != null ? sf.holderDanger : sf.holderRisk) : sf.holderRisk;
+  if (holderBad) out.push({ key: 'HOLD', label: 'Holder concentrati' });
   if (sf.token2022Ext) out.push({ key: 'T22', label: 'Token-2022 rischioso' });
   return out;
 }

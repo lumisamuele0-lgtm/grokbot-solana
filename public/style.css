@@ -321,3 +321,4 @@ nav.bn button:active{background:#ffffff10}
 @keyframes derbyHot{to{box-shadow:0 0 18px #ffd54aaa}}
 .tm-act .bt b{color:var(--c2)}
 @media (prefers-reduced-motion:reduce){.mc-derby b,.mc-derby span,.mc-tug.hot{animation:none}}
+.bdg.spot.meme{background:#3dff7a1f;color:#8dffb0;border-color:#3dff7a55}

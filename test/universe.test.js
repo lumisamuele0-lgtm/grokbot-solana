@@ -31,7 +31,7 @@ function readySpot(e, mint, sym, drift = 0.0005) {
 }
 
 test('filtri universo: verificati, niente autorità, niente Token-2022/stablecoin/azioni, liquidità, volume, età, holder', () => {
-  const cfg = DEFAULTS;
+  const cfg = { ...DEFAULTS, memeLoose: false }; // filtri severi (i filtri memecoin sono in meme.test.js)
   assert.deepStrictEqual(screen(good(), cfg), []);
   assert.match(screen(good({ verified: false }), cfg).join(), /non verificato/);
   assert.match(screen(good({ freezeAuthority: 'X' }), cfg).join(), /autorità/);

@@ -54,9 +54,9 @@ const TEAM_IDS = ['A', 'B'];
 // testo del ruolo di un giocatore nella formazione attuale
 function roleText(L, lev) {
   if (!L || !L.mint) return L && L.role === 'uscita' ? ROLE_TXT.uscita : 'riserva in panchina';
-  return `${ROLE_TXT[L.role] || L.role} ${L.symbol} (${L.perp ? `${L.side === 'SHORT' ? 'short ▼' : 'long ▲'} ${lev}x` : 'spot ▲ 1x'})`;
+  return `${ROLE_TXT[L.role] || L.role} ${L.symbol}${L.meme ? ' 🐸' : ''} (${L.perp ? `${L.side === 'SHORT' ? 'short ▼' : 'long ▲'} ${lev}x` : 'spot ▲ 1x'})`;
 }
-const coinView = (c, lev) => ({ mint: c.mint, symbol: c.symbol, name: c.name, icon: c.icon || null, perp: !!c.perp, market: c.market || null, color: c.color || U.coinColor(c.mint, c.symbol), phantom: !!c.phantom, label: U.offer(c, lev).label });
+const coinView = (c, lev) => ({ mint: c.mint, symbol: c.symbol, name: c.name, icon: c.icon || null, perp: !!c.perp, market: c.market || null, color: c.color || U.coinColor(c.mint, c.symbol), phantom: !!c.phantom, meme: !!c.meme, label: U.offer(c, lev).label });
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 const TALK = {
@@ -170,10 +170,12 @@ class MatchManager {
     const e = this.e; let pool = e.universe ? e.universe.eligible() : [];
     if (!pool.length) pool = Object.entries(P.SHORT_MARKETS).map(([mint, sym]) => { const st = e.market.stats[mint] || {}; return { mint, symbol: sym, name: U.PERP_INFO[sym].name, perp: true, market: sym, color: U.coinColor(mint), volume24h: st.volume24h || 1e8, change1h: st.change1h, change24h: st.change24h, icon: st.icon || null }; });
     if (!e.cfg.spotLongs) pool = pool.filter((c) => c.perp);
+    pool = pool.filter((c) => !this.unsafe(c)); // scartate dal controllo on-chain/RugCheck (es. Token-2022 con commissioni): fuori dal campo
     const perpOk = !e.perpBlock(), spotOk = !e.spotBlock();
     if (perpOk !== spotOk) { const f = pool.filter((c) => (c.perp ? perpOk : spotOk)); if (f.length) pool = f; }
     return pool;
   }
+  unsafe(c) { if (c.perp) return false; const sf = this.e.market.safety[c.mint]; return !!(sf && S.safetyRules(sf, this.e.cfg, false).length); }
   // punteggio di una cripto per lo stile della squadra (+ MENTORE: strategie studiate e notizie sui mercati principali)
   coinScore(teamId, c) {
     const T = TEAMS[teamId]; const r = this.e.research;
@@ -217,7 +219,7 @@ class MatchManager {
     const bench = (ts.coach && ts.coach.benchUntil) || {}; const resting = (pid) => bench[pid] > now; // DERBY: chi è in crisi riposa in panchina
     const slots = [];
     ts.coins.forEach((c, i) => {
-      const base = { mint: c.mint, symbol: c.symbol, perp: c.perp, slot: i };
+      const base = { mint: c.mint, symbol: c.symbol, perp: c.perp, meme: !!c.meme, slot: i };
       if (c.perp) slots.push({ ...base, side: 'LONG', role: 'attaccante' }, { ...base, side: 'SHORT', role: 'difensore' });
       else slots.push({ ...base, side: 'LONG', role: 'attaccante' }, { ...base, side: 'LONG', role: 'scalper' });
     });
@@ -321,7 +323,8 @@ class MatchManager {
       // focus: la cripto dove le strategie studiate dal MENTORE (stile della squadra) e le notizie sono più favorevoli
       // ogni 5 minuti (o appena l'universo è pronto) l'allenatore rivaluta le sue 3 cripto
       const ts = m.teams[id]; const uts = this.e.universe ? this.e.universe.ts : 0;
-      if (!ts.coins || now - (ts.coinsAt || 0) >= COACH.PICK_EVERY_MS || (uts > (ts.coinsAt || 0) && (ts.coins.length < MAX_COINS || ts.coins.every((x) => x.perp)) && now - (ts.coinsAt || 0) > 30e3)) this.pickCoins(id, now, true);
+      const held = (mint) => this.e.book.positions.some((p) => p.matchId === m.id && p.team === id && p.mint === mint);
+      if (!ts.coins || (ts.coins.some((x) => this.unsafe(x) && !held(x.mint)) && now - (ts.coinsAt || 0) > 10e3) || now - (ts.coinsAt || 0) >= COACH.PICK_EVERY_MS || (uts > (ts.coinsAt || 0) && (ts.coins.length < MAX_COINS || ts.coins.every((x) => x.perp)) && now - (ts.coinsAt || 0) > 30e3)) this.pickCoins(id, now, true);
       if (now - (c.focusAt || 0) >= COACH.FOCUS_EVERY_MS) {
         c.focusAt = now; let best = null, bs = 0;
         for (const coin of ts.coins || []) { const s = this.coinScore(id, coin); if (s > bs) { bs = s; best = coin.symbol; } }

@@ -218,7 +218,7 @@ class Engine extends EventEmitter {
       const fresh = !prev || now - prev > 30 * 60000;
       const core = coreMints.has(m) || cfg.tokens.includes(m) && coreMints.has(m);
       s.core = core;
-      const reasons = S.filterRules(s, cfg);
+      const reasons = S.filterRules(s, core ? cfg : this.verifyCfg());
       if (!reasons.length && !core) {
         if (fresh || this.watch.has(m)) {
           const sf = await this.market.checkSafety(m, (x) => chain.mintInfo(this.conn, x));
@@ -261,6 +261,11 @@ class Engine extends EventEmitter {
         try { await this.market.backfill(m); } catch (e) { this.log('SCANSIONE', `candele ${(this.watch.get(m) || { symbol: P.SHORT_MARKETS[m] }).symbol}: ${e.message}`, 'warn'); }
       }
     }
+  }
+  // VERIFICA delle cripto non principali: con «Memecoin: filtri allentati» soglie più basse (mai più severe di quelle impostate)
+  verifyCfg() {
+    const c = this.cfg; if (!c.memeLoose) return c;
+    return { ...c, minLiquidityUsd: Math.min(c.minLiquidityUsd, c.memeMinLiqUsd), minVolume24hUsd: Math.min(c.minVolume24hUsd, c.memeMinVol24hUsd), minMcapUsd: Math.min(c.minMcapUsd, c.memeMinMcapUsd), minPairAgeMin: Math.min(c.minPairAgeMin, c.memeMinAgeHours * 60) };
   }
   holding(mint) { return Object.values(this.st.books).some((b) => b.positions.some((p) => p.mint === mint)); }
 

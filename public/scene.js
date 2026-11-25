@@ -353,7 +353,7 @@
     for (const id of ['A', 'B']) {
       const T = st.teams[id]; if (!T || !T.coins) continue; const x = id === 'A' ? 129 : 271;
       T.coins.forEach((c, i) => {
-        const y = ROWY[i] - 35; const lbl = `${c.symbol} · ${c.perp ? c.label.replace(' · ', ' ') : 'spot'}`;
+        const y = ROWY[i] - 35; const lbl = `${c.symbol} · ${c.perp ? c.label.replace(' · ', ' ') : c.meme ? '🐸 meme spot' : 'spot'}`;
         ctx.font = '800 5.6px Inter,-apple-system,sans-serif'; const w = ctx.measureText(lbl).width + 12;
         ctx.fillStyle = 'rgba(0,0,0,0.38)'; rr(x - w / 2, y - 4.5, w, 9, 4); ctx.fill();
         ctx.fillStyle = c.color || '#fff'; ctx.beginPath(); ctx.arc(x - w / 2 + 5, y, 2.2, 0, 6.28); ctx.fill();
