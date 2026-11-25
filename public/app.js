@@ -145,6 +145,7 @@
 
   // ---------- numeri animati
   const tw = {};
+  const RMQ = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   function tween(key, el, target, fmt) {
     const o = tw[key] || (tw[key] = { v: target, from: target, to: target, t0: 0 });
     if (target == null || !isFinite(target)) { el.textContent = '—'; return; }
@@ -154,7 +155,7 @@
   (function tick(now) {
     for (const o of Object.values(tw)) {
       if (!o.el) continue;
-      const p = Math.min(1, (now - o.t0) / 900), e = 1 - Math.pow(1 - p, 3);
+      const p = RMQ ? 1 : Math.min(1, (now - o.t0) / 900), e = 1 - Math.pow(1 - p, 3);
       o.v = o.from + (o.to - o.from) * e;
       const s = o.fmt(o.v); if (o.el.textContent !== s) o.el.textContent = s;
     }
@@ -218,6 +219,46 @@
     $('#pbGL').textContent = 'perdite ' + fmt(pb.grossLoss || 0);
     $('#pbDayWL').textContent = `oggi ${pb.dayWins || 0}✓ ${pb.dayLosses || 0}✗`;
     pbLive.push({ t: s.t || Date.now(), v: tot }); if (pbLive.length > 400) pbLive.shift();
+    renderCap(s);
+  }
+  // ---------- ripartizione del capitale: Capitale totale = Disponibile + In posizioni (− commissioni SOL esterne)
+  // nella valuta del bot (USDC = $, SOL = ◎), senza conversioni: gli stessi numeri del motore e del Logger
+  function capFmt(s) {
+    return (v) => (v == null || !isFinite(v) ? '—' : (v < 0 ? '−' : '') + (s.base === 'SOL' ? '◎' + nf(Math.abs(v), 4) : nf(Math.abs(v), 2) + ' $'));
+  }
+  function renderCap(s) {
+    const c = s.capital; if (!c || !$('#pbCap')) return;
+    const f = capFmt(s);
+    tween('capTot', $('#capTot'), c.total, f);
+    tween('capAv', $('#capAv'), c.available, f);
+    tween('capIn', $('#capIn'), c.inPositions, f);
+    $('#capBarAv').style.width = c.availablePct.toFixed(2) + '%'; $('#capBarIn').style.width = c.inPositionsPct.toFixed(2) + '%';
+    const n = s.positions.length; const mv = c.openMove;
+    $('#capSub').innerHTML = n
+      ? `${nf(c.inPositionsPct, 1)}% impegnato in ${n} ${n === 1 ? 'posizione' : 'posizioni'} · investiti ${f(c.committed)} · <span class="${mv >= 0 ? 'mint' : 'red'}">${mv >= 0 ? '+' : '−'}${f(Math.abs(mv))}</span>${c.extFees > 0 ? ` · commissioni SOL ${f(c.extFees)}` : ''}`
+      : `tutto disponibile · nessuna posizione aperta${c.extFees > 0 ? ` · commissioni SOL ${f(c.extFees)}` : ''}`;
+  }
+  // animazione: soldi che escono dal Disponibile verso la posizione (apertura) o rientrano (presa parziale/chiusura)
+  function cashFx(e) {
+    if (!S) return;
+    const f = capFmt(S); const av = $('#capAv'); if (!av) return;
+    const out = e.kind === 'open'; const good = out ? null : (e.pnl == null ? e.delta >= 0 : e.pnl >= 0);
+    const col = out ? 'out' : good ? 'win' : 'loss';
+    const txt = (e.delta >= 0 ? '+' : '−') + f(Math.abs(e.delta));
+    const box = av.closest('.pc-i'); box.classList.remove('hit-out', 'hit-win', 'hit-loss'); void box.offsetWidth; box.classList.add('hit-' + col);
+    const ar = av.getBoundingClientRect();
+    const fl = document.createElement('div'); fl.className = 'capFloat ' + col; fl.textContent = txt;
+    fl.style.left = ar.left + 'px'; fl.style.top = ar.top + 'px'; document.body.appendChild(fl);
+    if (RMQ) { setTimeout(() => fl.remove(), 1600); return; }
+    // destinazione/partenza: la card della posizione se visibile, altrimenti la sala operativa
+    const card = document.querySelector(`.pcard[data-pid="${e.id}"]`); const vis = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight && r.width ? r : null; };
+    const tr = vis(card) || vis($('#sceneBox')) || vis($('#pos'));
+    const chip = document.createElement('div'); chip.className = 'capChip ' + col; chip.textContent = txt; document.body.appendChild(chip);
+    const from = out ? { x: ar.left + ar.width / 2, y: ar.top + ar.height / 2 } : tr ? { x: tr.left + tr.width / 2, y: tr.top + Math.min(40, tr.height / 2) } : { x: ar.left, y: ar.top + 80 };
+    const to = out ? (tr ? { x: tr.left + tr.width / 2, y: tr.top + Math.min(40, tr.height / 2) } : { x: ar.left, y: ar.top + 120 }) : { x: ar.left + ar.width / 2, y: ar.top + ar.height / 2 };
+    chip.animate([{ transform: `translate(${from.x}px,${from.y}px) translate(-50%,-50%) scale(1)`, opacity: 1 }, { transform: `translate(${(from.x + to.x) / 2}px,${Math.min(from.y, to.y) - 40}px) translate(-50%,-50%) scale(1.15)`, opacity: 1, offset: 0.5 }, { transform: `translate(${to.x}px,${to.y}px) translate(-50%,-50%) scale(.6)`, opacity: 0 }], { duration: 1100, easing: 'cubic-bezier(.4,0,.2,1)' }).onfinish = () => chip.remove();
+    if (card && !out) card.classList.add('drain');
+    setTimeout(() => fl.remove(), 1700);
   }
   function trimHist(s) { const h = s.equityHist || []; const lt = h.length ? h[h.length - 1].t : 0; return h.map((p) => p.v - s.startEquity).concat(pbLive.filter((p) => p.t > lt).map((p) => p.v)); }
   function drawPbSpark() {
@@ -323,6 +364,7 @@
   function onEv(e) {
     Scene.event(e);
     if (e.type === 'log') appendLog(e);
+    if (e.type === 'cash') cashFx(e);
     if (e.type === 'agent' && e.agent === 'CAPO' && e.token && S) {
       const w = (S.watch || []).find((x) => x.symbol === e.token);
       if (w) fetch('/api/candles?mint=' + w.mint).then((r) => r.json()).then((c) => Scene.setScreen(e.token, c.slice(-90).map((k) => k.c), e.action === 'pick' ? 'SEGNALE LONG' : 'in analisi')).catch(() => {});
@@ -389,7 +431,7 @@
       const sgnP = (x) => (x >= 0 ? '+' : '−') + nf(Math.abs(x), 1) + '%';
       const sh = p.side === 'SHORT'; const pp = sh || p.perp; const px = (x) => (x >= 100 ? nf(x, 0) : x >= 1 ? nf(x, 2) : nf(x, 4));
       const badge = `<span class="side ${sh ? 'short' : 'long'}">${sh ? '▼ SHORT' : '▲ LONG'} ${p.lev || 1}x</span>`;
-      return `<div class="pcard${sh ? ' isShort' : ''}${pp && (p.lev || 1) >= 5 ? ' hiLev' : ''}"><div><div class="sym">$${esc(p.symbol)} ${badge}</div><div class="sub2">${pp ? `margine ${nf(p.costBase, d)} ${s.base} · esposizione $${nf(p.sizeUsd, 2)} · ingresso $${px(p.entryPrice)}` : `ingresso ${nf(p.costBase, d)} ${s.base}`} · ${hhmm(p.openedAt)}${p.sigOpen ? ` · <a href="https://solscan.io/tx/${p.sigOpen}" target="_blank" rel="noopener">tx</a>` : ''}</div></div>
+      return `<div data-pid="${esc(p.id)}" class="pcard${sh ? ' isShort' : ''}${pp && (p.lev || 1) >= 5 ? ' hiLev' : ''}"><div><div class="sym">$${esc(p.symbol)} ${badge}</div><div class="sub2">${pp ? `margine ${nf(p.costBase, d)} ${s.base} · esposizione $${nf(p.sizeUsd, 2)} · ingresso $${px(p.entryPrice)}` : `ingresso ${nf(p.costBase, d)} ${s.base}`} · ${hhmm(p.openedAt)}${p.sigOpen ? ` · <a href="https://solscan.io/tx/${p.sigOpen}" target="_blank" rel="noopener">tx</a>` : ''}</div></div>
       <div class="pnl ${p.pnl >= 0 ? 'mint' : 'red'}">${p.pnl >= 0 ? '+' : ''}${nf(p.pnl, d)}<div class="sub2">${nf(p.pnlPct, 2)}%</div></div>
       ${pp ? `<div class="sub2 liq" style="grid-column:1/3">☠️ liquidazione $${px(p.liqPrice)} (${sgnP(((p.liqPrice - p.entryPrice) / p.entryPrice) * 100)}) · ora $${p.price ? px(p.price) : '—'} · commissioni $${nf(p.perpFeesUsd || 0, 3)}</div>` : ''}
       ${p.partialsN ? `<div class="sub2 pp" style="grid-column:1/3">💰 ${p.partialsN} ${p.partialsN === 1 ? 'presa parziale' : 'prese parziali'} (${p.soldPct}% ${sh ? 'ricomprato' : 'venduto'}) · incassato ${p.realizedPart >= 0 ? '+' : ''}${nf(p.realizedPart, d)} ${s.base}</div>` : ''}
