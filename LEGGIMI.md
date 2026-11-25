@@ -103,12 +103,12 @@ Su iPhone il collegamento a Phantom funziona dentro l'app Phantom: tocca **Phant
 | Kill switch % | 20 | se il capitale scende del 20%, vende tutto (in USDC) e si ferma |
 | Kill switch assoluto | 0 (off) | come sopra ma in importo fisso |
 | Stop giornaliero | 8% | niente nuove operazioni fino a domani |
-| Max per operazione | 20% | dei soldi del budget (metà per i meme) |
+| Rischio per operazione | 7% | del capitale (budget + utili realizzati) investito in ogni trade, meme compresi |
 | Posizioni max | 3 | |
 | Slippage | 100 bps (1%) | |
 | Impatto prezzo max | 1% | se lo swap muove troppo il prezzo, non entra |
 | Durata max | 240 min | poi chiude comunque |
-| Filtri meme | Liq ≥ 40k $, Vol 24h ≥ 100k $, età ≥ 6 h, MCap ≥ 300k $, RugCheck ≤ 30, niente mint/freeze authority | |
+| Filtri meme | Liq ≥ 40k $, Vol 24h ≥ 3k $, età dalla creazione del pool ≥ 1 minuto, MCap ≥ 300k $, RugCheck ≤ 30, niente mint/freeze authority | |
 
 Solo **spot**: nessuna leva sui fondi reali.
 

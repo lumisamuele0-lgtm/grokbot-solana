@@ -4,7 +4,7 @@ const path = require('path');
 const EventEmitter = require('events');
 const { PublicKey, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const { readJson, debounceWriter } = require('./store');
-const { DEFAULTS, sanitize } = require('./config');
+const { DEFAULTS, sanitize, migrateConfig } = require('./config');
 const { CORE, BASES, SOL, USDC } = require('./tokens');
 const S = require('./strategy');
 const jup = require('./jupiter');
@@ -38,13 +38,18 @@ class Engine extends EventEmitter {
     super();
     this.dataDir = dataDir;
     this.ks = keystore;
-    this.cfg = { ...DEFAULTS, ...readJson(path.join(dataDir, 'config.json'), {}) };
+    const savedCfg = readJson(path.join(dataDir, 'config.json'), null);
+    const mig = migrateConfig(savedCfg || {});
+    this.cfg = { ...DEFAULTS, ...mig.cfg };
+    this.cfgMigrated = !!savedCfg && mig.changed;
     this.cfg.trading = false; // dopo un riavvio si riparte sempre in pausa... salvo autostart
     const saved = readJson(path.join(dataDir, 'state.json'), null);
     this.st = saved || { books: {}, counters: newCounters(), agents: {}, log: [], userWallet: null, withdrawAddress: null, deposits: [], realTxs: [] };
     if (!this.st.books.SIM) this.st.books.SIM = newBook(this.cfg.budget, this.cfg);
     this.cfgWriter = debounceWriter(path.join(dataDir, 'config.json'), () => this.cfg, 300);
     this.stWriter = debounceWriter(path.join(dataDir, 'state.json'), () => this.st, 2000);
+    if (this.cfgMigrated) this.cfgWriter.flush(); // salva subito i nuovi parametri sul volume
+    if (this.cfgMigrated) this.log('SISTEMA', `Parametri aggiornati: rischio ${this.cfg.maxTradePct}% per operazione, volume 24h min ${this.cfg.minVolume24hUsd} $, età min ${this.cfg.minPairAgeMin} min`);
     this.market = new Market((lvl, t) => this.log('SISTEMA', t, lvl));
     this.watch = new Map(); // mint -> {symbol, approvedAt}
     this.seen = {}; // mint -> ultimo controllo filtri
@@ -625,12 +630,23 @@ class Engine extends EventEmitter {
     const ws = [...this.watch.entries()].map(([m, w]) => { const s = this.market.stats[m] || {}; return { mint: m, symbol: w.symbol, core: w.core, priceUsd: this.market.usd(m), change1h: s.change1h, liq: s.liquidityUsd, candles: (this.market.candles[m] || []).length }; });
     const ks = this.ks.info();
     const closed = b.wins + b.losses;
+    // riepilogo guadagni/perdite per il pannello in alto
+    const unrealizedPnl = positions.reduce((a, p) => a + (p.pnl || 0), 0);
+    const today = dayKey(); const todayTr = b.trades.filter((x) => x.closedAt && new Date(x.closedAt).toISOString().slice(0, 10) === today);
+    let grossWin = 0, grossLoss = 0, best = null, worst = null;
+    for (const x of b.trades) { if (x.pnl >= 0) grossWin += x.pnl; else grossLoss += x.pnl; if (!best || x.pnl > best.pnl) best = x; if (!worst || x.pnl < worst.pnl) worst = x; }
+    const pnlBox = {
+      total: eq - b.startEquity, realized: b.realizedPnl, unrealized: unrealizedPnl, day: b.dayKey === today ? eq - b.dayStartEquity : unrealizedPnl,
+      dayWins: todayTr.filter((x) => x.pnl >= 0).length, dayLosses: todayTr.filter((x) => x.pnl < 0).length, grossWin, grossLoss,
+      best: best ? { symbol: best.symbol, pnl: best.pnl } : null, worst: worst ? { symbol: worst.symbol, pnl: worst.pnl } : null,
+      baseUsd, solUsd: this.market.usd(SOL),
+    };
     return {
       t: Date.now(), mode: cfg.mode, trading: cfg.trading, killed: b.killed, killReason: b.killReason, busy: this.busy,
       cfg: { ...cfg }, base: cfg.baseCurrency,
       equity: eq, equityEur: toEur(eq), startEquity: b.startEquity, pnl: eq - b.startEquity, pnlEur: toEur(eq - b.startEquity),
       roi: b.startEquity > 0 ? eq / b.startEquity : 1, realizedPnl: b.realizedPnl, fees: b.feesBase, cash: b.cash, solReserve: b.solReserve,
-      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses,
+      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox,
       positions, trades: b.trades.slice(0, 60), equityHist: hist.filter((_, i) => i % step === 0 || i === hist.length - 1),
       counters: this.st.counters, agents: AGENTS.map((a) => ({ ...a, count: this.st.counters.agents[a.id] || 0, last: this.st.agents[a.id] || null })),
       log: this.st.log.slice(-80), watch: ws,

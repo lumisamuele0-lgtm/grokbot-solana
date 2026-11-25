@@ -11,7 +11,7 @@ function filterRules(s, cfg) {
   const meme = !s.core;
   if (s.liquidityUsd < cfg.minLiquidityUsd) out.push({ key: 'LIQ', label: `Liq < ${k(cfg.minLiquidityUsd)}` });
   if (s.volume24h < cfg.minVolume24hUsd) out.push({ key: 'VOL', label: `Vol 24h < ${k(cfg.minVolume24hUsd)}` });
-  if (meme && s.ageHours != null && s.ageHours < cfg.minPairAgeHours) out.push({ key: 'AGE', label: `Età < ${cfg.minPairAgeHours}h` });
+  if (meme && s.ageHours != null && s.ageHours * 60 < cfg.minPairAgeMin) out.push({ key: 'AGE', label: `Età < ${cfg.minPairAgeMin} min` });
   if (meme && s.mcapUsd != null && s.mcapUsd < cfg.minMcapUsd) out.push({ key: 'MCAP', label: `MCap < ${k(cfg.minMcapUsd)}` });
   if (s.change1h != null && s.change1h > cfg.maxPump1hPct) out.push({ key: 'PUMP', label: `Pump 1h > ${cfg.maxPump1hPct}%` });
   if (s.change24h != null && s.change24h < -cfg.maxDump24hPct) out.push({ key: 'DUMP', label: `Crollo 24h > ${cfg.maxDump24hPct}%` });
@@ -80,11 +80,12 @@ function riskPlan(atr, cfg, core) {
   return { slPct, tpPct, trailPct: slPct * 0.7, leverage: 1 };
 }
 
-// capitale = budget + PnL realizzato, limitato dal valore effettivo
-function sizePosition({ capital, cash, cfg, confidence, atr, core, minTrade }) {
-  let size = capital * (cfg.maxTradePct / 100) * (0.5 + 0.5 * clamp(confidence, 0, 1));
+// capitale = budget + PnL realizzato, limitato dal valore effettivo.
+// Rischio per operazione: si investe esattamente maxTradePct% del capitale (× memeSizeMult per i meme),
+// mai più del contante disponibile. Lo stop-loss resta calcolato sulla volatilità (riskPlan).
+function sizePosition({ capital, cash, cfg, core, minTrade }) {
+  let size = capital * (cfg.maxTradePct / 100);
   if (!core) size *= cfg.memeSizeMult;
-  if (atr != null && atr > 2) size *= clamp(2 / atr, 0.35, 1);
   size = Math.min(size, cash);
   if (size < minTrade) return { size: 0, reason: `Importo sotto il minimo (${minTrade})` };
   return { size };

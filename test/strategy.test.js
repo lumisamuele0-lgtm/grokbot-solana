@@ -36,7 +36,7 @@ test('analisi: RSI ipercomprato non entra', () => {
 test('filtri: scarta liquidità bassa, pump e vendite; core non soggetti a età/mcap', () => {
   const base = { core: false, liquidityUsd: 100000, volume24h: 500000, ageHours: 48, mcapUsd: 5e6, change1h: 2, change24h: 5, buys1h: 100, sells1h: 90 };
   assert.deepStrictEqual(S.filterRules(base, DEFAULTS), []);
-  const r = S.filterRules({ ...base, liquidityUsd: 10000, change1h: 80, sells1h: 300, ageHours: 1 }, DEFAULTS).map((x) => x.key);
+  const r = S.filterRules({ ...base, liquidityUsd: 10000, change1h: 80, sells1h: 300, ageHours: 0.5 / 60 }, DEFAULTS).map((x) => x.key);
   assert.deepStrictEqual(r.sort(), ['AGE', 'LIQ', 'PUMP', 'SELLS']);
   assert.deepStrictEqual(S.filterRules({ ...base, core: true, ageHours: 1, mcapUsd: 1 }, DEFAULTS), []);
 });
@@ -56,14 +56,20 @@ test('piano di rischio: SL dentro i limiti, TP = SL × rapporto, leva 1', () => 
   assert.ok(Math.abs(m.tpPct - m.slPct * DEFAULTS.rewardRisk) < 1e-9);
   assert.ok(S.riskPlan(0.2, DEFAULTS, false).slPct >= 3);
 });
-test('dimensione: rispetta max %, liquidità e minimo; meme ridotti', () => {
+test('dimensione: 7% del capitale per operazione, limitato dal contante e dal minimo', () => {
   const a = S.sizePosition({ capital: 100, cash: 100, cfg: DEFAULTS, confidence: 1, atr: 1, core: true, minTrade: 2 });
-  assert.strictEqual(a.size, 20);
-  const m = S.sizePosition({ capital: 100, cash: 100, cfg: DEFAULTS, confidence: 1, atr: 1, core: false, minTrade: 2 });
-  assert.strictEqual(m.size, 10);
+  assert.ok(Math.abs(a.size - 7) < 1e-9);
+  const m = S.sizePosition({ capital: 100, cash: 100, cfg: DEFAULTS, confidence: 0.2, atr: 8, core: false, minTrade: 2 });
+  assert.ok(Math.abs(m.size - 7) < 1e-9);
+  assert.ok(Math.abs(S.sizePosition({ capital: 100, cash: 100, cfg: { ...DEFAULTS, memeSizeMult: 0.5 }, core: false, minTrade: 2 }).size - 3.5) < 1e-9);
   assert.strictEqual(S.sizePosition({ capital: 100, cash: 5, cfg: DEFAULTS, confidence: 1, atr: 1, core: true, minTrade: 2 }).size, 5);
-  assert.strictEqual(S.sizePosition({ capital: 5, cash: 5, cfg: DEFAULTS, confidence: 0, atr: 1, core: false, minTrade: 2 }).size, 0);
-  assert.ok(S.sizePosition({ capital: 100, cash: 100, cfg: DEFAULTS, confidence: 1, atr: 8, core: true, minTrade: 2 }).size < 20);
+  assert.strictEqual(S.sizePosition({ capital: 20, cash: 20, cfg: DEFAULTS, confidence: 0, atr: 1, core: false, minTrade: 2 }).size, 0);
+});
+test('filtri: volume 24h minimo 3k $ ed età minima 1 minuto', () => {
+  const base = { core: false, liquidityUsd: 100000, volume24h: 3000, ageHours: 1 / 60, mcapUsd: 5e6, change1h: 2, change24h: 5, buys1h: 10, sells1h: 9 };
+  assert.deepStrictEqual(S.filterRules(base, DEFAULTS), []);
+  assert.deepStrictEqual(S.filterRules({ ...base, volume24h: 2999 }, DEFAULTS).map((x) => x.key), ['VOL']);
+  assert.deepStrictEqual(S.filterRules({ ...base, ageHours: 0.9 / 60 }, DEFAULTS).map((x) => x.key), ['AGE']);
 });
 test('limiti: kill switch %, stop assoluto, perdita giornaliera, posizioni max', () => {
   const c = { ...DEFAULTS, maxLossAbs: 0 };

@@ -22,8 +22,22 @@
 
   function Bot(id) {
     const [x, y] = HOME[id];
-    return { id, x, y, hx: x, hy: y, color: COLORS[id], tasks: [], carry: null, emote: null, emoteT: 0, phase: Math.random() * 6, moving: false, face: 1, blink: 0, beam: null, idleT: 2 + Math.random() * 4 };
+    return { id, x, y, hx: x, hy: y, color: COLORS[id], tasks: [], carry: null, emote: null, emoteT: 0, phase: Math.random() * 6, moving: false, face: 1, blink: 0, beam: null, idleT: 2 + Math.random() * 4,
+      spd: 0, lean: 0, jz: 0, jv: 0, sq: 0, sqv: 0, shakeT: 0, spinT: 0, spinD: 0.6, danceT: 0, waveT: 0, happyT: 0, sadT: 0, wob: 0, look: 0, lookT: 0, hops: 0 };
   }
+  // movimento ridotto se l'utente lo chiede (Impostazioni iPhone → Accessibilità → Movimento)
+  const RM = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const AMP = RM ? 0.4 : 1;
+  const later = []; // azioni ritardate {at, f}
+  const after = (s, f) => later.push({ at: t + s, f });
+  // ---------- reazioni fisiche
+  function jump(b, h = 10) { if (b.jz > 0.5) return; h *= AMP; b.jv = Math.sqrt(2 * 620 * h); b.sq = -0.18 * AMP; b.sqv = 0; b.wob = 1; }
+  function shake(b, s = 0.6) { b.shakeT = Math.max(b.shakeT, s); b.wob = 1; }
+  function spin(b, s = 0.6) { if (RM) return; b.spinT = s; b.spinD = s; }
+  function dance(b, s = 1.6) { b.danceT = Math.max(b.danceT, s); b.happyT = Math.max(b.happyT, s + 0.6); }
+  function wave(b, s = 1.4) { b.waveT = Math.max(b.waveT, s); }
+  function celebrate(b, d = 0) { after(d, () => { b.sadT = 0; jump(b, 12); dance(b, 1.8); after(0.45, () => jump(b, 8)); }); }
+  function sulk(b, d = 0) { after(d, () => { b.happyT = 0; b.danceT = 0; shake(b, 0.7); b.sadT = 2.2; b.sq = 0.16 * AMP; }); }
 
   // ---------- API pubblica
   const Scene = {
@@ -62,7 +76,7 @@
     const x = (e.clientX - r.left - ox) / scale, y = (e.clientY - r.top - oy) / scale;
     let best = null, bd = 30;
     for (const b of Object.values(bots)) { const d = Math.hypot(b.x - x, b.y - 18 - y); if (d < bd) { bd = d; best = b; } }
-    if (best && onTap) { const p = toScreen(best.x, best.y - 44); onTap(best.id, p.x, p.y); best.tasks.length < 3 && best.tasks.push({ k: 'call', f: () => emote(best, '👋', 1.2) }); }
+    if (best && onTap) { const p = toScreen(best.x, best.y - 44); onTap(best.id, p.x, p.y); best.tasks.length < 3 && best.tasks.push({ k: 'call', f: () => emote(best, '👋', 1.2) }); jump(best, 9); wave(best, 1.6); }
     else if (onTap) onTap(null);
   }
 
@@ -94,15 +108,22 @@
 
   function onEvent(e) {
     if (e.type === 'trade') {
-      if (e.side === 'BUY') { coins(ST.vault, ST.portal, 6, '#FFD54A'); st.portal = 2.5; st.vaultGlow = 1; }
+      if (e.side === 'BUY') { coins(ST.vault, ST.portal, 6, '#FFD54A'); st.portal = 2.5; st.vaultGlow = 1; jump(bots.ESECUZIONE, 12); spin(bots.ESECUZIONE, 0.5); after(0.2, () => jump(bots.DIMENSIONE, 7)); after(0.35, () => jump(bots.CAPO, 7)); }
       else { const p = podFor(e.symbol); const win = (e.pnl || 0) >= 0; coins(p, ST.vault, 8, win ? '#00FF88' : '#ff5a6a'); burst(p, win ? '#00FF88' : '#ff5a6a'); st.vaultGlow = 1;
-        floatTxt({ x: ST.vault.x, y: ST.vault.y - 30 }, (win ? '+' : '') + (e.pnl || 0).toFixed(e.amount < 5 ? 4 : 2), win ? '#00FF88' : '#ff5a6a'); }
+        floatTxt({ x: ST.vault.x, y: ST.vault.y - 30 }, (win ? '+' : '') + (e.pnl || 0).toFixed(e.amount < 5 ? 4 : 2), win ? '#00FF88' : '#ff5a6a');
+        Object.values(bots).forEach((b, i) => (win ? celebrate(b, i * 0.08) : sulk(b, i * 0.05)));
+        if (!win) after(0.5, () => { wave(bots.RISCHIO, 1.2); emote(bots.RISCHIO, '🛡', 1.2); }); }
       return;
     }
-    if (e.type === 'trading') { Object.values(bots).forEach((b) => emote(b, e.on ? '▶' : '⏸', 1.2)); return; }
+    if (e.type === 'trading') { Object.values(bots).forEach((b, i) => { emote(b, e.on ? '▶' : '⏸', 1.2); if (e.on) after(i * 0.07, () => { jump(b, 11); spin(b, 0.5); }); else { b.sq = 0.14 * AMP; b.sadT = 1; } }); return; }
     if (e.type !== 'agent') return;
     const b = bots[e.agent]; if (!b) return;
     const a = e.action;
+    // micro-reazioni comuni
+    if (a === 'reject' || a === 'block' || a === 'fail') shake(b, 0.45);
+    else if (a === 'approve' || a === 'pick' || a === 'plan' || a === 'size') jump(b, a === 'pick' ? 12 : 7);
+    if (a === 'pick') spin(b, 0.6);
+    if (a === 'kill') Object.values(bots).forEach((x, i) => after(i * 0.04, () => shake(x, 1.6)));
     switch (e.agent) {
       case 'SCANSIONE':
         st.radarFast = 2.5; bits({ x: ST.radar.x, y: -5 }, ST.radar, 8, '#3B82F6');
@@ -148,7 +169,7 @@
       case 'SORVEGLIANZA':
         if (a === 'win' || a === 'loss') {
           const p = podFor(e.token); b.tasks = [];
-          go(b, p.x, p.y + 16, true); call(b, () => { b.beam = { x: p.x, y: p.y, s: 0.6 }; emote(b, a === 'win' ? '💰' : '🩸', 1.5, a === 'win' ? '#00FF88' : '#ff5a6a'); });
+          go(b, p.x, p.y + 16, true); call(b, () => { b.beam = { x: p.x, y: p.y, s: 0.6 }; emote(b, a === 'win' ? '💰' : '🩸', 1.5, a === 'win' ? '#00FF88' : '#ff5a6a'); if (a === 'win') { jump(b, 12); dance(b, 1.2); } else shake(b, 0.7); });
           wait(b, 0.6); call(b, () => { b.carry = { type: 'coin', color: a === 'win' ? '#00FF88' : '#ff5a6a' }; });
           go(b, ST.vault.x + 24, ST.vault.y, true); call(b, () => { b.carry = null; st.vaultGlow = 1; }); home(b);
         }
@@ -166,31 +187,62 @@
       if (b.beam) { b.beam.s -= dt; if (b.beam.s <= 0) b.beam = null; }
       b.blink -= dt; if (b.blink < -3 - Math.random() * 3) b.blink = 0.12;
       if (b.tasks.length > 14) b.tasks.splice(0, b.tasks.length - 14);
+      physics(b, dt);
       const k = b.tasks[0];
       b.moving = false;
-      if (!k) { idle(b, dt); continue; }
-      if (k.k === 'move') {
+      let leanT = 0;
+      if (!k) { b.spd = Math.max(0, b.spd - dt * 260); idle(b, dt); }
+      else if (k.k === 'move') {
         const dx = k.x - b.x, dy = k.y - b.y, d = Math.hypot(dx, dy);
         const v = k.v * (b.tasks.length > 6 ? 1.8 : 1);
-        if (d < 1.5) { b.x = k.x; b.y = k.y; b.tasks.shift(); }
-        else { const s = Math.min(d, v * dt); b.x += (dx / d) * s; b.y += (dy / d) * s; b.moving = true; b.phase += dt * v * 0.22; if (Math.abs(dx) > 0.5) b.face = dx > 0 ? 1 : -1; }
-      } else if (k.k === 'wait') { k.s -= dt * (b.tasks.length > 6 ? 2 : 1); if (k.s <= 0) b.tasks.shift(); }
+        if (d < 1.5) {
+          b.x = k.x; b.y = k.y; b.tasks.shift();
+          const nx = b.tasks[0];
+          if (!nx || nx.k !== 'move') { if (b.spd > 60) { b.sq = 0.14 * AMP; b.wob = 1; } b.spd = 0; } // frenata: piccolo rimbalzo
+        } else {
+          const want = v * Math.min(1, 0.3 + d / 22); // accelera e rallenta dolcemente vicino all'arrivo
+          b.spd += (want - b.spd) * Math.min(1, dt * 7);
+          const s = Math.min(d, Math.max(8, b.spd) * dt); b.x += (dx / d) * s; b.y += (dy / d) * s; b.moving = true;
+          b.phase += dt * Math.max(40, b.spd) * 0.24; if (Math.abs(dx) > 0.5) b.face = dx > 0 ? 1 : -1;
+          leanT = (dx / d) * 0.2 * Math.min(1, b.spd / 110) * AMP;
+        }
+      } else if (k.k === 'wait') { b.spd = 0; k.s -= dt * (b.tasks.length > 6 ? 2 : 1); if (k.s <= 0) b.tasks.shift(); }
       else if (k.k === 'call') { b.tasks.shift(); try { k.f(); } catch (e) { /* ignora */ } }
+      b.lean += (leanT - b.lean) * Math.min(1, dt * 8);
     }
+    for (let i = later.length - 1; i >= 0; i--) if (later[i].at <= t) { const f = later[i].f; later.splice(i, 1); try { f(); } catch (e) { /* ignora */ } }
     for (let i = fx.length - 1; i >= 0; i--) { const f = fx[i]; f.t += dt; if (f.k === 'spark' && f.t > 0) { f.x += f.vx * dt; f.y += f.vy * dt; f.vy += 120 * dt; } if (f.t >= f.d) fx.splice(i, 1); }
+  }
+  function physics(b, dt) {
+    // salto con gravità
+    if (b.jz > 0 || b.jv > 0) { b.jv -= 620 * dt; b.jz += b.jv * dt; if (b.jz <= 0) { b.jz = 0; if (b.jv < -60) { b.sq = Math.min(0.28, -b.jv / 900) * AMP; b.wob = 1; } b.jv = 0; if (b.hops > 0) { b.hops--; jump(b, 6); } } }
+    // schiacciamento/allungamento a molla
+    b.sqv += (-170 * b.sq - 11 * b.sqv) * dt; b.sq += b.sqv * dt;
+    b.shakeT = Math.max(0, b.shakeT - dt); b.spinT = Math.max(0, b.spinT - dt); b.waveT = Math.max(0, b.waveT - dt);
+    b.happyT = Math.max(0, b.happyT - dt); b.sadT = Math.max(0, b.sadT - dt); b.wob = Math.max(0, b.wob - dt * 1.4);
+    if (b.danceT > 0) { b.danceT -= dt; if (b.jz === 0 && Math.random() < dt * 2.5) jump(b, 5); }
+    if (b.lookT > 0) { b.lookT -= dt; if (b.lookT <= 0) b.look = 0; }
   }
   function idle(b, dt) {
     b.idleT -= dt;
     if (b.idleT > 0) return;
-    b.idleT = 3 + Math.random() * 5;
+    b.idleT = (st.trading ? 2.2 : 3) + Math.random() * 4;
+    // gesti spontanei mentre aspetta
+    const r0 = Math.random();
+    if (!RM && r0 < 0.16) { jump(b, 6 + Math.random() * 5); if (Math.random() < 0.3) b.hops = 1; return; }
+    if (r0 < 0.3) { b.look = Math.random() < 0.5 ? -1 : 1; b.lookT = 0.9; after(0.9, () => { b.look = -b.look; b.lookT = 0.7; }); return; }
+    if (r0 < 0.38) { wave(b, 1.2); return; }
+    if (!RM && r0 < 0.44) { spin(b, 0.7); jump(b, 7); return; }
+    if (r0 < 0.5) { b.sq = -0.16 * AMP; b.wob = 1; return; } // stiracchiata
     if (b.id === 'SORVEGLIANZA' && st.pods.length) {
       // pattuglia le posizioni aperte
       st.pods.forEach((p) => { go(b, p.x, p.y + 18); call(b, () => { b.beam = { x: p.x, y: p.y, s: 0.5 }; }); wait(b, 0.5); });
       home(b); b.idleT = 1; return;
     }
     if (b.id === 'SCANSIONE' && st.trading) { go(b, ST.radar.x + 18, ST.radar.y + 32); call(b, () => { b.beam = { x: ST.radar.x, y: ST.radar.y, s: 0.8 }; }); wait(b, 0.8); home(b); return; }
-    const r = st.trading ? 10 : 6;
+    const r = st.trading ? 16 : 10;
     go(b, b.hx + (Math.random() - 0.5) * r * 2, b.hy + (Math.random() - 0.5) * r);
+    if (Math.random() < 0.35) { wait(b, 0.3 + Math.random() * 0.6); go(b, b.hx + (Math.random() - 0.5) * r * 2, b.hy + (Math.random() - 0.5) * r); }
     if (Math.random() < 0.5) home(b);
   }
 
@@ -275,38 +327,75 @@
 
   function drawBot(b) {
     const x = b.x, y = b.y, c = b.color;
-    const bob = b.moving ? Math.abs(Math.sin(b.phase)) * 1.6 : Math.sin(t * 2 + b.phase) * 0.6;
-    const sw = b.moving ? Math.sin(b.phase) * 3.2 : 0;
-    ctx.fillStyle = '#00000080'; ctx.beginPath(); ctx.ellipse(x, y + 1, 9, 3, 0, 0, 6.28); ctx.fill();
-    if (b.beam) { ctx.save(); ctx.strokeStyle = c; ctx.globalAlpha = 0.25 + 0.25 * Math.sin(t * 20); ctx.lineWidth = 3; glow(c, 10); ctx.beginPath(); ctx.moveTo(x, y - 30); ctx.lineTo(b.beam.x, b.beam.y); ctx.stroke(); noGlow(); ctx.restore(); }
+    const walk = b.moving;
+    const air = b.jz > 0.8;
+    const bob = walk ? Math.abs(Math.sin(b.phase)) * 2.4 * AMP : Math.sin(t * 2.2 + b.phase) * 0.9 * AMP; // passo o respiro
+    const sw = walk && !air ? Math.sin(b.phase) * 4 * AMP * Math.min(1, b.spd / 60 + 0.3) : 0;
+    const shx = b.shakeT > 0 ? Math.sin(t * 58) * 2 * Math.min(1, b.shakeT * 2.5) * AMP : 0;
+    const dz = b.danceT > 0 ? Math.sin(t * 11 + b.phase) : 0;
+    const lean = b.lean + dz * 0.2 * AMP + (b.sadT > 0 ? 0.04 * Math.sin(t * 3) : 0);
+    // ombra (si rimpicciolisce in volo)
+    const sh = 1 / (1 + b.jz / 16);
+    ctx.fillStyle = `rgba(0,0,0,${0.5 * sh})`; ctx.beginPath(); ctx.ellipse(x, y + 1, 9 * sh * (1 + b.sq * 0.5), 3 * sh, 0, 0, 6.28); ctx.fill();
+    if (b.beam) { ctx.save(); ctx.strokeStyle = c; ctx.globalAlpha = 0.25 + 0.25 * Math.sin(t * 20); ctx.lineWidth = 3; glow(c, 10); ctx.beginPath(); ctx.moveTo(x, y - 30 - b.jz); ctx.lineTo(b.beam.x, b.beam.y); ctx.stroke(); noGlow(); ctx.restore(); }
+    ctx.save();
+    ctx.translate(x + shx, y - b.jz); ctx.rotate(lean);
+    const spinK = b.spinT > 0 ? Math.cos((1 - b.spinT / b.spinD) * Math.PI * 2) : 1;
+    const sq = Math.max(-0.3, Math.min(0.32, b.sq));
+    ctx.scale((1 + sq * 0.6) * (Math.abs(spinK) < 0.15 ? 0.15 * Math.sign(spinK || 1) : spinK), 1 - sq);
+    // gambe (raccolte in volo)
     ctx.strokeStyle = '#cfd6dc'; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(x - 3.5, y - 8 - bob); ctx.lineTo(x - 3.5 + sw, y); ctx.moveTo(x + 3.5, y - 8 - bob); ctx.lineTo(x + 3.5 - sw, y); ctx.stroke();
-    const by = y - 21 - bob;
+    const fy = air ? -3 : 0;
+    ctx.beginPath(); ctx.moveTo(-3.5, -8 - bob); ctx.lineTo(-3.5 + sw - (air ? 1.5 : 0), fy - (walk && sw > 0 ? Math.abs(sw) * 0.35 : 0)); ctx.moveTo(3.5, -8 - bob); ctx.lineTo(3.5 - sw + (air ? 1.5 : 0), fy - (walk && sw < 0 ? Math.abs(sw) * 0.35 : 0)); ctx.stroke();
+    const by = -21 - bob;
     // braccia
     ctx.strokeStyle = c; ctx.lineWidth = 2;
-    if (b.carry) { ctx.beginPath(); ctx.moveTo(x - 7, by + 4); ctx.lineTo(x - 5, by - 16); ctx.moveTo(x + 7, by + 4); ctx.lineTo(x + 5, by - 16); ctx.stroke(); }
-    else { ctx.beginPath(); ctx.moveTo(x - 8, by + 3); ctx.lineTo(x - 10 - sw * 0.4, by + 11); ctx.moveTo(x + 8, by + 3); ctx.lineTo(x + 10 + sw * 0.4, by + 11); ctx.stroke(); }
-    ctx.save(); glow(c, 8); ctx.fillStyle = c; rr(x - 8, by, 16, 13, 4); ctx.fill(); noGlow(); ctx.restore();
-    ctx.fillStyle = '#ffffff55'; rr(x - 5, by + 3, 10, 2.2, 1); ctx.fill();
-    // testa
+    if (b.carry) { ctx.beginPath(); ctx.moveTo(-7, by + 4); ctx.lineTo(-5, by - 16); ctx.moveTo(7, by + 4); ctx.lineTo(5, by - 16); ctx.stroke(); }
+    else {
+      const happy = b.danceT > 0 || (air && b.happyT > 0);
+      const wv = b.waveT > 0 ? Math.sin(t * 16) * 3 : 0;
+      const droop = b.sadT > 0 ? 2.5 : 0;
+      ctx.beginPath();
+      // sinistro
+      if (happy) { ctx.moveTo(-8, by + 3); ctx.lineTo(-12 + dz * 2, by - 8 + Math.sin(t * 11) * 2); }
+      else { ctx.moveTo(-8, by + 3); ctx.lineTo(-10 - sw * 0.6, by + 11 + droop + (air ? -4 : 0)); }
+      // destro (saluta)
+      if (b.waveT > 0) { ctx.moveTo(8, by + 3); ctx.lineTo(12 + wv, by - 9); }
+      else if (happy) { ctx.moveTo(8, by + 3); ctx.lineTo(12 + dz * 2, by - 8 - Math.sin(t * 11) * 2); }
+      else { ctx.moveTo(8, by + 3); ctx.lineTo(10 + sw * 0.6, by + 11 + droop + (air ? -4 : 0)); }
+      ctx.stroke();
+    }
+    ctx.save(); glow(c, 8 + (b.happyT > 0 ? 6 : 0)); ctx.fillStyle = c; rr(-8, by, 16, 13, 4); ctx.fill(); noGlow(); ctx.restore();
+    ctx.fillStyle = '#ffffff55'; rr(-5, by + 3, 10, 2.2, 1); ctx.fill();
+    // luce sul petto che pulsa quando lavora
+    ctx.fillStyle = b.moving || b.tasks.length ? '#ffffffcc' : '#ffffff55'; ctx.beginPath(); ctx.arc(0, by + 8.5, 1.3 + (b.moving ? Math.abs(Math.sin(t * 8)) * 0.7 : 0), 0, 6.28); ctx.fill();
+    // testa (inclinata quando guarda intorno o è triste)
     const hy = by - 12;
-    ctx.fillStyle = '#e9edf1'; rr(x - 7.5, hy, 15, 11, 4); ctx.fill();
-    ctx.fillStyle = '#0b0f14'; rr(x - 5.8, hy + 2.6, 11.6, 5.4, 2.5); ctx.fill();
-    if (b.blink <= 0) { ctx.fillStyle = c; glow(c, 6); const ex = b.face * 0.9; ctx.fillRect(x - 3.6 + ex, hy + 4, 2.2, 2); ctx.fillRect(x + 1.4 + ex, hy + 4, 2.2, 2); noGlow(); }
-    ctx.strokeStyle = '#cfd6dc'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, hy); ctx.lineTo(x, hy - 4); ctx.stroke();
-    ctx.fillStyle = Math.sin(t * 4 + b.phase) > 0 ? c : '#ffffff'; ctx.beginPath(); ctx.arc(x, hy - 5, 1.6, 0, 6.28); ctx.fill();
+    ctx.save(); ctx.translate(0, hy + 11); ctx.rotate((b.look * 0.18 + (b.sadT > 0 ? 0.12 : 0) + dz * 0.12) * AMP); ctx.translate(0, -(hy + 11));
+    ctx.fillStyle = '#e9edf1'; rr(-7.5, hy, 15, 11, 4); ctx.fill();
+    ctx.fillStyle = '#0b0f14'; rr(-5.8, hy + 2.6, 11.6, 5.4, 2.5); ctx.fill();
+    const ex = (b.look || b.face) * 0.9;
+    if (b.happyT > 0) { ctx.strokeStyle = c; ctx.lineWidth = 1.2; glow(c, 6); ctx.beginPath(); ctx.moveTo(-3.8 + ex, hy + 6); ctx.lineTo(-2.5 + ex, hy + 4); ctx.lineTo(-1.2 + ex, hy + 6); ctx.moveTo(1.2 + ex, hy + 6); ctx.lineTo(2.5 + ex, hy + 4); ctx.lineTo(3.8 + ex, hy + 6); ctx.stroke(); noGlow(); }
+    else if (b.sadT > 0) { ctx.fillStyle = c; glow(c, 6); ctx.fillRect(-3.6 + ex, hy + 5.4, 2.2, 1.1); ctx.fillRect(1.4 + ex, hy + 5.4, 2.2, 1.1); noGlow(); }
+    else if (b.blink <= 0) { ctx.fillStyle = c; glow(c, 6); ctx.fillRect(-3.6 + ex, hy + 4, 2.2, 2); ctx.fillRect(1.4 + ex, hy + 4, 2.2, 2); noGlow(); }
+    // antenna che oscilla
+    const aw = -lean * 10 + Math.sin(t * 14) * 2.2 * b.wob * AMP + (walk ? Math.sin(b.phase) * 0.8 : 0);
+    ctx.strokeStyle = '#cfd6dc'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, hy); ctx.quadraticCurveTo(aw * 0.3, hy - 2.5, aw * 0.6, hy - 4.5); ctx.stroke();
+    ctx.fillStyle = Math.sin(t * (b.tasks.length ? 9 : 4) + b.phase) > 0 ? c : '#ffffff'; ctx.beginPath(); ctx.arc(aw * 0.6, hy - 5.5, 1.6, 0, 6.28); ctx.fill();
+    ctx.restore();
     // oggetto trasportato
     if (b.carry) {
-      const cy = hy - 9; const it = b.carry;
-      if (it.type === 'coin') { ctx.save(); glow(it.color || '#FFD54A', 10); ctx.fillStyle = it.color || '#FFD54A'; ctx.beginPath(); ctx.arc(x, cy, 4.5, 0, 6.28); ctx.fill(); noGlow(); ctx.restore(); text('◎', x, cy + 0.3, 5.5, '#3a2a00'); }
-      else if (it.type === 'gem') { ctx.save(); glow('#00FF88', 12); ctx.fillStyle = '#00FF88'; ctx.beginPath(); ctx.moveTo(x, cy - 6); ctx.lineTo(x + 5, cy); ctx.lineTo(x, cy + 5); ctx.lineTo(x - 5, cy); ctx.closePath(); ctx.fill(); noGlow(); ctx.restore(); }
-      else { ctx.save(); glow(it.color, 10); ctx.fillStyle = it.color; rr(x - 5, cy - 5, 10, 9, 2); ctx.fill(); noGlow(); ctx.restore(); text(it.label || '', x, cy - 0.5, 5.5, '#000', 'center', '900'); }
+      const cx = 0, cy = hy - 9; const it = b.carry;
+      if (it.type === 'coin') { ctx.save(); glow(it.color || '#FFD54A', 10); ctx.fillStyle = it.color || '#FFD54A'; ctx.beginPath(); ctx.arc(cx, cy, 4.5, 0, 6.28); ctx.fill(); noGlow(); ctx.restore(); text('◎', cx, cy + 0.3, 5.5, '#3a2a00'); }
+      else if (it.type === 'gem') { ctx.save(); glow('#00FF88', 12); ctx.fillStyle = '#00FF88'; ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx + 5, cy); ctx.lineTo(cx, cy + 5); ctx.lineTo(cx - 5, cy); ctx.closePath(); ctx.fill(); noGlow(); ctx.restore(); }
+      else { ctx.save(); glow(it.color, 10); ctx.fillStyle = it.color; rr(cx - 5, cy - 5, 10, 9, 2); ctx.fill(); noGlow(); ctx.restore(); text(it.label || '', cx, cy - 0.5, 5.5, '#000', 'center', '900'); }
     }
+    ctx.restore();
     text(SHORT[b.id], x, y + 8, 6, c, 'center', '800');
     if (b.emote) {
       const a = Math.min(1, b.emoteT * 3); ctx.globalAlpha = a;
       ctx.font = '700 7px Inter,-apple-system,Segoe UI,sans-serif'; const w = ctx.measureText(b.emote.txt).width + 8;
-      const ey = hy - (b.carry ? 24 : 13);
+      const ey = y - b.jz - 33 - bob - (b.carry ? 24 : 13) + Math.sin(t * 5) * 0.8 * AMP;
       ctx.fillStyle = '#ffffffee'; rr(x - w / 2, ey - 6, w, 11, 5); ctx.fill();
       text(b.emote.txt, x, ey - 0.3, 7, b.emote.col ? (b.emote.col === '#00FF88' ? '#007a40' : b.emote.col === '#ff5a6a' ? '#c01f33' : b.emote.col) : '#111');
       ctx.globalAlpha = 1;

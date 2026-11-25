@@ -72,6 +72,24 @@
       <div id="hSolPx">SOL —</div>
     </div>
   </header>
+  <!-- Pannello guadagni/perdite in tempo reale (resta in alto durante lo scorrimento) -->
+  <div class="pnlbar" id="pnlBar" role="region" aria-label="Guadagni e perdite in tempo reale">
+    <div class="pb-top">
+      <div class="pb-main">
+        <div class="pb-lbl"><i class="pb-dot"></i>GUADAGNI/PERDITE LIVE · <span id="pbMode">SIM</span><span class="pb-tip" id="pbTip" aria-label="riduci o espandi">▴</span></div>
+        <div class="pb-total" id="pbTotal">—</div>
+        <div class="pb-sub" id="pbSub">—</div>
+      </div>
+      <canvas id="pbSpark" aria-label="Andamento guadagni"></canvas>
+    </div>
+    <div class="pb-grid">
+      <div class="pb-c"><span>Oggi</span><b id="pbDay">—</b></div>
+      <div class="pb-c"><span>Realizzato</span><b id="pbReal">—</b></div>
+      <div class="pb-c"><span>Aperto</span><b id="pbOpen">—</b></div>
+      <div class="pb-c"><span>Vinte / perse</span><b id="pbWL">—</b></div>
+    </div>
+    <div class="pb-gl"><span class="mint" id="pbGW">guadagni —</span><span class="red" id="pbGL">perdite —</span><span class="mu" id="pbDayWL"></span></div>
+  </div>
   <div class="dash">
    <div>
     <div class="hero">

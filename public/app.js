@@ -185,6 +185,72 @@
     requestAnimationFrame(drawSpark);
   }
 
+  // ---------- pannello guadagni/perdite (in alto, aggiornato a ogni istantanea live ~2 s)
+  const sgn = (v) => (v > 0 ? '+' : v < 0 ? '−' : '');
+  const fUsd = (v) => (v == null || !isFinite(v) ? '—' : sgn(v) + (Math.abs(v) < 0.995 && v !== 0 ? nf(Math.abs(v), 3) + ' $' : nf(Math.abs(v), 2) + ' $'));
+  const fSol = (v) => (v == null || !isFinite(v) ? '—' : sgn(v) + '◎' + nf(Math.abs(v), 4));
+  const pbLive = []; let pbLast = null;
+  function pnlConv(s) {
+    const pb = s.pnlBox || {}; const bu = s.baseUsd || pb.baseUsd; const su = s.solUsd || pb.solUsd;
+    const usd = (x) => (x == null || !bu ? null : x * bu);
+    const sol = (x) => (s.base === 'SOL' ? x : (usd(x) != null && su ? usd(x) / su : null));
+    const fmt = (x) => (usd(x) != null ? fUsd(usd(x)) : sgn(x) + nf(Math.abs(x), s.base === 'SOL' ? 4 : 2) + ' ' + s.base);
+    return { pb, usd, sol, fmt };
+  }
+  function renderPnl(s) {
+    const bar = $('#pnlBar'); if (!bar || !s.pnlBox) return;
+    const { pb, usd, sol, fmt } = pnlConv(s);
+    const tot = pb.total; const pct = s.startEquity > 0 ? (tot / s.startEquity) * 100 : 0;
+    $('#pbMode').textContent = s.mode === 'REAL' ? 'REALE' : 'SIM';
+    const tEl = $('#pbTotal');
+    tween('pbTotal', tEl, usd(tot) != null ? usd(tot) : tot, usd(tot) != null ? fUsd : (v) => sgn(v) + nf(Math.abs(v), s.base === 'SOL' ? 4 : 2) + ' ' + s.base);
+    tEl.className = 'pb-total ' + (tot > 0 ? 'mint' : tot < 0 ? 'red' : '');
+    if (pbLast != null && Math.abs(tot - pbLast) > Math.abs(s.startEquity || 1) * 1e-6) { tEl.classList.add(tot > pbLast ? 'flash-up' : 'flash-dn'); }
+    pbLast = tot;
+    bar.classList.toggle('up', tot > 0); bar.classList.toggle('down', tot < 0);
+    $('#pbSub').textContent = `${fSol(sol(tot))} · ${sgn(pct)}${nf(Math.abs(pct), 2)}%${s.equityEur != null ? ' · ' + (s.pnlEur >= 0 ? '+' : '−') + eur(Math.abs(s.pnlEur)) : ''}`;
+    const cell = (id, v) => { const el = $(id); el.textContent = fmt(v); el.className = v > 0 ? 'mint' : v < 0 ? 'red' : ''; };
+    cell('#pbDay', pb.day); cell('#pbReal', pb.realized); cell('#pbOpen', pb.unrealized);
+    const closed = s.wins + s.losses;
+    $('#pbWL').innerHTML = `<span class="mint">${s.wins}</span> / <span class="red">${s.losses}</span>${closed ? ` <small class="mu">${nf(s.winRate, 0)}%</small>` : ''}`;
+    $('#pbGW').textContent = 'guadagni ' + fmt(pb.grossWin || 0);
+    $('#pbGL').textContent = 'perdite ' + fmt(pb.grossLoss || 0);
+    $('#pbDayWL').textContent = `oggi ${pb.dayWins || 0}✓ ${pb.dayLosses || 0}✗`;
+    pbLive.push({ t: s.t || Date.now(), v: tot }); if (pbLive.length > 400) pbLive.shift();
+  }
+  function trimHist(s) { const h = s.equityHist || []; const lt = h.length ? h[h.length - 1].t : 0; return h.map((p) => p.v - s.startEquity).concat(pbLive.filter((p) => p.t > lt).map((p) => p.v)); }
+  function drawPbSpark() {
+    const c = $('#pbSpark');
+    if (c && S && S.pnlBox) {
+      const r = c.getBoundingClientRect(); const dpr = Math.min(2.5, devicePixelRatio || 1);
+      if (r.width > 0) {
+        if (c.width !== Math.round(r.width * dpr)) { c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); }
+        const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, r.width, r.height);
+        let pts = trimHist(S).slice(-160); if (pts.length < 2) pts = [0, S.pnlBox.total];
+        let mn = Math.min(0, ...pts), mx = Math.max(0, ...pts); if (mx - mn < 1e-12) { mn -= 1; mx += 1; }
+        const W = r.width, H = r.height, pad = 4; const Y = (v) => H - pad - ((v - mn) / (mx - mn)) * (H - pad * 2);
+        x.strokeStyle = '#ffffff22'; x.setLineDash([2, 3]); x.beginPath(); x.moveTo(0, Y(0)); x.lineTo(W, Y(0)); x.stroke(); x.setLineDash([]);
+        const P = pts.map((v, i) => [pad + (i / (pts.length - 1)) * (W - pad * 2), Y(v)]);
+        const lastV = pts[pts.length - 1]; const col = lastV >= 0 ? '#00FF88' : '#ff5a6a';
+        x.beginPath(); P.forEach(([a, b], i) => (i ? x.lineTo(a, b) : x.moveTo(a, b)));
+        x.strokeStyle = col; x.lineWidth = 1.6; x.lineJoin = 'round'; x.stroke();
+        x.lineTo(P[P.length - 1][0], Y(0)); x.lineTo(P[0][0], Y(0)); x.closePath(); x.fillStyle = lastV >= 0 ? '#00FF8822' : '#ff5a6a22'; x.fill();
+        const [lx, ly] = P[P.length - 1]; const pulse = 2.4 + Math.sin(performance.now() / 260) * 1;
+        x.fillStyle = col; x.shadowColor = col; x.shadowBlur = 10; x.beginPath(); x.arc(lx, ly, pulse, 0, 6.28); x.fill(); x.shadowBlur = 0;
+      }
+    }
+    requestAnimationFrame(drawPbSpark);
+  }
+  requestAnimationFrame(drawPbSpark);
+  (function () {
+    const chk = () => { const b = $('#pnlBar'); if (!b || b.offsetParent === null) return; const top = parseFloat(getComputedStyle(b).top) || 0; b.classList.toggle('stuck', b.getBoundingClientRect().top <= top + 0.5 && window.scrollY > 0); };
+    window.addEventListener('scroll', chk, { passive: true }); window.addEventListener('resize', chk);
+    $('#pbTotal').addEventListener('animationend', (e) => e.target.classList.remove('flash-up', 'flash-dn'));
+    const bar = $('#pnlBar'); const setC = (on) => { bar.classList.toggle('compact', on); $('#pbTip').textContent = on ? '▾' : '▴'; };
+    setC(localStorage.getItem('sb_pnl_compact') === '1');
+    bar.addEventListener('click', () => { const on = !bar.classList.contains('compact'); localStorage.setItem('sb_pnl_compact', on ? '1' : '0'); setC(on); });
+  })();
+
   // ---------- agenti
   function buildAgents() {
     $('#agents').innerHTML = S.agents.map((a) => `
@@ -280,6 +346,7 @@
     tween('sR', $('#sR'), s.counters.rejected, (v) => Math.round(v).toLocaleString('it-IT'));
     tween('sO', $('#sO'), s.counters.approved, (v) => Math.round(v).toLocaleString('it-IT'));
     renderAgents();
+    renderPnl(s);
     if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; requestAnimationFrame(drawSpark); }
     // regole
     const rules = Object.entries(s.counters.rules).sort((a, b) => b[1] - a[1]).slice(0, 10);
@@ -484,7 +551,7 @@
         <div class="card"><div class="row"><b>${S.mode === 'REAL' ? 'REALE · soldi veri' : 'SIMULAZIONE'}</b><span class="sp"></span><button class="chip" id="sMode">${S.mode === 'REAL' ? 'Passa a simulazione' : 'Passa a reale…'}</button></div></div></div>
       <div class="grp"><span class="lbl">Gestione del rischio</span><div class="grid2">
         ${num('maxLossPct', 'Kill switch: perdita totale %')}${num('maxLossAbs', `Kill switch: perdita max (${S.base}, 0=off)`)}
-        ${num('dailyLossPct', 'Stop giornaliero %')}${num('maxTradePct', 'Max per operazione %')}
+        ${num('dailyLossPct', 'Stop giornaliero %')}${num('maxTradePct', 'Rischio per operazione (% capitale)')}
         ${num('maxOpen', 'Posizioni max', '1')}${num('slippageBps', 'Slippage (bps, 100=1%)', '1')}
         ${num('maxPriceImpactPct', 'Impatto prezzo max %')}${num('cooldownMin', 'Pausa dopo un token (min)', '1')}
         ${num('maxHoldMin', 'Durata max posizione (min)', '1')}${num('feeReserveSol', 'Riserva SOL commissioni')}</div>
@@ -493,7 +560,7 @@
         <div class="switch"><span>Scansiona meme coin (DexScreener)</span><span class="toggle ${c.scanMemes ? 'on' : ''}" data-t="scanMemes"></span></div>
         <div class="chips" id="sToks" style="margin-top:10px">${core.map(([s, m]) => `<button class="chip ${c.tokens.includes(m) ? 'on' : ''}" data-m="${m}">${s}</button>`).join('')}${custom.map((m) => `<button class="chip on" data-m="${m}">${short(m)}</button>`).join('')}</div>
         <label class="field"><span>Aggiungi token (indirizzo mint)</span><input class="in" id="sMint" placeholder="es. 7GCi…"></label>
-        <div class="grid2">${num('minLiquidityUsd', 'Liquidità min ($)', '1000')}${num('minVolume24hUsd', 'Volume 24h min ($)', '1000')}${num('minPairAgeHours', 'Età min pool meme (ore)')}${num('maxRugScore', 'RugCheck max (0–100)', '1')}${num('minMcapUsd', 'Market cap min meme ($)', '1000')}${num('maxPump1hPct', 'Scarta se +% in 1h oltre')}</div></div>
+        <div class="grid2">${num('minLiquidityUsd', 'Liquidità min ($)', '1000')}${num('minVolume24hUsd', 'Volume 24h min ($)', '1000')}${num('minPairAgeMin', 'Età min creazione token (minuti)', '1')}${num('maxRugScore', 'RugCheck max (0–100)', '1')}${num('minMcapUsd', 'Market cap min meme ($)', '1000')}${num('maxPump1hPct', 'Scarta se +% in 1h oltre')}</div></div>
       <div class="grp"><span class="lbl">Rete Solana</span>${`<label class="field"><span>RPC (gratuito di default; puoi usarne uno tuo)</span><input class="in" data-k="rpcUrl" value="${esc(c.rpcUrl)}"></label>`}</div>
       <div class="btns"><button class="btn pri" id="sSave">Salva impostazioni</button></div><div class="err" id="sErr"></div>
       <div class="grp"><span class="lbl">Portafoglio del bot</span><div class="card wallet">
