@@ -314,7 +314,7 @@
     if (!r) return '<div class="empty">in caricamento…</div>';
     const busy = r.running || (r.lastFeeds && Date.now() - r.lastFeeds < 20000);
     const src = r.sources || {};
-    const srcTxt = [src.candele && `candele ${esc(src.candele)}`, src.funding && `funding ${esc(src.funding)}`, src.openInterest && `open interest ${esc(src.openInterest)}`, src.fearGreed && `Fear & Greed ${esc(src.fearGreed)}`, src.longShort && `long/short ${esc(src.longShort)}`, src.notizie && `notizie ${esc(src.notizie)}`, src.globale && `mercato ${esc(src.globale)}`, src.tvl && `TVL ${esc(src.tvl)}`].filter(Boolean).join(' · ') || 'in attesa della prima lettura';
+    const srcTxt = [src.candele && `candele ${esc(src.candele)}`, src.funding && `funding ${esc(src.funding)}`, src.openInterest && `open interest ${esc(src.openInterest)}`, src.fearGreed && `Fear & Greed ${esc(src.fearGreed)}`, src.longShort && `long/short ${esc(src.longShort)}`, src.notizie && `notizie ${esc(src.notizie)} (ogni 90 s${r.news && r.news.lastCheck ? ', ultimo controllo ' + new Date(r.news.lastCheck).toLocaleTimeString('it-IT') : ''})`, src.globale && `mercato ${esc(src.globale)}`, src.tvl && `TVL ${esc(src.tvl)}`].filter(Boolean).join(' · ') || 'in attesa della prima lettura';
     const act = r.strategies.filter((x) => x.active).length;
     const head = `<div class="rs-head"><span class="rs-globe${busy ? ' spin' : ''}" aria-hidden="true">🌐</span><div><b>${r.strategies.length}</b> strategie studiate · <b class="${act ? 'mint' : ''}">${act}</b> attive
       <div class="mu rs-up">${r.running ? 'sto studiando ora…' : r.lastBacktest ? `ultimo studio ${hhmm(r.lastBacktest)}${r.lev ? ` · leva ${r.lev}x` : ''} · si ripete ogni 2 ore` : 'primo studio tra pochi secondi'}</div></div></div>`;
@@ -349,9 +349,11 @@
       const as = n ? Object.entries(n.assets).filter(([, v]) => v).map(([a, v]) => `<span class="rs-chip ${v.sentiment > 0.15 ? 'g' : v.sentiment < -0.15 ? 'r' : ''}">${a} sentiment ${sgnN(v.sentiment)}${v.risk >= 0.3 ? ` · rischio ${nf(v.risk * 100, 0)}%` : ''}</span>`).join('') : '';
       const cx = [ctx.global && `mercato 24h ${sgnN(ctx.global.mcapChange24h, 1)}%`, ctx.tvl && ctx.tvl.Solana && `TVL Solana ${sgnN(ctx.tvl.Solana.ch1d, 1)}%`, ctx.lsr && ctx.lsr.SOL && `long/short SOL ${nf(ctx.lsr.SOL.ratio, 2)}`].filter(Boolean).map((t) => `<span class="rs-chip">${t}</span>`).join('');
       const heads = n && n.latest ? n.latest.slice(0, full ? 6 : 2).map((h) => `<div class="md-row"><span class="kn-dot ${h.risk ? 'r' : h.sentiment > 0 ? 'g' : h.sentiment < 0 ? 'r' : ''}"></span><span>${esc(h.title)}</span><small class="mu">${esc(h.source)}</small></div>`).join('') : '';
-      web = `<div class="lbl kn-t">Ultima ricerca sul web${n ? ` · ${hhmm(n.t)} · ${n.count} notizie da ${n.sources.length} fonti` : ''}</div><div class="rs-chips">${as}${cx}</div>${heads}`;
+      const hms = (t) => new Date(t).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const every = n && n.intervalSec ? (n.intervalSec >= 60 ? `${nf(n.intervalSec / 60, n.intervalSec % 60 ? 1 : 0)} min` : `${n.intervalSec} s`) : '90 s';
+      web = `<div class="lbl kn-t">Notizie crypto · lette ogni ${every}</div>${n ? `<div class="mu rs-up">ultimo controllo ${hms(n.lastCheck || n.t)} · ultimo titolo nuovo ${hhmm(n.lastNew || n.t)} · ${n.count} titoli (24h) da ${n.sources.length} fonti</div>` : ''}<div class="rs-chips">${as}${cx}</div>${heads}`;
     }
-    const note = full ? '<p class="note">Le correzioni sono piccole e graduali: stop ×0,8–1,3, target ×1–1,4, selettività 0–3, pause di 2–6 ore. Se dopo 6 trade vanno peggio di prima vengono annullate. Non cambiano mai la leva (minimo 5x), il margine del 7%, lo stop prima della liquidazione o il kill switch. Il sentiment delle notizie è un conteggio di parole nei titoli: un indizio, non una previsione.</p>' : '';
+    const note = full ? '<p class="note">Le correzioni sono piccole e graduali: stop ×0,8–1,3, target ×1–1,4, selettività 0–3, pause di 2–6 ore. Se dopo 6 trade vanno peggio di prima vengono annullate. Non cambiano mai la leva (minimo 5x), il margine del 7%, lo stop prima della liquidazione o il kill switch. Le notizie si leggono ogni 90 secondi da 6 feed RSS gratuiti (solo i titoli nuovi vengono valutati). Il sentiment è un conteggio di parole nei titoli: un indizio, non una previsione.</p>' : '';
     return head + errs + les + cor + tune + web + note;
   }
   let lastMdH = '';

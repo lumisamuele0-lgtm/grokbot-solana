@@ -14,7 +14,7 @@ const N = require('./news');
 const ASSETS = ['SOL', 'BTC', 'ETH'];
 const TFS = { '5m': { bars: 2880, dayBars: 288 }, '15m': { bars: 2688, dayBars: 96 }, '1h': { bars: 1440, dayBars: 24 } }; // ~10, 28, 60 giorni
 const LIVE_BARS = 420;
-const BACKTEST_MS = 2 * 3600e3, FEEDS_MS = 15 * 60e3, NEWS_MS = 30 * 60e3, CONTEXT_MS = 60 * 60e3;
+const BACKTEST_MS = 2 * 3600e3, FEEDS_MS = 15 * 60e3, NEWS_MS = N.NEWS_INTERVAL_MS, CONTEXT_MS = 60 * 60e3;
 const VERSION = 2;
 const SYMBOL_ASSET = { SOL: 'SOL', BTC: 'BTC', cbBTC: 'BTC', WBTC: 'BTC', ETH: 'ETH', WETH: 'ETH' };
 const pct = (x, d = 2) => (x >= 0 ? '+' : '') + x.toFixed(d).replace('.', ',') + '%';
@@ -42,6 +42,7 @@ class Research {
     const saved = dataDir ? readJson(path.join(dataDir, 'research.json'), null) : null;
     this.st = saved && saved.v >= 1 ? { lsr: {}, news: null, global: null, tvl: {}, ...saved, v: VERSION } : { v: VERSION, lsr: {}, news: null, global: null, tvl: {}, results: {}, live: {}, fng: null, funding: {}, oi: {}, health: {}, sources: {}, lastBacktest: null, lastFeeds: null, backtestLev: null, runs: 0, lastError: null };
     this.feeds = feeds || new Feeds(this.st.health);
+    this.reader = new N.NewsReader(this.st.newsReader || null, { mark: (k, ok, err) => this.feeds.mark(k, ok, err) });
     this.writer = dataDir ? debounceWriter(path.join(dataDir, 'research.json'), () => this.st, 2000) : { schedule() {}, flush() {} };
     this.running = false; this.timers = [];
   }
@@ -50,6 +51,9 @@ class Research {
     this.timers.push(setTimeout(() => this.refreshFeeds().catch(() => {}), 8e3));
     this.timers.push(setTimeout(() => { this.backtest().catch(() => {}); this.timers.push(setInterval(() => this.backtest().catch(() => {}), BACKTEST_MS)); }, due));
     this.timers.push(setInterval(() => this.refreshFeeds().catch(() => {}), FEEDS_MS));
+    // notizie crypto ogni ~90 secondi (richieste condizionali: quasi sempre 304, pochissimi dati)
+    this.timers.push(setTimeout(() => this.pollNews().catch(() => {}), 3e3));
+    this.timers.push(setInterval(() => this.pollNews().catch(() => {}), NEWS_MS));
   }
   stop() { this.timers.forEach((t) => { clearTimeout(t); clearInterval(t); }); this.writer.flush(); }
 
@@ -63,18 +67,8 @@ class Research {
       try { const o = await this.feeds.openInterest(a); st.oi[a] = { usd: o.usd, source: o.source, t: Date.now() }; st.sources.oi = o.source; } catch { /* idem */ }
     }
     for (const a of ASSETS) { try { const l = await this.feeds.longShort(a); st.lsr[a] = { series: l.series, source: l.source, t: Date.now() }; st.sources.longShort = l.source; } catch { /* non indispensabile */ } }
-    // notizie (RSS gratuiti) ogni 30 minuti
-    if (!st.news || Date.now() - st.news.t > NEWS_MS - 60e3) {
-      try {
-        const n = await N.fetchNews((k, ok, err) => this.feeds.mark(k, ok, err));
-        if (n.items.length) {
-          const agg = N.aggregate(n.items);
-          st.news = { t: Date.now(), sources: n.sources, count: n.items.length, agg, latest: n.items.slice(0, 12).map((x) => ({ title: x.title, source: x.source, t: x.t, link: x.link, sentiment: x.score.sentiment, risk: x.score.risk, assets: x.score.assets })) };
-          st.sources.news = n.sources.join(', ');
-          parts.push(`notizie ${n.items.length} da ${n.sources.length} fonti · sentiment ${ASSETS.map((a) => `${a} ${agg[a].sentiment >= 0 ? '+' : ''}${agg[a].sentiment.toFixed(2).replace('.', ',')}`).join(' ')}${ASSETS.some((a) => agg[a].risk >= 0.3) ? ' · rischio notizie ' + ASSETS.filter((a) => agg[a].risk >= 0.3).map((a) => `${a} ${(agg[a].risk * 100).toFixed(0)}%`).join(' ') : ''}`);
-        }
-      } catch (e) { parts.push('notizie non disponibili'); }
-    }
+    // notizie: lette a parte ogni ~90 s (vedi pollNews); qui solo l'aggiornamento del decadimento nel tempo
+    if (this.reader.items.length) this.updateNews(false);
     // contesto di mercato (CoinGecko, DefiLlama) ogni ora
     if (!st.global || Date.now() - st.global.t > CONTEXT_MS - 60e3) {
       try { const g = await this.feeds.global(); st.global = { ...g, t: Date.now() }; st.sources.global = g.source; parts.push(`mercato totale ${pct(g.mcapChange24h, 1)} in 24h · dominanza BTC ${g.btcDom.toFixed(1).replace('.', ',')}%`); } catch { /* idem */ }
@@ -169,10 +163,38 @@ class Research {
     }
     return out;
   }
+  async pollNews(now = Date.now()) {
+    if (this.newsBusy) return null; this.newsBusy = true;
+    try {
+      const { fresh, results } = await this.reader.poll(now);
+      if (fresh.length || !this.st.news) this.updateNews(true, fresh, now);
+      else if (this.st.news) { this.st.news.lastCheck = now; this.st.news.checks = this.reader.checks; }
+      this.st.newsReader = this.reader.state();
+      const errs = results.filter((r) => r.error);
+      if (fresh.length) {
+        const ag = this.st.news.agg;
+        const hot = fresh.filter((x) => x.score.risk || Math.abs(x.score.sentiment) >= 0.5).slice(0, 2);
+        this.log('MENTORE', `notizie: ${fresh.length} ${fresh.length === 1 ? 'nuovo titolo' : 'nuovi titoli'} (${[...new Set(fresh.map((x) => x.source))].join(', ')}) · sentiment ${ASSETS.map((a) => `${a} ${ag[a].sentiment >= 0 ? '+' : ''}${ag[a].sentiment.toFixed(2).replace('.', ',')}`).join(' ')}${ASSETS.some((a) => ag[a].risk >= 0.3) ? ' · rischio ' + ASSETS.filter((a) => ag[a].risk >= 0.3).map((a) => `${a} ${(ag[a].risk * 100).toFixed(0)}%`).join(' ') : ''}${hot.length ? ' · «' + hot.map((x) => x.title.slice(0, 90)).join('» «') + '»' : ''}`);
+        this.agent('MENTORE', `leggo le notizie: ${fresh.length} ${fresh.length === 1 ? 'nuova' : 'nuove'}`, 'web');
+      }
+      for (const r of errs) { const f = this.reader.feeds[r.name]; if (f.fails === 1 || f.fails % 5 === 0) this.log('MENTORE', `feed ${r.name}: ${r.error} · riprovo tra ${Math.round((f.backoffUntil - now) / 60e3) || 1} min`, 'warn'); }
+      if (fresh.length || errs.length || this.reader.checks % 10 === 0) this.writer.schedule();
+      return { fresh: fresh.length, errors: errs.length };
+    } finally { this.newsBusy = false; }
+  }
+  // ricalcola sentiment e rischio (solo quando arrivano titoli nuovi, o ogni 15 min per il decadimento nel tempo)
+  updateNews(changed, fresh = [], now = Date.now()) {
+    const items = this.reader.items; if (!items.length) return;
+    const agg = N.aggregate(items, now);
+    this.st.news = { t: changed ? now : (this.st.news ? this.st.news.t : now), lastCheck: this.reader.lastCheck, checks: this.reader.checks, lastNew: this.reader.lastNew, intervalSec: NEWS_MS / 1000,
+      sources: this.reader.okSources(), count: items.length, agg,
+      latest: items.slice(0, 12).map((x) => ({ title: x.title, source: x.source, t: x.t, link: x.link, sentiment: x.score.sentiment, risk: x.score.risk, assets: x.score.assets })) };
+    this.st.sources.news = this.st.news.sources.join(', ');
+  }
   // notizie per asset: sentiment −1…+1, rischio 0…1 (con i titoli che pesano di più)
   newsFor(symbol) {
     const a = SYMBOL_ASSET[symbol]; const n = this.st.news;
-    if (!a || !n || !n.agg || !n.agg[a] || Date.now() - n.t > 3 * 3600e3) return { sentiment: 0, risk: 0, top: [], fresh: false };
+    if (!a || !n || !n.agg || !n.agg[a] || Date.now() - (n.lastCheck || n.t) > 3 * 3600e3) return { sentiment: 0, risk: 0, top: [], fresh: false };
     return { ...n.agg[a], fresh: true };
   }
   // fotografia del contesto di mercato per il diario del MENTORE (al momento di entrata/uscita)
@@ -194,7 +216,7 @@ class Research {
     const fngL = st.fng && st.fng.series.length ? st.fng.series[st.fng.series.length - 1] : null;
     return { strategies, lastBacktest: st.lastBacktest, lastFeeds: st.lastFeeds, running: this.running, runs: st.runs, lev: st.backtestLev, lastError: st.lastError,
       sources: { candele: st.sources.candles || null, funding: st.sources.funding || null, openInterest: st.sources.oi || null, fearGreed: st.sources.fng || null, longShort: st.sources.longShort || null, notizie: st.sources.news || null, globale: st.sources.global || null, tvl: st.sources.tvl || null },
-      news: st.news ? { t: st.news.t, count: st.news.count, sources: st.news.sources, assets: Object.fromEntries(ASSETS.map((a) => [a, st.news.agg[a] ? { sentiment: st.news.agg[a].sentiment, risk: st.news.agg[a].risk, n: st.news.agg[a].n } : null])), latest: st.news.latest.slice(0, 6) } : null,
+      news: st.news ? { t: st.news.t, lastCheck: st.news.lastCheck || st.news.t, lastNew: st.news.lastNew || st.news.t, checks: st.news.checks || 0, intervalSec: NEWS_MS / 1000, count: st.news.count, sources: st.news.sources, assets: Object.fromEntries(ASSETS.map((a) => [a, st.news.agg[a] ? { sentiment: st.news.agg[a].sentiment, risk: st.news.agg[a].risk, n: st.news.agg[a].n } : null])), latest: st.news.latest.slice(0, 6) } : null,
       context: { global: st.global ? { mcapChange24h: st.global.mcapChange24h, btcDom: st.global.btcDom } : null, tvl: Object.fromEntries(Object.entries(st.tvl).map(([k, v]) => [k, { ch1d: v.ch1d, ch7d: v.ch7d }])), lsr: Object.fromEntries(ASSETS.map((a) => { const l = st.lsr[a] && st.lsr[a].series.at(-1); return [a, l ? { ratio: l.ratio, z: l.z } : null]; })) },
       fng: fngL ? { value: fngL.value, label: itFng(fngL.label) } : null,
       regimes: Object.fromEntries(ASSETS.map((a) => [a, st.live[a] ? st.live[a].regime : null])),
@@ -205,7 +227,8 @@ class Research {
   publicStatus() {
     const sm = this.summary();
     return { lastBacktest: sm.lastBacktest, lastFeeds: sm.lastFeeds, running: sm.running, runs: sm.runs, lastError: sm.lastError, durationMs: this.st.durationMs || null, sources: sm.sources, fng: sm.fng, regimes: sm.regimes,
-      news: sm.news ? { t: sm.news.t, count: sm.news.count, sources: sm.news.sources, assets: sm.news.assets } : null, context: sm.context, mentor: this.mentorStatus ? this.mentorStatus() : null,
+      news: sm.news ? { lastCheck: sm.news.lastCheck, lastNew: sm.news.lastNew, checks: sm.news.checks, intervalSec: sm.news.intervalSec, count: sm.news.count, sources: sm.news.sources, assets: sm.news.assets,
+        feeds: Object.fromEntries(Object.entries(this.reader.feeds).map(([n, f]) => [n, { lastStatus: f.lastStatus, lastOk: f.lastOk, lastCheck: f.lastCheck, fails: f.fails, backoffUntil: f.backoffUntil || null, notModified: f.notModified, newItems: f.newItems, rateLimited: f.rateLimited, lastErr: f.lastErr || null }])) } : null, context: sm.context, mentor: this.mentorStatus ? this.mentorStatus() : null,
       health: Object.fromEntries(Object.entries(this.st.health).map(([k, h]) => [k, { ok: h.ok, lastOk: h.lastOk, lastErr: h.lastErr }])),
       strategies: sm.strategies.map((s) => ({ id: s.id, active: s.active, activeOn: s.activeOn, best: s.best && { asset: s.best.asset, tf: s.best.tf, n: s.best.n, winRate: +s.best.winRate.toFixed(1), expPct: +s.best.expPct.toFixed(3), retPct: +s.best.retPct.toFixed(3), ddPct: +s.best.ddPct.toFixed(2) } })) };
   }
