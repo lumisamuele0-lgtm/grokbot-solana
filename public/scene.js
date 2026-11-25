@@ -6,12 +6,18 @@
   const W = 400, H = 330;
   const RM = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const AMP = RM ? 0.35 : 1;
-  const ROWS = { SOL: 98, BTC: 172, ETH: 246 };
+  const ROWY = [98, 172, 246]; // una fila per ognuna delle (max) 3 cripto della squadra
   const XS = { A: { LONG: 160, SHORT: 98 }, B: { LONG: 240, SHORT: 302 } };
   const VAULT = { A: { x: 17, y: 172 }, B: { x: 383, y: 172 } };
   const ORB = { x: 200, y: 172 };
   const BENCH = { A: { x: 120, y: 314 }, B: { x: 280, y: 314 } };
-  const ASSET_COL = { SOL: '#9945FF', BTC: '#F7931A', ETH: '#7B8CFF' };
+  const colOf = (b) => b.coinColor || '#ffffff';
+  // posto in campo: fila = cripto, colonna = attaccante (long) avanti, difensore (short) o scalper dietro; panchina per le riserve
+  function homeOf(teamId, p, i) {
+    if (p.slot == null || p.slot < 0 || !p.mint) { const B = BENCH[teamId]; return { x: B.x + (teamId === 'A' ? -1 : 1) * (22 + (i % 3) * 13), y: 312 + Math.floor(i / 3) * 4 }; }
+    const back = p.side === 'SHORT' || p.lineRole === 'scalper';
+    return { x: XS[teamId][back ? 'SHORT' : 'LONG'], y: ROWY[p.slot] || 172 };
+  }
   const ACT_ICON = { scan: '🔍', pick: '⚡', block: '✋', flow: '📊', verify: '✔', idle: '…', size: '⚖', risk: '🛡', exec: '🚀', watch: '👀', kill: '⛔', teach: '📚', learn: '📚' };
 
   let cv, ctx, dpr = 1, scale = 1, ox = 0, oy = 0, cssW = 0, cssH = 0, bg = null;
@@ -23,14 +29,14 @@
   // ---------- squadre
   function build(m) {
     for (const T of m.teams) {
-      const mk = (p, coach) => {
-        const home = coach ? BENCH[T.id] : { x: XS[T.id][p.side], y: ROWS[p.asset] };
-        bots[p.id] = { id: p.id, team: T.id, coach, name: p.name, num: p.num || 0, look: p.look, asset: p.asset, side: p.side, color: T.color, color2: T.color2,
+      const mk = (p, coach, i) => {
+        const home = coach ? BENCH[T.id] : homeOf(T.id, p, i);
+        bots[p.id] = { id: p.id, team: T.id, coach, name: p.name, num: p.num || 0, look: p.look, asset: p.asset, side: p.side, coinColor: p.coinColor, perp: p.perp, color: T.color, color2: T.color2,
           x: home.x, y: home.y, hx: home.x, hy: home.y, path: [], face: T.id === 'A' ? 1 : -1, phase: Math.random() * 6, walk: 0, moving: false,
           jz: 0, jv: 0, happyT: 0, sadT: 0, spinT: 0, emote: null, emoteT: 0, talk: null, talkT: 0, hold: null, blinkT: 2 + Math.random() * 3, shakeHand: 0, sit: 0 };
       };
-      for (const p of T.players) mk(p, false);
-      mk({ id: T.coach.id, name: T.coach.name, look: T.coach.look }, true);
+      T.players.forEach((p, i) => mk(p, false, i));
+      mk({ id: T.coach.id, name: T.coach.name, look: T.coach.look }, true, 0);
     }
     st.built = true;
   }
@@ -68,7 +74,8 @@
       const c = coachOf(e.team); if (!c) return; say(c, e.text); c.gest = 1.6;
       if (e.kind === 'win') jump(c, 8);
       if (e.kind === 'timeout') { banner('TIME-OUT', c.name, '#FFB020', 2); teamBots(e.team).forEach((b) => { b.sit = 2.2; emote(b, '⏸', 2); }); }
-      if (e.kind === 'focus') { const a = /SOL|BTC|ETH/.exec(e.text); if (a) teamBots(e.team).filter((b) => b.asset === a[0]).forEach((b) => { emote(b, '🎯', 2); b.glowT = 2.4; }); }
+      if (e.kind === 'focus') teamBots(e.team).filter((b) => b.asset && b.asset.replace(/\W/g, '') && new RegExp(`\\b${b.asset.replace(/\W/g, '')}\\b`).test(e.text)).forEach((b) => { emote(b, '🎯', 2); b.glowT = 2.4; });
+      if (e.kind === 'coins') teamBots(e.team).forEach((b, i) => after(i * 0.08, () => jump(b, 6)));
       if (e.kind === 'select') teamBots(e.team).forEach((b) => emote(b, '🧐', 1.6));
       if (e.kind === 'mentor') st.mentorT = 2.4;
       return;
@@ -85,7 +92,7 @@
       if (e.side === 'BUY' || e.side === 'SHORT') {
         // il giocatore corre al centro (la borsa): le monete escono dalla cassa di squadra
         b.path = []; emote(b, e.side === 'SHORT' ? '▼' : '▲', 1.6);
-        go(b, ORB.x + (e.team === 'A' ? -16 : 16), ORB.y + (ROWS[b.asset] - ORB.y) * 0.25, () => { st.orbT = 1.2; burst(ORB.x, ORB.y, ASSET_COL[b.asset] || '#fff', 10); home(b); });
+        go(b, ORB.x + (e.team === 'A' ? -16 : 16), ORB.y + (b.hy - ORB.y) * 0.25, () => { st.orbT = 1.2; burst(ORB.x, ORB.y, colOf(b), 10); home(b); });
         coins(V, ORB, 6, '#FFD54A'); floatTxt(V.x + (e.team === 'A' ? 22 : -22), V.y - 16, '−' + money(amt, false), '#ff6b7a'); st.vaultT = st.vaultT || {}; st.vaultT[e.team] = 1;
       } else if (e.side === 'SELL' || e.side === 'PARTIAL') {
         const win = (e.pnl || 0) >= 0; const partial = e.side === 'PARTIAL';
@@ -145,8 +152,13 @@
       if (!st.built) build(m);
       st.m = m; st.skew = (m.now || Date.now()) - Date.now();
       const pos = s.positions || [];
-      Object.values(bots).forEach((b) => { if (b.coach) return; const p = pos.find((x) => x.player === b.id && x.team === b.team); b.hold = p ? { pct: p.pnlPct, side: p.side } : null; });
+      Object.values(bots).forEach((b) => { if (b.coach) return; const p = pos.find((x) => x.player === b.id && x.team === b.team); b.hold = p ? { pct: p.pnlPct, side: p.side, lev: p.lev } : null; });
       const T = Object.fromEntries(m.teams.map((x) => [x.id, x])); st.teams = T;
+      // formazione dinamica: se l'allenatore cambia cripto i giocatori corrono al nuovo posto
+      for (const team of m.teams) team.players.forEach((p, i) => {
+        const b = bots[p.id]; if (!b) return; b.asset = p.asset; b.side = p.side; b.coinColor = p.coinColor; b.perp = p.perp; b.lineRole = p.lineRole;
+        const h = homeOf(team.id, p, i); if (Math.abs(h.x - b.hx) > 0.5 || Math.abs(h.y - b.hy) > 0.5) { b.hx = h.x; b.hy = h.y; if (!b.hold) { b.path = []; home(b); } }
+      });
       if (st.finale && (m.state === 'live' || !m.awaitingNew)) clearFinale();
       if (!st.finale && m.state === 'ended' && m.awaitingNew && m.result) finale(m.result.winner, m.result.mvp, true);
     },
@@ -250,8 +262,6 @@
     ctx.beginPath(); ctx.arc(46, 172, 16, -1.2, 1.2); ctx.stroke(); ctx.beginPath(); ctx.arc(W - 46, 172, 16, Math.PI - 1.2, Math.PI + 1.2); ctx.stroke();
     // panchina
     ctx.fillStyle = '#0a1a12'; ctx.fillRect(0, 300, W, 30); ctx.fillStyle = '#ffffff14'; ctx.fillRect(84, 322, 72, 5); ctx.fillRect(244, 322, 72, 5);
-    // etichette righe
-    for (const a of ['SOL', 'BTC', 'ETH']) { text(a, 200, ROWS[a] - 40 + (a === 'SOL' ? 6 : 0), 6.5, ASSET_COL[a] + 'aa', 'center', '800'); }
     ctx = c0;
   }
   function drawCrowd() {
@@ -282,6 +292,20 @@
     const prog = m && m.state === 'live' && rem != null ? 1 - rem / (m.durationMs || 1200e3) : m && m.state !== 'none' ? 1 : 0;
     ctx.fillStyle = '#1b2236'; rr(176, 32, 48, 3, 1.5); ctx.fill(); ctx.fillStyle = rem != null && rem < 60e3 ? '#ff4d5e' : '#FFD54A'; rr(176, 32, Math.max(2, 48 * prog), 3, 1.5); ctx.fill();
     if (st.mode === 'REAL') text('REALE', 200, 39.5, 4.5, '#ff9aa5', 'center', '900');
+  }
+  function drawCoinRows() {
+    // le (max) 3 cripto di ogni squadra: nome, colore e "5x · L/S" o "Spot · Long"
+    if (!st.teams) return;
+    for (const id of ['A', 'B']) {
+      const T = st.teams[id]; if (!T || !T.coins) continue; const x = id === 'A' ? 129 : 271;
+      T.coins.forEach((c, i) => {
+        const y = ROWY[i] - 35; const lbl = `${c.symbol} · ${c.perp ? c.label.replace(' · ', ' ') : 'spot'}`;
+        ctx.font = '800 5.6px Inter,-apple-system,sans-serif'; const w = ctx.measureText(lbl).width + 12;
+        ctx.fillStyle = 'rgba(0,0,0,0.38)'; rr(x - w / 2, y - 4.5, w, 9, 4); ctx.fill();
+        ctx.fillStyle = c.color || '#fff'; ctx.beginPath(); ctx.arc(x - w / 2 + 5, y, 2.2, 0, 6.28); ctx.fill();
+        text(lbl, x + 3, y + 0.2, 5.6, '#ffffffdd', 'center', '800');
+      });
+    }
   }
   function drawVault(id) {
     const V = VAULT[id]; const T = st.teams && st.teams[id]; const col = T ? T.color : '#888'; const g = (st.vaultT && st.vaultT[id]) || 0;
@@ -372,14 +396,14 @@
     ctx.restore();
     // pallone = posizione aperta (colore della cripto) che il giocatore palleggia
     if (b.hold) {
-      const bx = b.x + b.face * 9, by = b.y + 7 - Math.abs(Math.sin(t * 5 + b.phase)) * 5 * AMP; const col = ASSET_COL[b.asset] || '#fff';
+      const bx = b.x + b.face * 9, by = b.y + 7 - Math.abs(Math.sin(t * 5 + b.phase)) * 5 * AMP; const col = colOf(b);
       ctx.fillStyle = col; ctx.beginPath(); ctx.arc(bx, by, 3.3, 0, 6.28); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 0.7; ctx.stroke();
-      const pc = b.hold.pct || 0; const lbl = `${b.hold.side === 'SHORT' ? '▼' : '▲'} ${pc >= 0 ? '+' : ''}${pc.toFixed(1)}%`;
+      const pc = b.hold.pct || 0; const lbl = `${b.hold.side === 'SHORT' ? '▼' : '▲'}${(b.hold.lev || 1) > 1 ? b.hold.lev + 'x' : ''} ${pc >= 0 ? '+' : ''}${pc.toFixed(1)}%`;
       ctx.font = '800 5.6px Inter,-apple-system,sans-serif'; const w = ctx.measureText(lbl).width + 6;
       ctx.fillStyle = pc >= 0 ? '#06301cdd' : '#3a0a12dd'; rr(b.x - w / 2, y - 31, w, 8, 3); ctx.fill(); text(lbl, b.x, y - 27, 5.6, pc >= 0 ? '#3dffa0' : '#ff6b7a', 'center', '800');
     }
     text(b.coach ? b.name.replace('Mister ', 'Mr ') : b.name, b.x, b.y + 15.5, 5.4, b.coach ? '#fff' : b.color2, 'center', '800');
-    if (!b.coach) text(b.asset + (b.side === 'SHORT' ? '▼' : '▲'), b.x, b.y + 21.5, 4.4, '#ffffff88', 'center', '700');
+    if (!b.coach) text(b.asset ? `${b.asset}${b.side === 'SHORT' ? '▼' : '▲'}${b.perp ? '' : b.lineRole === 'scalper' ? ' scalp' : ' spot'}` : 'riserva', b.x, b.y + 21.5, 4.4, b.coinColor || '#ffffff88', 'center', '700');
     if (b.emote && !b.hold) { ctx.globalAlpha = Math.min(1, b.emoteT * 3); text(b.emote, b.x, y - 26 - (1 - Math.min(1, b.emoteT)) * 4, 8, '#fff'); ctx.globalAlpha = 1; }
     if (sadNow && st.finale && !RM) { // nuvoletta di pioggia per chi perde
       const cx = b.x, cy = y - 32; ctx.fillStyle = '#7b8494'; ctx.beginPath(); ctx.arc(cx - 3, cy, 3.2, 0, 6.28); ctx.arc(cx + 2, cy - 1, 4, 0, 6.28); ctx.arc(cx + 6, cy + 0.5, 2.6, 0, 6.28); ctx.fill();
@@ -453,7 +477,7 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(bg, 0, 0);
     const sx = st.shake > 0 ? (Math.random() - 0.5) * st.shake * 4 : 0, sy = st.shake > 0 ? (Math.random() - 0.5) * st.shake * 4 : 0;
     ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sx * scale), dpr * (oy + sy * scale));
-    drawCrowd(); drawBoard(); drawVault('A'); drawVault('B'); drawOrb(); drawMentor();
+    drawCrowd(); drawBoard(); drawCoinRows(); drawVault('A'); drawVault('B'); drawOrb(); drawMentor();
     Object.values(bots).sort((a, b) => a.y - b.y).forEach(drawBot);
     drawFx();
     Object.values(bots).forEach(drawTalk);

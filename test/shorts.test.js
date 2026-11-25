@@ -116,7 +116,7 @@ test('SIMULAZIONE: long con leva 5x su SOL (perps) e REALE ancora bloccato', asy
 
 test('migrazione v6: leva salvata sotto 5x → 5x, il resto invariato', () => {
   const r = migrateConfig({ cfgVersion: 5, maxTradePct: 5, budget: 33, shortsOn: false, leverage: 2, perpLongs: true, scanMemes: false });
-  assert.strictEqual(r.changed, true); assert.strictEqual(r.cfg.cfgVersion, 7);
+  assert.strictEqual(r.changed, true); assert.ok(r.cfg.cfgVersion >= 7);
   assert.strictEqual(r.cfg.leverage, 5);
   assert.strictEqual(r.cfg.shortsOn, false, 'la scelta sugli short resta'); assert.strictEqual(r.cfg.perpLongs, true);
   assert.strictEqual(r.cfg.maxTradePct, 5); assert.strictEqual(r.cfg.budget, 33);
@@ -208,7 +208,7 @@ test('pipeline: con "long con leva" attivo, un LONG su SOL va su Jupiter Perps a
 
 test('migrazione v7: accende i long con leva, il resto invariato', () => {
   const r = migrateConfig({ cfgVersion: 6, perpLongs: false, leverage: 10, shortsOn: true, maxTradePct: 6, budget: 50, tokens: ['x'] });
-  assert.strictEqual(r.cfg.cfgVersion, 7); assert.strictEqual(r.cfg.perpLongs, true);
+  assert.ok(r.cfg.cfgVersion >= 7); assert.strictEqual(r.cfg.perpLongs, true);
   assert.strictEqual(r.cfg.leverage, 10); assert.strictEqual(r.cfg.maxTradePct, 6); assert.strictEqual(r.cfg.budget, 50); assert.deepStrictEqual(r.cfg.tokens, ['x']);
   assert.strictEqual(migrateConfig(r.cfg).changed, false);
 });

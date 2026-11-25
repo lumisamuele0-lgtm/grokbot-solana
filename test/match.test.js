@@ -19,11 +19,9 @@ function trendUp(n = 200) { const out = []; const t = Date.now() - n * 60000; fo
 function selloff(n = 200) { const out = []; const t = Date.now() - n * 60000; for (let i = 0; i < n; i++) { let c = 100 + 0.2 * Math.sin(i / 2); if (i >= n - 8 && i < n - 1) c = 100 - (i - (n - 9)) * 0.6; if (i === n - 1) c = 100 - 7 * 0.6 + 0.4; out.push({ t: t + i * 60000, o: c, h: c * 1.0008, l: c * 0.9992, c, v: 1 }); } return out; }
 
 test('partita: due squadre da 7 (6 giocatori specialisti + allenatore), 20 minuti, cassa divisa a metà', () => {
-  for (const T of Object.values(TEAMS)) {
-    assert.strictEqual(T.players.length, 6); assert.ok(T.coach && T.coach.name);
-    const combos = new Set(T.players.map((p) => p.asset + p.side)); assert.strictEqual(combos.size, 6, 'ogni giocatore ha cripto e direzione diverse');
-  }
+  for (const T of Object.values(TEAMS)) { assert.strictEqual(T.players.length, 6); assert.ok(T.coach && T.coach.name); }
   const e = mkEngine(); const m = e.match.start(1000);
+  for (const T of e.match.view(1000).teams) { const combos = new Set(T.players.filter((p) => p.mint).map((p) => p.mint + p.side + p.lineRole)); assert.strictEqual(combos.size, T.players.filter((p) => p.mint).length, 'ogni giocatore ha un posto diverso'); }
   assert.strictEqual(MATCH_MS, 20 * 60e3); assert.strictEqual(m.endAt - m.startAt, MATCH_MS); assert.strictEqual(m.state, 'live');
   assert.strictEqual(m.teams.A.bankroll, 500); assert.strictEqual(m.teams.B.bankroll, 500);
   const v = e.match.view(1000 + 60e3); assert.strictEqual(v.remainingMs, MATCH_MS - 60e3); assert.strictEqual(v.teams.length, 2); assert.strictEqual(v.teams[0].players.length, 6);

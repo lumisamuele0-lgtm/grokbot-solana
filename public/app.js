@@ -468,6 +468,7 @@
   }
 
   // ---------- PARTITA a squadre
+  document.addEventListener('error', (e) => { const t = e.target; if (t && t.tagName === 'IMG' && t.closest('.coin')) t.replaceWith(Object.assign(document.createElement('i'), { className: 'cdot' })); }, true); // logo non disponibile
   const endSeen = {};
   const money = (v, sign = true) => { const d = S && S.base === 'SOL' ? 4 : 2; return (sign ? (v >= 0 ? '+' : '−') : '') + nf(Math.abs(v || 0), d) + (S && S.base === 'SOL' ? ' ◎' : ' $'); };
   function findPlayer(id) {
@@ -490,8 +491,9 @@
     return `<div class="team" style="--c:${T.color};--c2:${T.color2}">
       <div class="tm-hd"><span class="kit" aria-hidden="true"></span><div class="tm-n"><b>${esc(T.name)}</b><small>${esc(T.styleLabel)} · «${esc(T.motto)}»</small></div>
         <div class="tm-s"><b class="${T.pnl >= 0 ? 'mint' : 'red'}">${money(T.pnl)}</b><small>${nf(T.pct, 2)}% · ${T.trades} trade · ${m.tally ? m.tally[T.id] : 0} vittorie</small></div></div>
+      <div class="tm-coins">${(T.coins || []).map((k) => `<span class="coin" style="--cc:${k.color}" title="${esc(k.name || k.symbol)}">${k.icon ? `<img src="${esc(k.icon)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<i class="cdot"></i>`}<span class="cn"><b title="${esc(k.name || '')}">${esc(k.symbol)}${k.phantom ? ' 👻' : ''}</b><em class="bdg ${k.perp ? 'perp' : 'spot'}">${esc(k.label)}</em></span></span>`).join('') || '<span class="mu" style="font-size:12px">l\'allenatore sceglie le cripto al calcio d\'inizio</span>'}</div>
       <button class="pl coach" data-pl="${c.id}"><span class="av">${LOOK_EMO[c.look] || '📋'}</span><span class="tx"><b>${esc(c.name)} <small>allenatore</small></b><small>${esc(coachSt)}</small>${c.lastTalk ? `<span class="say">«${esc(c.lastTalk.text)}»</span>` : ''}</span></button>
-      ${T.players.map((p) => `<button class="pl${p.holding ? ' hold' : ''}" data-pl="${p.id}"><span class="av num">${p.num}</span><span class="tx"><b>${esc(p.name)}${p.holding ? ' ⚽' : ''}${p.bonus ? ` <i class="bz">⚡+${nf(p.bonus, 2)}</i>` : ''}</b><small>${esc(p.role)}</small></span><span class="r"><b class="${p.pnl > 0 ? 'mint' : p.pnl < 0 ? 'red' : ''}">${money(p.pnl)}</b><small>${p.trades} trade${p.trades ? ` · ${p.wins}V/${p.losses}P` : ''}</small></span></button>`).join('')}
+      ${T.players.map((p) => `<button class="pl${p.holding ? ' hold' : ''}${p.mint ? '' : ' bench'}" data-pl="${p.id}"><span class="av num"${p.coinColor ? ` style="border-color:${p.coinColor}"` : ''}>${p.num}</span><span class="tx"><b>${esc(p.name)}${p.holding ? ' ⚽' : ''}${p.bonus ? ` <i class="bz">⚡+${nf(p.bonus, 2)}</i>` : ''}</b><small>${esc(p.role)}</small></span><span class="r"><b class="${p.pnl > 0 ? 'mint' : p.pnl < 0 ? 'red' : ''}">${money(p.pnl)}</b><small>${p.trades} trade${p.trades ? ` · ${p.wins}V/${p.losses}P` : ''}</small></span></button>`).join('')}
       ${T.actions.length ? `<div class="tm-act">${T.actions.slice(0, 3).map((a) => `<div><span>${hhmm(a.t)}</span> ${esc(a.text)}</div>`).join('')}</div>` : ''}
     </div>`;
   }
@@ -510,8 +512,8 @@
       </div>
       <div class="mc-tug" aria-hidden="true" style="--a:${A.color};--b:${B.color}"><i style="left:${tug}%"></i></div>
       <div class="mc-bar"><i id="mcBar" style="width:${live ? Math.min(100, (1 - m.remainingMs / m.durationMs) * 100) : m.state === 'none' ? 0 : 100}%"></i></div>
-      <div class="mc-cap">Cassa per squadra: ${money(A.bankroll, false)} (metà del disponibile ciascuna) · stessi limiti di rischio: margine ${s.cfg.maxTradePct}%, leva ${s.cfg.leverage || 5}x, stop prima della liquidazione</div>
-      ${m.realWaiting ? `<div class="mc-real">⏳ ${esc(m.realWaiting)}</div>` : ''}
+      <div class="mc-cap">Cassa per squadra: ${money(A.bankroll, false)} (metà del disponibile ciascuna) · max ${m.maxCoins || 3} cripto per squadra · ${s.cfg.maxTradePct}% per operazione · leva ${s.cfg.leverage || 5}x e short solo su SOL/BTC/ETH (stop prima della liquidazione), spot 1x solo long sulle altre</div>
+      ${m.realWaiting ? `<div class="mc-real">⏳ ${esc(m.realWaiting)}</div>` : ''}${m.realNote ? `<div class="mc-real note2">ℹ️ ${esc(m.realNote)}</div>` : ''}
       <div class="mc-foot"><span>Vittorie: ${esc(A.short)} ${tl.A} · ${esc(B.short)} ${tl.B} · pareggi ${tl.draws}</span>${live ? '<button class="chip" data-mstop>Termina</button>' : m.state !== 'closing' ? '<button class="chip pri" data-mstart>Nuova partita</button>' : ''}</div>`;
     const mc = $('#matchCard'); if (mc.dataset.h !== h) { mc.dataset.h = h; mc.innerHTML = h; }
     const th = m.teams.map((T) => teamHtml(T, m)).join('');
@@ -547,7 +549,7 @@
       return `<div class="row"><span class="pav" style="--c:${T.color};--c2:${T.color2}">${p.num}</span><div><h4>${esc(p.name)} <small class="mu">${esc(T.name)}</small></h4><div class="mu" style="font-size:13px">${esc(p.role)} · stile ${esc(T.styleLabel)}</div></div></div>
         <div class="card" style="margin-top:14px"><div class="kv"><span>Profitto in partita</span><span class="${p.pnl >= 0 ? 'mint' : 'red'}">${money(p.pnl)}</span></div><div class="kv"><span>Operazioni</span><span>${p.trades} (${p.wins} vinte / ${p.losses} perse)</span></div><div class="kv"><span>Spinta dell'allenatore</span><span>${p.bonus ? '⚡ +' + nf(p.bonus, 2) : '—'}</span></div>
         ${pos ? `<div class="kv"><span>In campo ora</span><span>${pos.side === 'SHORT' ? '▼ SHORT' : '▲ LONG'} ${pos.lev}x · <b class="${pos.pnl >= 0 ? 'mint' : 'red'}">${money(pos.pnl)} (${nf(pos.pnlPct, 2)}%)</b></span></div>` : ''}</div>
-        <div class="card" style="margin-top:12px"><div class="lbl">Cosa fa</div><div style="margin-top:6px;font-size:14px;line-height:1.5">Specialista di <b>${esc(p.asset)} ${p.side === 'SHORT' ? 'short ▼' : 'long ▲'}</b>: per la sua operazione fa tutto il lavoro dei vecchi bot (scansione, verifica, flusso, scelta, dimensione, rischio, esecuzione, sorveglianza) con le regole di sempre. ${T.style === 'trend' ? 'Entra quando il trend corre (EMA, ADX, MACD, Donchian…).' : 'Entra in contropiede sugli eccessi (RSI, Bande di Bollinger, funding, paura/avidità…).'}</div></div>
+        <div class="card" style="margin-top:12px"><div class="lbl">Cosa fa</div><div style="margin-top:6px;font-size:14px;line-height:1.5">${!p.mint ? 'Ora è in panchina: entra quando l\'allenatore sceglie un\'altra cripto.' : `${esc(p.role)}: per la sua operazione fa tutto il lavoro dei vecchi bot (scansione, verifica, flusso, scelta, dimensione, rischio, esecuzione, sorveglianza) con le regole di sempre. ${p.perp ? `Su ${esc(p.asset)} c'è Jupiter Perps: leva ${S.cfg.leverage || 5}x, stop prima della liquidazione.` : `Su ${esc(p.asset)} non c'è leva: spot 1x, solo long, swap su Jupiter.`} ${p.lineRole === 'scalper' ? 'Da scalper usa il segnale opposto allo stile della squadra, ma solo quando è forte (≥ 75%).' : T.style === 'trend' ? 'Entra quando il trend corre (EMA, ADX, MACD, Donchian…).' : 'Entra in contropiede sugli eccessi (RSI, Bande di Bollinger, funding, paura/avidità…).'}`}</div></div>
         <div class="grp"><span class="lbl">Operazioni in questa partita</span>${trs.length ? `<table class="h">${trs.map((t) => `<tr><td>${hhmm(t.closedAt)}</td><td>${t.side === 'SHORT' ? '▼' : '▲'} ${t.lev}x<div class="mu" style="font-size:11px">${esc(t.reason)}</div></td><td class="r ${t.pnl >= 0 ? 'mint' : 'red'}">${money(t.pnl)}</td></tr>`).join('')}</table>` : '<div class="empty">ancora nessuna operazione chiusa</div>'}</div>
         <div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>`;
     };
@@ -580,7 +582,7 @@
     tween('sO', $('#sO'), s.counters.approved, (v) => Math.round(v).toLocaleString('it-IT'));
     renderAgents();
     renderMatch(s);
-    $('#subTag').textContent = `SOL · BTC · ETH sempre con leva ${s.cfg.leverage || 5}x · margine ${s.cfg.maxTradePct}% per operazione`;
+    $('#subTag').textContent = `Max 3 cripto per squadra · leva ${s.cfg.leverage || 5}x L/S su SOL/BTC/ETH · spot 1x long sulle altre · ${s.cfg.maxTradePct}% per operazione`;
     const eb = $('#entryBlock'); if (eb) { eb.classList.toggle('hidden', !s.entryBlock); eb.textContent = s.entryBlock ? '⏸ ' + s.entryBlock + ' Le posizioni già aperte restano gestite.' : ''; }
     renderPnl(s);
     renderKnowledge(s); renderResearch(s); renderMentor(s);
@@ -822,9 +824,12 @@
         <div class="switch"><span>Uscita rapida su inversione / ondata di vendite</span><span class="toggle ${c.reversalExit ? 'on' : ''}" data-t="reversalExit"></span></div>
         <div class="grid2">${num('reversalPct', 'Crollo 5 min oltre %')}</div>
         <p class="note">R = distanza dello stop-loss iniziale (dipende dalla volatilità). Esempio: stop −4% → presa 1 a +4% vende il 40%, lo stop sale a pareggio; presa 2 a +8% vende un altro 30%; il resto segue il trailing (distanza 1,5 × ATR, mai più larga dello stop iniziale). Sui meme le distanze sono ×0,75.</p></div>
-      <div class="grp"><span class="lbl">Cripto su cui lavora</span>
-        <div class="chips" style="margin-top:4px">${['SOL', 'BTC', 'ETH'].map((x) => `<span class="chip on">${x} · ${c.leverage || 5}x</span>`).join('')}</div>
-        <p class="note">Si entra <b>sempre con leva</b> (minimo 5x, ora ${c.leverage || 5}x) su SOL, BTC ed ETH tramite Jupiter Perps, sia LONG sia SHORT. Niente più acquisti spot: eventuali posizioni spot ancora aperte su altri token vengono solo gestite fino alla chiusura (stop, prese, trailing), senza vendite forzate.</p></div>
+      <div class="grp"><span class="lbl">Cripto su cui lavora (partita)</span>
+        <div class="chips" style="margin-top:4px">${['SOL', 'BTC', 'ETH'].map((x) => `<span class="chip on">${x} · ${c.leverage || 5}x L/S</span>`).join('')}<span class="chip">tutte le altre · spot 1x long</span></div>
+        <p class="note">Ogni squadra gioca su <b>massimo 3 cripto</b> scelte dall'allenatore fra tutte quelle scambiabili su Solana con Phantom/Jupiter (anche quelle nel tuo Phantom) che superano i filtri di sicurezza: verificate su Jupiter, niente autorità di mint/freeze, niente Token-2022, liquidità ≥ ${Math.round(c.uniMinLiqUsd / 1000)}k $, volume 24h ≥ ${Math.round(c.uniMinVol24hUsd / 1000)}k $, capitalizzazione ≥ ${Math.round(c.uniMinMcapUsd / 1e6)}M $, età ≥ ${c.uniMinAgeDays} giorni, RugCheck e via di vendita su Jupiter. <b>Leva e short solo su SOL, BTC, ETH</b> (Jupiter Perps, min 5x); sulle altre cripto <b>spot 1x, solo long</b>, stessa dimensione (${c.maxTradePct}%) e uscite furbe.</p>
+        <div class="switch"><span>Spot 1x solo long sulle cripto senza leva</span><span class="toggle ${c.spotLongs ? 'on' : ''}" data-t="spotLongs"></span></div>
+        <div class="switch"><span>Spot REALE (swap veri su Jupiter, soldi veri)</span><span class="toggle ${c.realSpot ? 'on' : ''}" data-t="realSpot" id="sRealSpot"></span></div>
+        <p class="note warnTxt">In REALE lo spot compra cripto vere col wallet del bot (rispetta budget, kill switch e limiti giornalieri). È spento finché non lo accendi tu. Leva e short reali restano bloccati fino al test con 5-10 USDC.</p></div>
       <div class="grp"><span class="lbl">Rete Solana</span>${`<label class="field"><span>RPC (gratuito di default; puoi usarne uno tuo)</span><input class="in" data-k="rpcUrl" value="${esc(c.rpcUrl)}"></label>`}</div>
       <div class="btns"><button class="btn pri" id="sSave">Salva impostazioni</button></div><div class="err" id="sErr"></div>
       <div class="grp"><span class="lbl">Portafoglio del bot</span><div class="card wallet">
@@ -844,7 +849,10 @@
         <button class="btn ghost" id="sLogout">Esci</button><button class="btn ghost" data-close>Chiudi</button></div></div>`, (b) => {
       const pw = () => $('#sPw', b).value;
       const out = (t) => { $('#sWOut', b).innerHTML = t; };
-      $$('.toggle', b).forEach((t) => t.addEventListener('click', () => t.classList.toggle('on')));
+      $$('.toggle', b).forEach((t) => t.addEventListener('click', () => {
+        if (t.dataset.t === 'realSpot' && !t.classList.contains('on') && !window.confirm('Attivare lo spot REALE? In modalità REALE il bot comprerà cripto vere (solo long, 1x) con il wallet del bot, entro budget e limiti. Ricordati di premere Salva.')) return;
+        t.classList.toggle('on');
+      }));
       // selettore leva 5x / 10x (minimo 5x) con avviso rosso
       const levNote = (l) => {
         const dist = (S.shorts && S.shorts.liqDist && S.shorts.liqDist[l]) || (100 / l - 0.32);

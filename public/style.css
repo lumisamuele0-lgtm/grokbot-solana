@@ -299,3 +299,10 @@ nav.bn button:active{background:#ffffff10}
 @keyframes fadeIn{from{opacity:0}}
 @keyframes trophy{50%{transform:translateY(-6px) rotate(-4deg)}}
 @media (prefers-reduced-motion:reduce){.mc-clock.tense,.mc-clock.final10,.mc-st.on,.pl.hold .av,.mend-ic,.mend,.mend-bg{animation:none}.mc-tug i,.mc-bar i{transition:none}}
+.tm-coins{display:flex;gap:6px;padding:0 12px 10px;flex-wrap:wrap}
+.coin{display:flex;align-items:center;gap:6px;padding:5px 8px 5px 5px;border-radius:12px;background:#0e0e0e;border:1px solid color-mix(in srgb,var(--cc) 55%,#222);flex:1 1 0;min-width:0}
+.coin img,.coin .cdot{width:22px;height:22px;border-radius:50%;flex:none;background:var(--cc)}
+.coin .cn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;flex:1}.coin .cn b{font-size:12.5px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.coin .cn small{font-size:10px;color:var(--mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bdg{font-style:normal;font-size:9.5px;font-weight:800;padding:2px 5px;border-radius:6px;white-space:nowrap}.bdg.perp{background:#FFB0201f;color:#FFB020}.bdg.spot{background:#00E5C71a;color:#00E5C7}
+.pl.bench{opacity:.55}
+.mc-real.note2{background:#0d1a2a;border-color:#3BA4FF77;color:#bcdcff}

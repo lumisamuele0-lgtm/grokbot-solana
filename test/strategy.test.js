@@ -65,11 +65,12 @@ test('dimensione: 7% del capitale per operazione, limitato dal contante e dal mi
   assert.strictEqual(S.sizePosition({ capital: 100, cash: 5, cfg: DEFAULTS, confidence: 1, atr: 1, core: true, minTrade: 2 }).size, 5);
   assert.strictEqual(S.sizePosition({ capital: 20, cash: 20, cfg: DEFAULTS, confidence: 0, atr: 1, core: false, minTrade: 2 }).size, 0);
 });
-test('filtri: volume 24h minimo 3k $ ed età minima 1 minuto', () => {
+test('filtri: volume 24h minimo ed età minima (regole)', () => {
+  const DEFAULTS0 = { ...DEFAULTS, minVolume24hUsd: 3000, minPairAgeMin: 1, minLiquidityUsd: 40000, minMcapUsd: 300000 };
   const base = { core: false, liquidityUsd: 100000, volume24h: 3000, ageHours: 1 / 60, mcapUsd: 5e6, change1h: 2, change24h: 5, buys1h: 10, sells1h: 9 };
-  assert.deepStrictEqual(S.filterRules(base, DEFAULTS), []);
-  assert.deepStrictEqual(S.filterRules({ ...base, volume24h: 2999 }, DEFAULTS).map((x) => x.key), ['VOL']);
-  assert.deepStrictEqual(S.filterRules({ ...base, ageHours: 0.9 / 60 }, DEFAULTS).map((x) => x.key), ['AGE']);
+  assert.deepStrictEqual(S.filterRules(base, DEFAULTS0), []);
+  assert.deepStrictEqual(S.filterRules({ ...base, volume24h: 2999 }, DEFAULTS0).map((x) => x.key), ['VOL']);
+  assert.deepStrictEqual(S.filterRules({ ...base, ageHours: 0.9 / 60 }, DEFAULTS0).map((x) => x.key), ['AGE']);
 });
 test('limiti: kill switch %, stop assoluto, perdita giornaliera, posizioni max', () => {
   const c = { ...DEFAULTS, maxLossAbs: 0 };
