@@ -1,10 +1,10 @@
 'use strict';
-// Motore del bot: 9 agenti in pipeline (LONG spot + SHORT Jupiter Perps fino a 2x), esecuzione SIMULAZIONE (paper su quote reali Jupiter) o REALE.
+// Motore del bot: 9 agenti in pipeline (LONG spot o con leva + SHORT su Jupiter Perps, leva 2x/5x/10x), esecuzione SIMULAZIONE (paper su quote reali Jupiter) o REALE.
 const path = require('path');
 const EventEmitter = require('events');
 const { PublicKey, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const { readJson, debounceWriter } = require('./store');
-const { DEFAULTS, sanitize, migrateConfig } = require('./config');
+const { DEFAULTS, LEVERAGES, snapLeverage, sanitize, migrateConfig } = require('./config');
 const { CORE, BASES, SOL, USDC } = require('./tokens');
 const S = require('./strategy');
 const K = require('./knowledge');
@@ -28,6 +28,8 @@ const AGENTS = [
 ];
 const dayKey = () => new Date().toISOString().slice(0, 10);
 const coreMints = new Set(CORE.map((t) => t.mint));
+// posizione su Jupiter Perps (short, o long con leva)
+const isPerp = (p) => !!(p && (p.perp || p.side === 'SHORT'));
 
 function newBook(budget, cfg) {
   return { cash: budget, solReserve: cfg.feeReserveSol, positions: [], trades: [], startEquity: budget, budget, realizedPnl: 0, feesBase: 0,
@@ -98,7 +100,7 @@ class Engine extends EventEmitter {
     // capitale di trading: liquidità + valore posizioni − commissioni pagate in SOL fuori dalla valuta base
     let v = book.cash - (book.extFees || 0);
     for (const p of book.positions) {
-      if (p.side === 'SHORT') { v += this.shortValueBase(p); continue; }
+      if (isPerp(p)) { v += this.shortValueBase(p); continue; }
       const px = this.priceBase(p.mint); v += px ? p.qty * px : p.costBase;
     }
     return v;
@@ -110,7 +112,7 @@ class Engine extends EventEmitter {
     if (!px || !bu) return p.costBase;
     return P.shortState(p, px, now).valueUsd / bu;
   }
-  posPrice(p) { return p.side === 'SHORT' ? this.market.usd(p.mint) : this.priceBase(p.mint); }
+  posPrice(p) { return isPerp(p) ? this.market.usd(p.mint) : this.priceBase(p.mint); }
 
   // ---------- avvio
   start() {
@@ -165,7 +167,7 @@ class Engine extends EventEmitter {
     mints = [...new Set(mints)].filter((m) => m !== this.base.mint && m !== USDC);
     this.agent('SCANSIONE', `scansione: ${mints.length} token (${discovered} meme da DexScreener)`, 'scan');
     await this.market.refreshStats(mints, coreMints);
-    const shortMints = cfg.shortsOn ? Object.keys(P.SHORT_MARKETS).filter((m) => !mints.includes(m)) : [];
+    const shortMints = cfg.shortsOn || cfg.perpLongs ? Object.keys(P.SHORT_MARKETS).filter((m) => !mints.includes(m)) : [];
     if (shortMints.length) { try { await this.market.refreshStats(shortMints, coreMints); } catch (e) { this.log('SCANSIONE', `dati short: ${e.message}`, 'warn'); } }
     const now = Date.now();
     let newOnes = 0, rej = 0, ok = 0;
@@ -213,7 +215,7 @@ class Engine extends EventEmitter {
     this.agent('SCANSIONE', `${newOnes} nuovi controllati · ${ok} ok · ${rej} scartati · in osservazione ${this.watch.size}`, 'scan');
     this.save();
     // candele reali per la watchlist (rispettando i limiti gratuiti)
-    const candleMints = new Set([...this.watch.keys(), ...(cfg.shortsOn ? Object.keys(P.SHORT_MARKETS) : [])]);
+    const candleMints = new Set([...this.watch.keys(), ...(cfg.shortsOn || cfg.perpLongs ? Object.keys(P.SHORT_MARKETS) : [])]);
     for (const m of candleMints) {
       if (this.market.needsBackfill(m)) {
         try { await this.market.backfill(m); } catch (e) { this.log('SCANSIONE', `candele ${(this.watch.get(m) || { symbol: P.SHORT_MARKETS[m] }).symbol}: ${e.message}`, 'warn'); }
@@ -265,7 +267,7 @@ class Engine extends EventEmitter {
         const s = { ...st, symbol: P.SHORT_MARKETS[m] };
         const f = st.buys1h != null ? S.flowScore(st) : { score: 0, ratio: 0, volAccel: 1, buys: 0, sells: 0 };
         this.bump('CAPO');
-        const feat = a.ok ? K.featuresOf({ s, a, f, core: true, solMom60: regime, side: 'short' }) : [];
+        const feat = a.ok ? [...K.featuresOf({ s, a, f, core: true, solMom60: regime, side: 'short' }), `short.leva:${this.leverage()}x`] : [];
         const kn = K.assess(this.kb, feat);
         const x = { m, s, a, f, feat, kn, side: 'SHORT', total: (a.ok ? a.short.score : -9) - f.score + kn.adj };
         if (a.ok && a.short.signal && regime != null && regime > 1) x.block = 'Mercato SOL in rialzo';
@@ -335,24 +337,31 @@ class Engine extends EventEmitter {
     this.bump('DIMENSIONE');
     if (!sz.size) { this.agent('DIMENSIONE', sz.reason, 'block'); return; }
     const size = round(sz.size, this.base.decimals);
-    const lev = isShort ? this.leverage() : 1;
-    this.agent('DIMENSIONE', isShort
-      ? `margine ${this.fmtBase(size)} su $${sym} SHORT ${lev}x · esposizione ${this.fmtBase(size * lev)} (${((size / capital) * 100).toFixed(1)}% del capitale come margine)`
+    // long con leva (perps) solo su SOL/BTC/ETH, solo se attivati, e in REALE solo quando i perps reali saranno verificati
+    const perpMarket = P.SHORT_MARKETS[best.m];
+    const perpLong = !isShort && cfg.perpLongs && !!perpMarket && (cfg.mode === 'SIM' || P.REAL_SHORTS_ENABLED);
+    if (!isShort && cfg.perpLongs && perpMarket && !perpLong) this.log('RISCHIO', `long con leva non attivi in REALE: compro $${sym} spot 1x · ${P.REAL_SHORTS_BLOCK_MSG}`, 'warn');
+    const usePerp = isShort || perpLong; const sideTxt = isShort ? 'SHORT' : 'LONG';
+    const lev = usePerp ? this.leverage() : 1;
+    if (perpLong) best.feat = [...(best.feat || []), `leva:${lev}x`];
+    this.agent('DIMENSIONE', usePerp
+      ? `margine ${this.fmtBase(size)} su $${sym} ${sideTxt} ${lev}x · esposizione ${this.fmtBase(size * lev)} (${((size / capital) * 100).toFixed(1)}% del capitale come margine)`
       : `${this.fmtBase(size)} su $${sym} (${((size / capital) * 100).toFixed(1)}% del capitale${core ? '' : ', meme ×' + cfg.memeSizeMult})`, 'size', { token: sym, size });
     await sleep(400);
 
     // RISCHIO: piano
     const plan = S.riskPlan(a.atrPct, cfg, core);
-    if (isShort) {
+    if (usePerp) {
       const px = this.market.usd(best.m) || a.last;
-      const liq = P.liquidationPrice({ entryPrice: px, ...P.openShortModel({ marginUsd: 100, lev, priceUsd: px }) });
+      const liq = P.liquidationPrice({ entryPrice: px, side: sideTxt, ...P.openShortModel({ marginUsd: 100, lev, priceUsd: px }) });
       plan.slPct = S.shortStopCap(plan.slPct, px, liq); plan.tpPct = plan.slPct * cfg.rewardRisk;
-      this.agent('RISCHIO', `short ${lev}x · stop +${plan.slPct.toFixed(2)}% · target -${plan.tpPct.toFixed(2)}% · liquidazione ~+${(((liq - px) / px) * 100).toFixed(1)}% (lontana)`, 'plan', { token: sym, side: 'SHORT' });
+      const sg = isShort ? ['+', '-'] : ['-', '+'];
+      this.agent('RISCHIO', `${sideTxt.toLowerCase()} ${lev}x · stop ${sg[0]}${plan.slPct.toFixed(2)}% · target ${sg[1]}${plan.tpPct.toFixed(2)}% · liquidazione ~${sg[0]}${(Math.abs(liq - px) / px * 100).toFixed(1)}% (stop entro il 40%)`, 'plan', { token: sym, side: sideTxt });
     } else this.agent('RISCHIO', `spot 1x · stop -${plan.slPct.toFixed(2)}% · target +${plan.tpPct.toFixed(2)}% · trailing ${plan.trailPct.toFixed(2)}%`, 'plan', { token: sym });
     await sleep(400);
 
     // ESECUZIONE
-    if (isShort) await this.openShort(best, size, plan);
+    if (usePerp) await this.openShort(isShort ? best : { ...best, s: { ...best.s, symbol: perpMarket } }, size, plan, sideTxt);
     else await this.openPosition(best, size, plan);
   }
 
@@ -409,20 +418,21 @@ class Engine extends EventEmitter {
     this.save();
   }
 
-  leverage() { return Math.min(2, Math.max(1, Number(this.cfg.leverage) || 2)); } // limite rigido 2x
+  leverage() { return Math.min(P.MAX_LEV, snapLeverage(this.cfg.leverage)); } // 2x / 5x / 10x, limite rigido 10x
 
   // ---------- SHORT (Jupiter Perps: collaterale USDC, esecuzione al prezzo dell'oracolo da parte dei keeper)
-  async openShort(c, margin, plan) {
+  // apre una posizione perps (side 'SHORT' o 'LONG' con leva); in REALE bloccata finché i perps reali non sono verificati
+  async openShort(c, margin, plan, side = 'SHORT') {
     const b = this.book; const cfg = this.cfg; const sym = c.s.symbol;
-    if (cfg.mode === 'REAL' && !P.REAL_SHORTS_ENABLED) { this.bump('RISCHIO'); this.agent('RISCHIO', 'short reali non ancora attivi: resto solo LONG', 'block', { token: sym }); this.log('RISCHIO', P.REAL_SHORTS_BLOCK_MSG, 'warn'); return; }
+    if (cfg.mode === 'REAL' && !P.REAL_SHORTS_ENABLED) { this.bump('RISCHIO'); this.agent('RISCHIO', 'perps reali (short/leva) non ancora attivi: resto solo LONG spot', 'block', { token: sym }); this.log('RISCHIO', P.REAL_SHORTS_BLOCK_MSG, 'warn'); return; }
     const px = this.market.usd(c.m), bu = this.baseUsd();
     if (!px || !bu) { this.agent('ESECUZIONE', `prezzo $${sym} non disponibile: short annullato`, 'fail', { token: sym }); return; }
     const lev = this.leverage(); const now = Date.now();
-    this.agent('ESECUZIONE', `apro SHORT ${lev}x su $${sym} (Jupiter Perps)…`, 'quote', { token: sym, side: 'SHORT' });
+    this.agent('ESECUZIONE', `apro ${side} ${lev}x su $${sym} (Jupiter Perps)…`, 'quote', { token: sym, side });
     const m = P.openShortModel({ marginUsd: margin * bu, lev, priceUsd: px });
     const feeSol = (5000 + cfg.simPriorityLamports) / LAMPORTS_PER_SOL; const feeBase = this.solToBase(feeSol);
     b.cash -= margin + feeBase; b.solReserve -= feeSol;
-    const pos = { id: uid(), side: 'SHORT', market: P.SHORT_MARKETS[c.m], lev, mint: c.m, symbol: sym, decimals: 6, qtyRaw: '0', qty: m.sizeUsd / px, initQty: m.sizeUsd / px,
+    const pos = { id: uid(), side, perp: true, market: P.SHORT_MARKETS[c.m], lev, mint: c.m, symbol: sym, decimals: 6, qtyRaw: '0', qty: m.sizeUsd / px, initQty: m.sizeUsd / px,
       costBase: margin, origCost: margin, feesBase: feeBase, origFees: feeBase, entryPrice: px, highest: px, sizeUsd: m.sizeUsd, initSizeUsd: m.sizeUsd, collateralUsd: m.collateralUsd,
       openFeeUsd: m.openFeeUsd, perpFeesUsd: m.openFeeUsd, borrowUsd: 0, lastAccrual: now, slPct: plan.slPct, tpPct: plan.tpPct, trailPct: plan.trailPct, openedAt: now, sigOpen: null,
       core: true, feat: c.feat || [], atrPct: c.a && c.a.atrPct };
@@ -430,10 +440,11 @@ class Engine extends EventEmitter {
     pos.slPct = S.shortStopCap(pos.slPct, px, pos.liqPrice);
     b.positions.push(pos); b.feesBase += feeBase;
     this.bump('ESECUZIONE');
-    const t = `SHORT ${lev}x aperto su $${sym} · margine ${this.fmtBase(margin)} · esposizione $${m.sizeUsd.toFixed(2)}`;
-    this.agent('ESECUZIONE', t, 'short', { token: sym, size: margin, side: 'SHORT' });
-    this.log('ESECUZIONE', `${t} @ ${px.toPrecision(6)} · liquidazione ${pos.liqPrice.toPrecision(6)} (+${(((pos.liqPrice - px) / px) * 100).toFixed(1)}%) · stop ${(px * (1 + pos.slPct / 100)).toPrecision(6)} · commissione apertura $${m.openFeeUsd.toFixed(4)} (0,06%) · (simulato su prezzo reale)`);
-    this.emit('ev', { type: 'trade', side: 'SHORT', symbol: sym, amount: margin, lev, mode: cfg.mode });
+    const t = `${side} ${lev}x aperto su $${sym} · margine ${this.fmtBase(margin)} · esposizione $${m.sizeUsd.toFixed(2)}`;
+    this.agent('ESECUZIONE', t, side === 'SHORT' ? 'short' : 'buy', { token: sym, size: margin, side });
+    const dn = side === 'SHORT' ? 1 : -1;
+    this.log('ESECUZIONE', `${t} @ ${px.toPrecision(6)} · liquidazione ${pos.liqPrice.toPrecision(6)} (${dn > 0 ? '+' : '−'}${((Math.abs(pos.liqPrice - px) / px) * 100).toFixed(1)}%) · stop ${(px * (1 + (dn * pos.slPct) / 100)).toPrecision(6)} · commissione apertura $${m.openFeeUsd.toFixed(4)} (0,06%) · (simulato su prezzo reale)`);
+    this.emit('ev', { type: 'trade', side: side === 'SHORT' ? 'SHORT' : 'BUY', symbol: sym, amount: margin, lev, mode: cfg.mode });
     this.save();
   }
   // Ricompra (chiude) tutto o una parte dello short. PnL = collaterale + guadagno sul prezzo − prestito − commissione di chiusura.
@@ -449,10 +460,11 @@ class Engine extends EventEmitter {
     if (partial) {
       const restVal = (st.valueUsd * (1 - f)) / bu, partVal = (st.valueUsd * f) / bu;
       if (restVal < minTrade) { partial = false; f = 1; }
-      else if (partVal < minTrade * 0.5) { this.markStage(p, stage); p.closing = false; this.log('SORVEGLIANZA', `$${p.symbol} SHORT: presa parziale troppo piccola, la salto (stop a pareggio attivo)`); this.save(); return; }
+      else if (partVal < minTrade * 0.5) { this.markStage(p, stage); p.closing = false; this.log('SORVEGLIANZA', `$${p.symbol} ${p.side === 'LONG' ? 'LONG' : 'SHORT'}: presa parziale troppo piccola, la salto (stop a pareggio attivo)`); this.save(); return; }
     }
     const sizePart = p.sizeUsd * f, collPart = p.collateralUsd * f, borrowPart = p.borrowUsd * f;
-    const gross = sizePart * ((p.entryPrice - px) / p.entryPrice);
+    const dir = p.side === 'LONG' ? 1 : -1; const lbl = p.side === 'LONG' ? `LONG ${p.lev}x` : 'SHORT';
+    const gross = sizePart * dir * ((px - p.entryPrice) / p.entryPrice);
     const closeFee = (sizePart * P.FEES.closeBps) / 1e4;
     const outUsd = Math.max(0, collPart + gross - borrowPart - closeFee);
     const feeSol = (5000 + cfg.simPriorityLamports) / LAMPORTS_PER_SOL; const feeBase = this.solToBase(feeSol);
@@ -468,10 +480,10 @@ class Engine extends EventEmitter {
       p.realizedPart = (p.realizedPart || 0) + pnl; p.partFees = (p.partFees || 0) + feeBase; p.partOut = (p.partOut || 0) + valueBase;
       (p.partials || (p.partials = [])).push({ t: now, stage, pct: Math.round(f * 100), change: chg, pnl, out: valueBase, sig: null });
       this.markStage(p, stage); p.liqPrice = P.liquidationPrice(p); p.closing = false;
-      const t = `presa parziale ${Math.round(f * 100)}% su $${p.symbol} SHORT a ${chg >= 0 ? '+' : ''}${chg.toFixed(1)}% · ${pnl >= 0 ? '+' : ''}${this.fmtBase(pnl)}`;
+      const t = `presa parziale ${Math.round(f * 100)}% su $${p.symbol} ${lbl} a ${chg >= 0 ? '+' : ''}${chg.toFixed(1)}% · ${pnl >= 0 ? '+' : ''}${this.fmtBase(pnl)}`;
       this.bump('SORVEGLIANZA');
-      this.agent('SORVEGLIANZA', t, 'partial', { token: p.symbol, pnl, side: 'SHORT' });
-      this.log('SORVEGLIANZA', `${t}${stage === 1 && p.beStop ? ` · stop abbassato a pareggio ${(2 * p.entryPrice - p.beStop).toPrecision(6)}` : ''} · ricomprato al prezzo reale (simulato)`);
+      this.agent('SORVEGLIANZA', t, 'partial', { token: p.symbol, pnl, side: p.side });
+      this.log('SORVEGLIANZA', `${t}${stage === 1 && p.beStop ? ` · stop ${dir > 0 ? 'alzato' : 'abbassato'} a pareggio ${(dir > 0 ? p.beStop : 2 * p.entryPrice - p.beStop).toPrecision(6)}` : ''} · ${dir > 0 ? 'venduto' : 'ricomprato'} al prezzo reale (simulato)`);
       this.emit('ev', { type: 'trade', side: 'PARTIAL', symbol: p.symbol, amount: valueBase, pnl, pct: Math.round(f * 100), mode: cfg.mode, short: true });
       this.save(); return;
     }
@@ -480,14 +492,14 @@ class Engine extends EventEmitter {
     if (totalPnl >= 0) b.wins++; else b.losses++;
     b.cooldown[p.mint] = now + cfg.cooldownMin * 60000;
     const nParts = (p.partials || []).length;
-    const tr = { id: p.id, side: 'SHORT', lev: p.lev, symbol: p.symbol, mint: p.mint, openedAt: p.openedAt, closedAt: now, costBase: origCost, outBase: valueBase + (p.partOut || 0), pnl: totalPnl, pnlPct: (totalPnl / origCost) * 100,
+    const tr = { id: p.id, side: p.side, perp: true, lev: p.lev, symbol: p.symbol, mint: p.mint, openedAt: p.openedAt, closedAt: now, costBase: origCost, outBase: valueBase + (p.partOut || 0), pnl: totalPnl, pnlPct: (totalPnl / origCost) * 100,
       fees: (p.origFees != null ? p.origFees : p.feesBase) + (p.partFees || 0) + feeBase + p.perpFeesUsd / bu, perpFeesUsd: p.perpFeesUsd, entryPrice: p.entryPrice, exitPrice: px,
       reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [], sigOpen: null, sigClose: null, mode: cfg.mode, estimated: false, feat: p.feat || [] };
     b.trades.unshift(tr); if (b.trades.length > 500) b.trades.pop();
     this.mentorLearn(tr);
     this.bump('SORVEGLIANZA');
-    const t = `ricomprato $${p.symbol} (chiuso SHORT ${p.lev}x) · ${tr.reason} · ${totalPnl >= 0 ? '+' : ''}${this.fmtBase(totalPnl)} (${tr.pnlPct >= 0 ? '+' : ''}${tr.pnlPct.toFixed(2)}% sul margine)`;
-    this.agent('SORVEGLIANZA', t, totalPnl >= 0 ? 'win' : 'loss', { token: p.symbol, pnl: totalPnl, side: 'SHORT' });
+    const t = `${dir > 0 ? 'venduto' : 'ricomprato'} $${p.symbol} (chiuso ${p.side} ${p.lev}x) · ${tr.reason} · ${totalPnl >= 0 ? '+' : ''}${this.fmtBase(totalPnl)} (${tr.pnlPct >= 0 ? '+' : ''}${tr.pnlPct.toFixed(2)}% sul margine)`;
+    this.agent('SORVEGLIANZA', t, totalPnl >= 0 ? 'win' : 'loss', { token: p.symbol, pnl: totalPnl, side: p.side });
     this.log('SORVEGLIANZA', `${t} · commissioni perps $${p.perpFeesUsd.toFixed(4)} (apertura+chiusura 0,06% + prestito) · (simulato su prezzo reale)`);
     this.emit('ev', { type: 'trade', side: 'SELL', symbol: p.symbol, amount: valueBase, pnl: totalPnl, mode: cfg.mode, short: true });
     this.save();
@@ -502,13 +514,14 @@ class Engine extends EventEmitter {
     for (const p of [...b.positions]) {
       const px = this.posPrice(p); if (!px) continue;
       if (p.closing) continue;
-      if (p.side === 'SHORT') {
+      if (isPerp(p)) {
         // protezione extra: chiude molto prima della liquidazione (80% della distanza), qualunque cosa dicano le altre regole
         const st = P.shortState(p, px, now); p.liqPrice = st.liqPrice;
-        if (px >= p.entryPrice + (st.liqPrice - p.entryPrice) * 0.8) { await this.closeShort(p, 1, `Vicino alla liquidazione (${(((px - p.entryPrice) / p.entryPrice) * 100).toFixed(2)}%)`); continue; }
+        const k = (px - p.entryPrice) / (st.liqPrice - p.entryPrice); // 0 = ingresso, 1 = liquidazione
+        if (k >= 0.8) { await this.closeShort(p, 1, `Vicino alla liquidazione (${(((px - p.entryPrice) / p.entryPrice) * 100).toFixed(2)}%)`); continue; }
       }
       const r = S.exitPlan(p, px, now, this.cfg, this.exitCtx(p));
-      lines.push(`$${p.symbol}${p.side === 'SHORT' ? '▼' : ''} ${r.change != null ? (r.change >= 0 ? '+' : '') + r.change.toFixed(2) + '%' : ''}`);
+      lines.push(`$${p.symbol}${p.side === 'SHORT' ? '▼' : ''}${isPerp(p) ? ' ' + p.lev + 'x' : ''} ${r.change != null ? (r.change >= 0 ? '+' : '') + r.change.toFixed(2) + '%' : ''}`);
       for (const ev of r.events || []) this.onTrail(p, ev);
       if (r.action === 'close') await this.sellPosition(p, 1, r.reason);
       else if (r.action === 'partial') await this.sellPosition(p, r.frac, r.reason, null, r.stage);
@@ -526,7 +539,7 @@ class Engine extends EventEmitter {
   // della parte rimasta restano "aperti". Il trade va nello storico (e al MENTORE) solo a chiusura completa,
   // con rendimento complessivo = parziali + ultima vendita.
   async sellPosition(p, frac, reason, toMint, stage) {
-    if (p.side === 'SHORT') return this.closeShort(p, frac, reason, stage);
+    if (isPerp(p)) return this.closeShort(p, frac, reason, stage);
     const b = this.book; const cfg = this.cfg; p.closing = true;
     const out = toMint || this.base.mint;
     try {
@@ -851,7 +864,7 @@ class Engine extends EventEmitter {
     if (c && c.length >= 10) {
       const cl = c.map((x) => x.c); ctx.m5 = momentum(cl, 5); const e = ema(cl.slice(-60), 9); ctx.ema9 = e[e.length - 1];
       // le candele sono in USD: per i long il prezzo è in valuta base
-      if (p.side !== 'SHORT' && this.cfg.baseCurrency !== 'USDC') { const bu = this.baseUsd(); ctx.ema9 = bu ? ctx.ema9 / bu : null; }
+      if (!isPerp(p) && this.cfg.baseCurrency !== 'USDC') { const bu = this.baseUsd(); ctx.ema9 = bu ? ctx.ema9 / bu : null; }
     }
     if (s) { const tot = (s.buys1h || 0) + (s.sells1h || 0); ctx.flow = { tot, ratio: tot ? ((s.buys1h || 0) - (s.sells1h || 0)) / tot : 0 }; }
     return ctx;
@@ -936,12 +949,12 @@ class Engine extends EventEmitter {
     const eur = this.market.eurPerUsd;
     const toEur = (x) => (baseUsd ? x * baseUsd * eur : null);
     const positions = b.positions.map((p) => {
-      if (p.side === 'SHORT') {
-        const px = this.market.usd(p.mint); const val = this.shortValueBase(p);
+      if (isPerp(p)) {
+        const px = this.market.usd(p.mint); const val = this.shortValueBase(p); const dn = p.side === 'LONG' ? -1 : 1;
         const st = px ? P.shortState(p, px, Date.now()) : null;
         const pnl = val - p.costBase - p.feesBase;
-        return { id: p.id, side: 'SHORT', lev: p.lev, symbol: p.symbol, mint: p.mint, costBase: p.costBase, value: val, pnl, pnlPct: (pnl / p.costBase) * 100,
-          entryPrice: p.entryPrice, price: px, priceUnit: 'USD', sl: p.entryPrice * (1 + p.slPct / 100), tp: p.entryPrice * (1 - p.tpPct / 100), slPct: p.slPct, tpPct: p.tpPct, openedAt: p.openedAt, sigOpen: null,
+        return { id: p.id, side: p.side, perp: true, lev: p.lev, symbol: p.symbol, mint: p.mint, costBase: p.costBase, value: val, pnl, pnlPct: (pnl / p.costBase) * 100,
+          entryPrice: p.entryPrice, price: px, priceUnit: 'USD', sl: p.entryPrice * (1 + (dn * p.slPct) / 100), tp: p.entryPrice * (1 - (dn * p.tpPct) / 100), slPct: p.slPct, tpPct: p.tpPct, openedAt: p.openedAt, sigOpen: null,
           liqPrice: st ? st.liqPrice : p.liqPrice, sizeUsd: p.sizeUsd, collateralUsd: p.collateralUsd, borrowUsd: st ? st.borrowUsd : p.borrowUsd, perpFeesUsd: (p.perpFeesUsd || 0) + (st ? st.borrowUsd - (p.borrowUsd || 0) : 0),
           ...this.exitView(p) };
       }
@@ -967,7 +980,7 @@ class Engine extends EventEmitter {
     };
     return {
       t: Date.now(), mode: cfg.mode, trading: cfg.trading, killed: b.killed, killReason: b.killReason, busy: this.busy,
-      cfg: { ...cfg }, base: cfg.baseCurrency, shorts: { realEnabled: P.REAL_SHORTS_ENABLED, realMsg: P.REAL_SHORTS_BLOCK_MSG, markets: Object.values(P.SHORT_MARKETS), maxLev: 2, fees: P.FEES },
+      cfg: { ...cfg }, base: cfg.baseCurrency, shorts: { realEnabled: P.REAL_SHORTS_ENABLED, realMsg: P.REAL_SHORTS_BLOCK_MSG, markets: Object.values(P.SHORT_MARKETS), maxLev: P.MAX_LEV, leverages: LEVERAGES, liqDist: Object.fromEntries(LEVERAGES.map((l) => [l, P.liqDistancePct(l)])), fees: P.FEES },
       equity: eq, equityEur: toEur(eq), startEquity: b.startEquity, pnl: eq - b.startEquity, pnlEur: toEur(eq - b.startEquity),
       roi: b.startEquity > 0 ? eq / b.startEquity : 1, realizedPnl: b.realizedPnl, fees: b.feesBase, cash: b.cash, solReserve: b.solReserve,
       winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3),

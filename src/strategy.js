@@ -161,7 +161,7 @@ function effectiveStop(pos) {
 }
 // stop-loss di uno short sempre ben prima della liquidazione: al massimo il 40% della distanza
 function shortStopCap(slPct, entry, liqPrice) {
-  const liqDist = ((liqPrice - entry) / entry) * 100;
+  const liqDist = (Math.abs(liqPrice - entry) / entry) * 100; // vale per short (sopra) e long con leva (sotto)
   return Math.max(0.5, Math.min(slPct, liqDist * 0.4));
 }
 function exitPlanCore(pos, price, now, cfg, ctx = {}) {

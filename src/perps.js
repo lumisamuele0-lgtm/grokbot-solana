@@ -89,11 +89,12 @@ function openShortModel({ marginUsd, lev, priceUsd, fees = FEES }) {
   const sizeUsd = marginUsd * lev; const openFeeUsd = (sizeUsd * fees.openBps) / 1e4;
   return { sizeUsd, collateralUsd: marginUsd - openFeeUsd, openFeeUsd, entry: priceUsd };
 }
-// valore netto se chiusa ora (USD): collaterale + PnL − prestito − commissione di chiusura (minimo 0)
+const dirOf = (p) => (p.side === 'LONG' ? 1 : -1);
+// valore netto se chiusa ora (USD): collaterale + PnL − prestito − commissione di chiusura (minimo 0). Vale per short e long perps.
 function shortState(p, priceUsd, now, fees = FEES) {
   const hours = Math.max(0, (now - (p.lastAccrual || p.openedAt)) / 3.6e6);
   const borrowUsd = (p.borrowUsd || 0) + p.sizeUsd * (fees.borrowHourlyPct / 100) * hours;
-  const grossPnl = p.sizeUsd * ((p.entryPrice - priceUsd) / p.entryPrice);
+  const grossPnl = p.sizeUsd * dirOf(p) * ((priceUsd - p.entryPrice) / p.entryPrice);
   const closeFeeUsd = (p.sizeUsd * fees.closeBps) / 1e4;
   const valueUsd = Math.max(0, p.collateralUsd + grossPnl - borrowUsd - closeFeeUsd);
   return { grossPnl, borrowUsd, closeFeeUsd, valueUsd, liqPrice: liquidationPrice(p, borrowUsd, fees) };
@@ -102,7 +103,13 @@ function shortState(p, priceUsd, now, fees = FEES) {
 function liquidationPrice(p, borrowUsd = p.borrowUsd || 0, fees = FEES) {
   const closeFee = (p.sizeUsd * fees.closeBps) / 1e4;
   const room = p.collateralUsd - p.sizeUsd / fees.protocolMaxLev - closeFee - borrowUsd;
-  return p.entryPrice * (1 + room / p.sizeUsd);
+  return p.entryPrice * (1 - dirOf(p) * (room / p.sizeUsd)); // short: sopra l'entrata; long: sotto
 }
+// distanza % dalla liquidazione appena aperta (2x ≈ 49,7% · 5x ≈ 19,7% · 10x ≈ 9,7%)
+function liqDistancePct(lev, fees = FEES) {
+  const m = openShortModel({ marginUsd: 100, lev, priceUsd: 100, fees });
+  return Math.abs(liquidationPrice({ entryPrice: 100, side: 'SHORT', ...m }, 0, fees) - 100);
+}
+const perpState = shortState;
 
-module.exports = { REAL_SHORTS_ENABLED, REAL_SHORTS_BLOCK_MSG, PROGRAM_ID, POOL, CUSTODY, USDC_MINT, SHORT_MARKETS, FEES, disc, positionPda, positionRequestPda, increaseShortIx, decreaseShortIx, createAtaIdempotentIx, decodePosition, openShortModel, shortState, liquidationPrice, ata };
+module.exports = { liqDistancePct, perpState, MAX_LEV: 10, REAL_SHORTS_ENABLED, REAL_SHORTS_BLOCK_MSG, PROGRAM_ID, POOL, CUSTODY, USDC_MINT, SHORT_MARKETS, FEES, disc, positionPda, positionRequestPda, increaseShortIx, decreaseShortIx, createAtaIdempotentIx, decodePosition, openShortModel, shortState, liquidationPrice, ata };

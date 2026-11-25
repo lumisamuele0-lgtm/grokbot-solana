@@ -330,7 +330,7 @@
     if (e.type === 'trade' && e.side === 'PARTIAL') toast(`💰 Presa parziale ${e.pct}% su $${e.symbol} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, S && S.base === 'SOL' ? 4 : 2)} ${S ? S.base : ''}`);
     else if (e.type === 'trade' && e.side === 'SHORT') toast(`🐻 SHORT ${e.lev}x su $${e.symbol}${e.mode === 'SIM' ? ' (simulato)' : ''}`);
     else if (e.type === 'trade' && e.short) toast(`${(e.pnl || 0) >= 0 ? '💰' : '🔻'} Short chiuso su $${e.symbol} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, S && S.base === 'SOL' ? 4 : 2)} ${S ? S.base : ''}`);
-    else if (e.type === 'trade') toast(e.side === 'BUY' ? `🟢 Comprato $${e.symbol}${e.mode === 'SIM' ? ' (simulato)' : ''}` : `${(e.pnl || 0) >= 0 ? '💰' : '🔻'} Venduto $${e.symbol} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, S && S.base === 'SOL' ? 4 : 2)} ${S ? S.base : ''}`);
+    else if (e.type === 'trade') toast(e.side === 'BUY' ? `🟢 ${e.lev > 1 ? `LONG ${e.lev}x su` : 'Comprato'} $${e.symbol}${e.mode === 'SIM' ? ' (simulato)' : ''}` : `${(e.pnl || 0) >= 0 ? '💰' : '🔻'} Venduto $${e.symbol} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, S && S.base === 'SOL' ? 4 : 2)} ${S ? S.base : ''}`);
   }
   let lastLogT = 0;
   function logLine(l) {
@@ -387,11 +387,11 @@
       const lo = p.stop != null ? p.stop : p.sl, hi = p.next != null ? p.next : p.tp;
       const span = hi - lo; const k = span !== 0 && p.price ? Math.max(0, Math.min(1, (p.price - lo) / span)) : 0.5;
       const sgnP = (x) => (x >= 0 ? '+' : '−') + nf(Math.abs(x), 1) + '%';
-      const sh = p.side === 'SHORT'; const px = (x) => (x >= 100 ? nf(x, 0) : x >= 1 ? nf(x, 2) : nf(x, 4));
+      const sh = p.side === 'SHORT'; const pp = sh || p.perp; const px = (x) => (x >= 100 ? nf(x, 0) : x >= 1 ? nf(x, 2) : nf(x, 4));
       const badge = `<span class="side ${sh ? 'short' : 'long'}">${sh ? '▼ SHORT' : '▲ LONG'} ${p.lev || 1}x</span>`;
-      return `<div class="pcard${sh ? ' isShort' : ''}"><div><div class="sym">$${esc(p.symbol)} ${badge}</div><div class="sub2">${sh ? `margine ${nf(p.costBase, d)} ${s.base} · esposizione $${nf(p.sizeUsd, 2)} · ingresso $${px(p.entryPrice)}` : `ingresso ${nf(p.costBase, d)} ${s.base}`} · ${hhmm(p.openedAt)}${p.sigOpen ? ` · <a href="https://solscan.io/tx/${p.sigOpen}" target="_blank" rel="noopener">tx</a>` : ''}</div></div>
+      return `<div class="pcard${sh ? ' isShort' : ''}${pp && (p.lev || 1) >= 5 ? ' hiLev' : ''}"><div><div class="sym">$${esc(p.symbol)} ${badge}</div><div class="sub2">${pp ? `margine ${nf(p.costBase, d)} ${s.base} · esposizione $${nf(p.sizeUsd, 2)} · ingresso $${px(p.entryPrice)}` : `ingresso ${nf(p.costBase, d)} ${s.base}`} · ${hhmm(p.openedAt)}${p.sigOpen ? ` · <a href="https://solscan.io/tx/${p.sigOpen}" target="_blank" rel="noopener">tx</a>` : ''}</div></div>
       <div class="pnl ${p.pnl >= 0 ? 'mint' : 'red'}">${p.pnl >= 0 ? '+' : ''}${nf(p.pnl, d)}<div class="sub2">${nf(p.pnlPct, 2)}%</div></div>
-      ${sh ? `<div class="sub2 liq" style="grid-column:1/3">☠️ liquidazione $${px(p.liqPrice)} (${sgnP(((p.liqPrice - p.entryPrice) / p.entryPrice) * 100)}) · ora $${p.price ? px(p.price) : '—'} · commissioni $${nf(p.perpFeesUsd || 0, 3)}</div>` : ''}
+      ${pp ? `<div class="sub2 liq" style="grid-column:1/3">☠️ liquidazione $${px(p.liqPrice)} (${sgnP(((p.liqPrice - p.entryPrice) / p.entryPrice) * 100)}) · ora $${p.price ? px(p.price) : '—'} · commissioni $${nf(p.perpFeesUsd || 0, 3)}</div>` : ''}
       ${p.partialsN ? `<div class="sub2 pp" style="grid-column:1/3">💰 ${p.partialsN} ${p.partialsN === 1 ? 'presa parziale' : 'prese parziali'} (${p.soldPct}% ${sh ? 'ricomprato' : 'venduto'}) · incassato ${p.realizedPart >= 0 ? '+' : ''}${nf(p.realizedPart, d)} ${s.base}</div>` : ''}
       <div class="rng" title="stop → prossimo obiettivo"><i style="left:calc(${k * 100}% - 1px)"></i></div>
       <div class="sub2">${p.stopKind === 'trailing' ? '🪜 trailing' : p.stopKind === 'pareggio' ? '🛡 pareggio' : 'stop'} ${p.stopPct != null ? sgnP(p.stopPct) : '−' + nf(p.slPct, 1) + '%'}</div><div class="sub2" style="text-align:right">${p.nextLabel ? esc(p.nextLabel) + ' ' + sgnP(p.nextPct) : 'target +' + nf(p.tpPct, 1) + '%'} <button class="chip" data-closepos="${p.id}" style="margin-left:6px;padding:3px 8px">Chiudi</button></div></div>`;
@@ -588,11 +588,15 @@
         ${num('maxOpen', 'Posizioni max', '1')}${num('slippageBps', 'Slippage (bps, 100=1%)', '1')}
         ${num('maxPriceImpactPct', 'Impatto prezzo max %')}${num('cooldownMin', 'Pausa dopo un token (min)', '1')}
         ${num('maxHoldMin', 'Durata max posizione (min)', '1')}${num('feeReserveSol', 'Riserva SOL commissioni')}</div>
-        <p class="note">LONG sempre spot 1x. Stop-loss e target sono calcolati sulla volatilità (ATR).</p></div>
+        <p class="note">LONG spot 1x (con leva solo su SOL/BTC/ETH se attivi l'interruttore sotto). Stop-loss e target sono calcolati sulla volatilità (ATR).</p></div>
       <div class="grp"><span class="lbl">Short (LONG + SHORT)</span>
         <div class="switch"><span>Short su SOL, BTC, ETH (Jupiter Perps, collaterale USDC)</span><span class="toggle ${c.shortsOn ? 'on' : ''}" data-t="shortsOn"></span></div>
-        <div class="grid2">${num('leverage', 'Leva short (1–2x, massimo 2x)', '0.1')}</div>
-        <p class="note">Margine = ${c.maxTradePct}% del capitale, esposizione fino a ${nf(c.maxTradePct * Math.min(2, c.leverage || 2), 0)}%. Commissioni Jupiter: 0,06% apertura + 0,06% chiusura + prestito orario (oggi ~0,0001%/h, in simulazione contiamo 0,001%/h). Con 2x la liquidazione è a circa +49,7%: lo stop-loss resta sempre molto prima (max 40% della distanza) e il bot chiude comunque all'80%. Mai un long e uno short insieme sullo stesso asset.</p>
+        <div class="switch"><span>Long con leva su SOL, BTC, ETH (spento = long spot 1x)</span><span class="toggle ${c.perpLongs ? 'on' : ''}" data-t="perpLongs"></span></div>
+        <span class="field"><span>Leva perps</span></span>
+        <div class="seg" id="sLev">${[2, 5, 10].map((l) => `<button type="button" class="${(c.leverage || 2) === l ? 'on' : ''} ${l >= 5 ? 'hot' : ''}" data-lev="${l}">${l}x</button>`).join('')}</div>
+        <input type="hidden" data-k="leverage" value="${c.leverage || 2}">
+        <div class="note" id="sLevNote"></div>
+        <p class="note">Margine = ${c.maxTradePct}% del capitale (non cambia con la leva). Commissioni Jupiter: 0,06% apertura + 0,06% chiusura sull'esposizione + prestito orario (oggi ~0,0001%/h, in simulazione contiamo 0,001%/h). Lo stop-loss resta sempre entro il 40% della distanza dalla liquidazione e il bot chiude comunque all'80%; con più leva stop, prese parziali e trailing diventano più stretti. Mai un long e uno short insieme sullo stesso asset.</p>
         ${S.shorts && !S.shorts.realEnabled ? `<p class="note warnTxt">⚠️ ${esc(S.shorts.realMsg)}</p>` : ''}</div>
       <div class="grp"><span class="lbl">Uscite furbe</span>
         <div class="switch"><span>Uscite furbe (prese parziali, trailing, uscite rapide)</span><span class="toggle ${c.smartExits ? 'on' : ''}" data-t="smartExits"></span></div>
@@ -630,6 +634,16 @@
       const pw = () => $('#sPw', b).value;
       const out = (t) => { $('#sWOut', b).innerHTML = t; };
       $$('.toggle', b).forEach((t) => t.addEventListener('click', () => t.classList.toggle('on')));
+      // selettore leva 2x / 5x / 10x con avviso rosso per 5x e 10x
+      const levNote = (l) => {
+        const dist = (S.shorts && S.shorts.liqDist && S.shorts.liqDist[l]) || (100 / l - 0.32);
+        const n = $('#sLevNote', b); if (!n) return;
+        const txt = `Con ${l}x: liquidazione a circa ${nf(dist, 1)}% di movimento contrario · stop-loss al massimo ${nf(dist * 0.4, 1)}% · chiusura forzata a ${nf(dist * 0.8, 1)}% · esposizione ${nf(c.maxTradePct * l, 0)}% del capitale.`;
+        n.className = l >= 5 ? 'note levWarn' : 'note';
+        n.textContent = l >= 5 ? `⚠️ Leva alta. ${txt} Un movimento di ${nf(dist, 1)}% contro di te azzera il margine: le perdite sono ${l} volte il movimento del prezzo.` : txt;
+      };
+      $$('#sLev button', b).forEach((x) => x.addEventListener('click', () => { $$('#sLev button', b).forEach((y) => y.classList.toggle('on', y === x)); $('[data-k="leverage"]', b).value = x.dataset.lev; levNote(Number(x.dataset.lev)); }));
+      levNote(c.leverage || 2);
       $('#sToks', b).addEventListener('click', (e) => { const x = e.target.closest('.chip'); if (x) x.classList.toggle('on'); });
       $('#sSave', b).addEventListener('click', async () => {
         const patch = {}; $$('[data-k]', b).forEach((i) => { patch[i.dataset.k] = i.dataset.k === 'rpcUrl' ? i.value.trim() : Number(i.value); });

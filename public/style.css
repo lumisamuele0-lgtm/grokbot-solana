@@ -188,3 +188,10 @@ nav.bn button:active{background:#ffffff10}
 .pcard.isShort{border-color:rgba(239,68,68,.35)}
 .pcard .liq{color:#fca5a5}
 .warnTxt{color:#fbbf24}
+
+.seg{display:flex;gap:8px;margin:6px 0 4px}
+.seg button{flex:1;padding:12px 0;border-radius:12px;border:1px solid var(--line);background:var(--card);color:#fff;font-weight:800;font-size:16px}
+.seg button.on{background:#0d5c38;border-color:#00FF88;color:#00FF88}
+.seg button.hot.on{background:#5a1426;border-color:#ff5a6a;color:#ffb4bd}
+.levWarn{color:#ff6b7a!important;font-weight:600}
+.pcard.hiLev{box-shadow:0 0 0 1px rgba(255,90,106,.35) inset}

@@ -58,10 +58,59 @@ test('short: liquidazione ~+49,7% a 2x, stop-loss sempre molto prima', () => {
   assert.ok(S.shortStopCap(40, 100, liq) <= 0.4 * 49.8, 'stop limitato al 40% della distanza dalla liquidazione');
 });
 
-test('leva: limite rigido 2x (impostazioni e motore)', () => {
-  assert.strictEqual(sanitize({ leverage: 10 }, DEFAULTS).leverage, 2);
-  assert.strictEqual(sanitize({ leverage: 0.2 }, DEFAULTS).leverage, 1);
-  const e = mkEngine(); e.cfg.leverage = 50; assert.strictEqual(e.leverage(), 2);
+test('leva: solo 2x / 5x / 10x, limite rigido 10x (impostazioni e motore)', () => {
+  assert.strictEqual(sanitize({ leverage: 50 }, DEFAULTS).leverage, 10);
+  assert.strictEqual(sanitize({ leverage: 0.2 }, DEFAULTS).leverage, 2);
+  assert.strictEqual(sanitize({ leverage: 4 }, DEFAULTS).leverage, 5);
+  assert.strictEqual(sanitize({ leverage: 8 }, DEFAULTS).leverage, 10);
+  assert.strictEqual(DEFAULTS.leverage, 2, 'default resta 2x');
+  assert.strictEqual(DEFAULTS.perpLongs, false, 'long con leva spenti di default');
+  const e = mkEngine(); e.cfg.leverage = 50; assert.strictEqual(e.leverage(), 10);
+  e.cfg.leverage = 5; assert.strictEqual(e.leverage(), 5);
+  assert.strictEqual(migrateConfig({ cfgVersion: 5, leverage: 2 }).cfg.leverage, 2, 'nessuna migrazione verso leve più alte');
+});
+
+test('liquidazione a 5x e 10x (short e long) e stop sempre dentro', () => {
+  const exp = { 2: 49.68, 5: 19.68, 10: 9.68 };
+  for (const lev of [2, 5, 10]) {
+    const d = P.liqDistancePct(lev); assert.ok(Math.abs(d - exp[lev]) < 0.01, `${lev}x → ${d}`);
+    const m = P.openShortModel({ marginUsd: 100, lev, priceUsd: 100 });
+    const liqS = P.liquidationPrice({ entryPrice: 100, side: 'SHORT', ...m });
+    const liqL = P.liquidationPrice({ entryPrice: 100, side: 'LONG', ...m });
+    assert.ok(Math.abs(liqS - (100 + d)) < 1e-9 && Math.abs(liqL - (100 - d)) < 1e-9);
+    for (const sl of [1, 3, 6, 20]) { const c = S.shortStopCap(sl, 100, liqS); assert.ok(c <= d * 0.4 + 1e-9 && c <= sl); assert.ok(Math.abs(S.shortStopCap(sl, 100, liqL) - c) < 1e-9, 'stesso limite per i long'); }
+    // al prezzo di liquidazione il valore netto è ~ il margine di mantenimento (size/500), mai sotto zero
+    const st = P.shortState({ entryPrice: 100, side: 'SHORT', ...m, openedAt: 0, lastAccrual: 0 }, liqS, 0);
+    assert.ok(Math.abs(st.valueUsd - m.sizeUsd / 500) < 1e-6);
+  }
+  assert.ok(Math.abs(S.shortStopCap(6, 100, 100 + P.liqDistancePct(10)) - 3.872) < 0.01, '10x: stop max ~3,87%');
+});
+
+test('SIMULAZIONE 10x: stop stretto, prese parziali più vicine, chiusura prima della liquidazione', async () => {
+  const e = mkEngine(); e.cfg.leverage = 10;
+  await e.openShort({ m: ETH, s: { symbol: 'ETH' }, a: { atrPct: 0.5 } }, 70, { slPct: 6, tpPct: 12, trailPct: 4 });
+  const p = e.book.positions[0];
+  assert.strictEqual(p.lev, 10); assert.strictEqual(p.sizeUsd, 700, 'margine 7% invariato, esposizione 70%');
+  assert.ok(p.slPct <= 3.88, `stop ${p.slPct}`); assert.ok(p.liqPrice > 3000 * 1.096 && p.liqPrice < 3000 * 1.097);
+  const L = S.exitLevels(p, e.cfg); assert.ok(L.tp1 <= 3.88 && L.trailDist <= p.slPct, 'prese e trailing scalano con lo stop');
+  // salto improvviso oltre lo stop e oltre l'80% della distanza: chiude comunque, senza arrivare a zero
+  setPx(e, ETH, 3000 * 1.08); await e.monitor();
+  assert.strictEqual(e.book.positions.length, 0); const t = e.book.trades[0];
+  assert.match(t.reason, /liquidazione|Stop-loss/); assert.ok(t.outBase > 0, 'mai liquidato');
+});
+
+test('SIMULAZIONE: long con leva 5x su SOL (perps) e REALE ancora bloccato', async () => {
+  const e = mkEngine(); e.cfg.leverage = 5;
+  await e.openShort({ m: SOL, s: { symbol: 'SOL' }, a: { atrPct: 0.5 } }, 70, plan, 'LONG');
+  const p = e.book.positions[0]; assert.strictEqual(p.side, 'LONG'); assert.ok(p.perp); assert.ok(p.liqPrice < 100 * 0.81 && p.liqPrice > 100 * 0.80);
+  setPx(e, SOL, 102.1); await e.monitor(); // +2,1% → TP1
+  assert.ok(p.tp1Done); assert.ok(e.book.realizedPnl > 0);
+  setPx(e, SOL, 99.5); await e.monitor(); // sotto il pareggio → chiude
+  assert.strictEqual(e.book.positions.length, 0); const t = e.book.trades[0]; assert.strictEqual(t.side, 'LONG'); assert.strictEqual(t.lev, 5);
+  assert.ok(Math.abs(e.equity() - (1000 + e.book.realizedPnl)) < 1e-6);
+  const e3 = mkEngine(); e3.cfg.mode = 'REAL'; e3.st.books.REAL = newBook(1000, e3.cfg); e3.cfg.leverage = 10;
+  await e3.openShort({ m: SOL, s: { symbol: 'SOL' }, a: {} }, 70, plan, 'LONG');
+  assert.strictEqual(e3.book.positions.length, 0, 'perps reali spenti');
 });
 
 test('migrazione v5: attiva gli short a 2x e non tocca il resto', () => {
@@ -141,4 +190,15 @@ test('MENTORE: il lato (long/short) è una caratteristica separata', () => {
   const fs_ = K.featuresOf({ side: 'short', a: { rsi: 40, m15: -1, atrPct: 1, short: { checks: { a: true } } }, f: { score: -0.5 }, core: true });
   assert.ok(fs_.includes('lato:short')); assert.ok(fs_.every((k) => k === 'lato:short' || k.startsWith('short.')));
   assert.ok(K.featuresOf({ a: { rsi: 60 }, core: true }).includes('lato:long'));
+});
+
+test('pipeline: con "long con leva" attivo, un LONG su SOL va su Jupiter Perps alla leva scelta', async () => {
+  const e = mkEngine({ cfgVersion: 5, perpLongs: true, leverage: 5 }); e.refreshBalances = async () => {};
+  e.market.candles[SOL] = candles(200, 0.0005, 0.3); setPx(e, SOL, e.market.candles[SOL][199].c);
+  e.market.stats[SOL] = { symbol: 'SOL', buys1h: 60, sells1h: 40, volume1h: 1e6, volume6h: 6e6, decimals: 9 };
+  e.watch.set(SOL, { symbol: 'SOL', core: true });
+  await e.pipeline();
+  const p = e.book.positions[0]; assert.ok(p, 'posizione aperta'); assert.strictEqual(p.side, 'LONG'); assert.ok(p.perp); assert.strictEqual(p.lev, 5);
+  assert.ok(Math.abs(p.costBase - 70) < 0.01 && Math.abs(p.sizeUsd - 350) < 0.1, 'margine 7%, esposizione 35%');
+  assert.ok(p.feat.includes('leva:5x'));
 });
