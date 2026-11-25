@@ -111,7 +111,7 @@ Su iPhone il collegamento a Phantom funziona dentro l'app Phantom: tocca **Phant
 | Durata max | 240 min | poi chiude comunque |
 | Filtri meme | Liq ≥ 40k $, Vol 24h ≥ 3k $, età dalla creazione del pool ≥ 1 minuto, MCap ≥ 300k $, RugCheck ≤ 30, niente mint/freeze authority | |
 
-I **LONG** sono sempre spot (1x). Gli **SHORT** (solo SOL, BTC, ETH) usano Jupiter Perps con leva **2x, 5x o 10x** (default 2x, limite rigido 10x); facoltativamente anche i long su SOL/BTC/ETH possono usare la leva: vedi sotto.
+I **LONG** sono sempre spot (1x). Gli **SHORT** (solo SOL, BTC, ETH) usano Jupiter Perps con leva **5x o 10x** (minimo 5x, default 5x, limite rigido 10x); facoltativamente anche i long su SOL/BTC/ETH possono usare la leva: vedi sotto.
 
 ### Uscite furbe (attive di default)
 R = distanza dello stop-loss iniziale, calcolata sulla volatilità (ATR × 2,2, tra 1,5% e 10%; meme almeno 3%).
@@ -123,15 +123,14 @@ R = distanza dello stop-loss iniziale, calcolata sulla volatilità (ATR × 2,2, 
 - **Uscita rapida**: crollo oltre il 3% (o 2 × ATR) in 5 minuti sotto la EMA9, oppure sui meme vendite ≥ 75% delle transazioni dell'ultima ora (almeno 40), dopo i primi 3 minuti.
 Le prese parziali entrano subito nel PnL realizzato; il resto resta "aperto". Nello storico il trade compare una sola volta, alla chiusura completa, con il rendimento complessivo (ed è da questo che impara il Mentore). Tutto è modificabile in Impostazioni → Uscite furbe.
 
-### LONG + SHORT (Jupiter Perps, leva 2x / 5x / 10x)
+### LONG + SHORT (Jupiter Perps, leva 5x / 10x)
 - Il CAPO cerca anche segnali **SHORT** speculari a quelli LONG: EMA9 sotto EMA21, trend 5m ribassista, EMA21 in discesa, RSI 28–50, momentum 15m negativo, flusso non in acquisto; niente short se il mercato SOL sale più dell'1% in un'ora.
 - Solo **SOL, BTC, ETH** si possono shortare (mercati Jupiter Perps, collaterale **USDC**). Mai un long e uno short sullo stesso asset insieme.
-- **Margine** = rischio per operazione (7% del capitale, non cambia con la leva). **Leva** selezionabile 2x (default), 5x, 10x → esposizione 14%, 35% o 70% del capitale.
+- **Margine** = rischio per operazione (7% del capitale, non cambia con la leva). **Leva** selezionabile 5x (default e minimo) o 10x → esposizione 35% o 70% del capitale. Valori sotto 5x vengono portati a 5x.
 - **Long con leva** (interruttore, spento di default): i LONG su SOL/BTC/ETH usano Jupiter Perps alla stessa leva; gli altri token restano spot 1x.
 
 | Leva | Liquidazione (movimento contrario) | Stop-loss massimo | Chiusura forzata |
 |---|---|---|---|
-| 2x | ~49,7% | 19,9% (in pratica lo stop ATR, max 6%) | 39,7% |
 | 5x | ~19,7% | 7,9% (in pratica lo stop ATR, max 6%) | 15,7% |
 | 10x | ~9,7% | 3,9% | 7,7% |
 

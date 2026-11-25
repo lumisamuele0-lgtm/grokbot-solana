@@ -58,16 +58,17 @@ test('short: liquidazione ~+49,7% a 2x, stop-loss sempre molto prima', () => {
   assert.ok(S.shortStopCap(40, 100, liq) <= 0.4 * 49.8, 'stop limitato al 40% della distanza dalla liquidazione');
 });
 
-test('leva: solo 2x / 5x / 10x, limite rigido 10x (impostazioni e motore)', () => {
+test('leva: solo 5x / 10x, minimo 5x, limite rigido 10x (impostazioni e motore)', () => {
   assert.strictEqual(sanitize({ leverage: 50 }, DEFAULTS).leverage, 10);
-  assert.strictEqual(sanitize({ leverage: 0.2 }, DEFAULTS).leverage, 2);
+  assert.strictEqual(sanitize({ leverage: 0.2 }, DEFAULTS).leverage, 5);
+  assert.strictEqual(sanitize({ leverage: 2 }, DEFAULTS).leverage, 5, 'sotto 5 → 5x');
   assert.strictEqual(sanitize({ leverage: 4 }, DEFAULTS).leverage, 5);
   assert.strictEqual(sanitize({ leverage: 8 }, DEFAULTS).leverage, 10);
-  assert.strictEqual(DEFAULTS.leverage, 2, 'default resta 2x');
+  assert.strictEqual(DEFAULTS.leverage, 5, 'default 5x');
   assert.strictEqual(DEFAULTS.perpLongs, false, 'long con leva spenti di default');
   const e = mkEngine(); e.cfg.leverage = 50; assert.strictEqual(e.leverage(), 10);
-  e.cfg.leverage = 5; assert.strictEqual(e.leverage(), 5);
-  assert.strictEqual(migrateConfig({ cfgVersion: 5, leverage: 2 }).cfg.leverage, 2, 'nessuna migrazione verso leve più alte');
+  e.cfg.leverage = 2; assert.strictEqual(e.leverage(), 5, 'il motore non usa mai meno di 5x');
+  e.cfg.leverage = 1; assert.strictEqual(e.leverage(), 5);
 });
 
 test('liquidazione a 5x e 10x (short e long) e stop sempre dentro', () => {
@@ -113,13 +114,15 @@ test('SIMULAZIONE: long con leva 5x su SOL (perps) e REALE ancora bloccato', asy
   assert.strictEqual(e3.book.positions.length, 0, 'perps reali spenti');
 });
 
-test('migrazione v5: attiva gli short a 2x e non tocca il resto', () => {
-  const r = migrateConfig({ cfgVersion: 4, maxTradePct: 5, budget: 33, shortsOn: false, leverage: 1, scanMemes: false });
-  assert.strictEqual(r.changed, true); assert.strictEqual(r.cfg.cfgVersion, 5);
-  assert.strictEqual(r.cfg.shortsOn, true); assert.strictEqual(r.cfg.leverage, 2);
+test('migrazione v6: leva salvata sotto 5x → 5x, il resto invariato', () => {
+  const r = migrateConfig({ cfgVersion: 5, maxTradePct: 5, budget: 33, shortsOn: false, leverage: 2, perpLongs: true, scanMemes: false });
+  assert.strictEqual(r.changed, true); assert.strictEqual(r.cfg.cfgVersion, 6);
+  assert.strictEqual(r.cfg.leverage, 5);
+  assert.strictEqual(r.cfg.shortsOn, false, 'la scelta sugli short resta'); assert.strictEqual(r.cfg.perpLongs, true);
   assert.strictEqual(r.cfg.maxTradePct, 5); assert.strictEqual(r.cfg.budget, 33);
-  const again = migrateConfig(r.cfg); assert.strictEqual(again.changed, false);
-  const off = migrateConfig({ ...r.cfg, shortsOn: false }); assert.strictEqual(off.cfg.shortsOn, false, 'dopo la migrazione la scelta di Samuele resta');
+  assert.strictEqual(migrateConfig({ cfgVersion: 5, leverage: 10 }).cfg.leverage, 10, '10x resta 10x');
+  assert.strictEqual(migrateConfig(r.cfg).changed, false, 'una sola volta');
+  const old = migrateConfig({ cfgVersion: 4, leverage: 1 }); assert.strictEqual(old.cfg.shortsOn, true); assert.strictEqual(old.cfg.leverage, 5);
 });
 
 test('analista: segnale SHORT speculare al LONG', () => {
@@ -146,16 +149,16 @@ test('SIMULAZIONE: short aperto, presa parziale, chiusura e saldo coerente', asy
   const e = mkEngine();
   await e.openShort({ m: SOL, s: { symbol: 'SOL' }, a: { atrPct: 0.5 }, feat: ['lato:short'] }, 70, plan);
   const b = e.book; const p = b.positions[0];
-  assert.strictEqual(p.side, 'SHORT'); assert.strictEqual(p.lev, 2); assert.strictEqual(p.sizeUsd, 140);
-  assert.ok(p.liqPrice > 149 && p.liqPrice < 150);
-  const eq0 = e.equity(); assert.ok(Math.abs(eq0 - (1000 - 0.084 * 2 - p.feesBase)) < 0.01, `equity ${eq0}`);
+  assert.strictEqual(p.side, 'SHORT'); assert.strictEqual(p.lev, 5); assert.strictEqual(p.sizeUsd, 350);
+  assert.ok(p.liqPrice > 119.6 && p.liqPrice < 119.8, `liq ${p.liqPrice}`);
+  const eq0 = e.equity(); assert.ok(Math.abs(eq0 - (1000 - 0.21 * 2 - p.feesBase)) < 0.01, `equity ${eq0}`);
   setPx(e, SOL, 97.9); await e.monitor(); // −2,1% → TP1 40%
-  assert.strictEqual(b.positions.length, 1); assert.ok(p.tp1Done); assert.ok(Math.abs(p.sizeUsd - 84) < 1e-6);
+  assert.strictEqual(b.positions.length, 1); assert.ok(p.tp1Done); assert.ok(Math.abs(p.sizeUsd - 210) < 1e-6);
   setPx(e, SOL, 100.5); await e.monitor(); // torna sopra il pareggio → chiude
   assert.strictEqual(b.positions.length, 0);
   const t = b.trades[0]; assert.strictEqual(t.side, 'SHORT'); assert.ok(t.pnl > 0, 'la presa parziale ha bloccato un guadagno');
   assert.ok(Math.abs(e.equity() - (1000 + b.realizedPnl)) < 1e-6, 'saldo = budget + PnL realizzato');
-  assert.ok(t.perpFeesUsd > 0.16, 'commissioni perps contabilizzate');
+  assert.ok(t.perpFeesUsd > 0.4, 'commissioni perps contabilizzate');
 });
 
 test('SIMULAZIONE: stop-loss dello short sul rialzo', async () => {
@@ -163,7 +166,7 @@ test('SIMULAZIONE: stop-loss dello short sul rialzo', async () => {
   await e.openShort({ m: ETH, s: { symbol: 'ETH' }, a: { atrPct: 0.5 } }, 70, plan);
   setPx(e, ETH, 3070); await e.monitor(); // +2,33%
   const t = e.book.trades[0]; assert.match(t.reason, /Stop-loss/); assert.ok(t.pnl < 0);
-  assert.ok(t.pnlPct > -6 && t.pnlPct < -4.5, `perdita sul margine ~2× il movimento: ${t.pnlPct}`);
+  assert.ok(t.pnlPct > -13.5 && t.pnlPct < -11, `perdita sul margine ~5× il movimento: ${t.pnlPct}`);
 });
 
 test('pipeline: short su SOL in ribasso, mai long e short insieme, REALE bloccato', async () => {
@@ -174,7 +177,7 @@ test('pipeline: short su SOL in ribasso, mai long e short insieme, REALE bloccat
   await e.pipeline();
   const b = e.book; assert.strictEqual(b.positions.length, 1); const p = b.positions[0];
   assert.strictEqual(p.side, 'SHORT'); assert.strictEqual(p.mint, SOL);
-  assert.ok(Math.abs(p.costBase - 70) < 0.01, 'margine = 7% del capitale'); assert.ok(Math.abs(p.sizeUsd - 140) < 0.1, 'esposizione 14%');
+  assert.ok(Math.abs(p.costBase - 70) < 0.01, 'margine = 7% del capitale'); assert.ok(Math.abs(p.sizeUsd - 350) < 0.1, 'esposizione 35% a 5x');
   await e.pipeline(); assert.strictEqual(b.positions.filter((x) => x.mint === SOL).length, 1, 'nessun secondo trade sullo stesso asset');
   // con un LONG su SOL aperto non si apre lo short
   const e2 = mkEngine(); e2.market.candles[SOL] = e.market.candles[SOL]; setPx(e2, SOL, p.entryPrice); e2.refreshBalances = async () => {};

@@ -1,6 +1,6 @@
 'use strict';
 const { CORE, OLD_MEMES } = require('./tokens');
-const CFG_VERSION = 5; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
+const CFG_VERSION = 6; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
 const DEFAULTS = {
   cfgVersion: CFG_VERSION,
   mode: 'SIM', // SIM | REAL
@@ -26,8 +26,8 @@ const DEFAULTS = {
   memeExitMult: 0.75, // meme: prese e trailing più vicini (×0,75)
   timeStopOn: true, timeStopMin: 90, timeStopMinGainPct: 0.5, // dopo 90 min sotto +0,5% e senza prese → esce
   // LONG + SHORT: short su SOL/BTC/ETH tramite Jupiter Perps, collaterale USDC, leva massima 2x (limite rigido)
-  // leva perps selezionabile 2x / 5x / 10x (limite rigido 10x); i long con leva sono facoltativi (spenti = long spot)
-  shortsOn: true, leverage: 2, perpLongs: false,
+  // leva perps selezionabile 5x / 10x (minimo 5x, limite rigido 10x); i long con leva sono facoltativi (spenti = long spot)
+  shortsOn: true, leverage: 5, perpLongs: false,
   reversalExit: true, reversalPct: 3, // uscita rapida su crollo del momentum a 5 min o ondata di vendite
   cooldownMin: 20,
   cycleSec: 20,
@@ -49,9 +49,9 @@ const LIMITS = {
   minVolume24hUsd: [0, 1e10], minPairAgeMin: [0, 600000], minMcapUsd: [0, 1e12], maxPump1hPct: [1, 1000], maxDump24hPct: [1, 100],
   maxRugScore: [0, 100], maxWatch: [1, 30], priorityFeeMaxLamports: [0, 5000000], simPriorityLamports: [0, 5000000],
 };
-const LEVERAGES = [2, 5, 10];
-// solo 2x, 5x o 10x (si arrotonda all'opzione più vicina, mai oltre 10x)
-function snapLeverage(v) { const n = Number(v) || 2; return LEVERAGES.reduce((a, b) => (Math.abs(b - n) < Math.abs(a - n) ? b : a), 2); }
+const LEVERAGES = [5, 10];
+// solo 5x o 10x: sotto 5 → 5x (leva minima voluta da Samuele), sopra 10 → 10x, in mezzo l'opzione più vicina
+function snapLeverage(v) { const n = Number(v) || 5; return n >= 7.5 ? 10 : 5; }
 function sanitize(patch, current) {
   const out = { ...current };
   for (const [k, v] of Object.entries(patch || {})) {
@@ -72,6 +72,8 @@ const MIGRATIONS = {
   // v4: niente meme, solo cripto principali (lista token aggiornata; i token aggiunti a mano restano, tranne i vecchi meme)
   // v5: short attivi a 2x (resto della configurazione, wallet e PIN invariati)
   5: (c) => { c.shortsOn = true; c.leverage = 2; },
+  // v6: leva minima 5x (solo la leva; resto della configurazione, wallet e PIN invariati)
+  6: (c) => { if (!(Number(c.leverage) >= 5)) c.leverage = 5; },
   4: (c) => { c.scanMemes = false; const extra = (Array.isArray(c.tokens) ? c.tokens : []).filter((m) => !OLD_MEMES.includes(m) && !CORE.some((t) => t.mint === m)); c.tokens = [...CORE.map((t) => t.mint), ...extra]; if ((c.maxWatch || 0) < CORE.length + 1) c.maxWatch = CORE.length + 1; },
 };
 function migrateConfig(saved) {

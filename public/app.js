@@ -592,9 +592,9 @@
       <div class="grp"><span class="lbl">Short (LONG + SHORT)</span>
         <div class="switch"><span>Short su SOL, BTC, ETH (Jupiter Perps, collaterale USDC)</span><span class="toggle ${c.shortsOn ? 'on' : ''}" data-t="shortsOn"></span></div>
         <div class="switch"><span>Long con leva su SOL, BTC, ETH (spento = long spot 1x)</span><span class="toggle ${c.perpLongs ? 'on' : ''}" data-t="perpLongs"></span></div>
-        <span class="field"><span>Leva perps</span></span>
-        <div class="seg" id="sLev">${[2, 5, 10].map((l) => `<button type="button" class="${(c.leverage || 2) === l ? 'on' : ''} ${l >= 5 ? 'hot' : ''}" data-lev="${l}">${l}x</button>`).join('')}</div>
-        <input type="hidden" data-k="leverage" value="${c.leverage || 2}">
+        <span class="field"><span>Leva perps (minimo 5x)</span></span>
+        <div class="seg" id="sLev">${[5, 10].map((l) => `<button type="button" class="${(c.leverage || 5) === l ? 'on' : ''} hot" data-lev="${l}">${l}x</button>`).join('')}</div>
+        <input type="hidden" data-k="leverage" value="${c.leverage || 5}">
         <div class="note" id="sLevNote"></div>
         <p class="note">Margine = ${c.maxTradePct}% del capitale (non cambia con la leva). Commissioni Jupiter: 0,06% apertura + 0,06% chiusura sull'esposizione + prestito orario (oggi ~0,0001%/h, in simulazione contiamo 0,001%/h). Lo stop-loss resta sempre entro il 40% della distanza dalla liquidazione e il bot chiude comunque all'80%; con più leva stop, prese parziali e trailing diventano più stretti. Mai un long e uno short insieme sullo stesso asset.</p>
         ${S.shorts && !S.shorts.realEnabled ? `<p class="note warnTxt">⚠️ ${esc(S.shorts.realMsg)}</p>` : ''}</div>
@@ -634,7 +634,7 @@
       const pw = () => $('#sPw', b).value;
       const out = (t) => { $('#sWOut', b).innerHTML = t; };
       $$('.toggle', b).forEach((t) => t.addEventListener('click', () => t.classList.toggle('on')));
-      // selettore leva 2x / 5x / 10x con avviso rosso per 5x e 10x
+      // selettore leva 5x / 10x (minimo 5x) con avviso rosso
       const levNote = (l) => {
         const dist = (S.shorts && S.shorts.liqDist && S.shorts.liqDist[l]) || (100 / l - 0.32);
         const n = $('#sLevNote', b); if (!n) return;
@@ -643,7 +643,7 @@
         n.textContent = l >= 5 ? `⚠️ Leva alta. ${txt} Un movimento di ${nf(dist, 1)}% contro di te azzera il margine: le perdite sono ${l} volte il movimento del prezzo.` : txt;
       };
       $$('#sLev button', b).forEach((x) => x.addEventListener('click', () => { $$('#sLev button', b).forEach((y) => y.classList.toggle('on', y === x)); $('[data-k="leverage"]', b).value = x.dataset.lev; levNote(Number(x.dataset.lev)); }));
-      levNote(c.leverage || 2);
+      levNote(c.leverage || 5);
       $('#sToks', b).addEventListener('click', (e) => { const x = e.target.closest('.chip'); if (x) x.classList.toggle('on'); });
       $('#sSave', b).addEventListener('click', async () => {
         const patch = {}; $$('[data-k]', b).forEach((i) => { patch[i.dataset.k] = i.dataset.k === 'rpcUrl' ? i.value.trim() : Number(i.value); });
