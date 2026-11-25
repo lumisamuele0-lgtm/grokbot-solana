@@ -174,11 +174,12 @@ class Engine extends EventEmitter {
   // ---------- SCANSIONE + VERIFICA: scoperta e filtri
   async scan() {
     const cfg = this.cfg;
-    let mints = [...cfg.tokens];
-    let discovered = 0;
-    if (cfg.scanMemes) { const d = await this.market.discover(); discovered = d.length; mints = mints.concat(d); }
+    // sempre con leva: si lavora solo su SOL/BTC/ETH (Jupiter Perps); gli altri token solo se c'è ancora una posizione aperta da gestire
+    const held = Object.values(this.st.books).flatMap((bk) => bk.positions.map((p) => p.mint));
+    let mints = [...Object.keys(P.SHORT_MARKETS), ...held];
+    const discovered = 0;
     mints = [...new Set(mints)].filter((m) => m !== this.base.mint && m !== USDC);
-    this.agent('SCANSIONE', `scansione: ${mints.length} token (${discovered} meme da DexScreener)`, 'scan');
+    this.agent('SCANSIONE', `scansione: SOL, BTC, ETH (leva ${this.leverage()}x)${held.length ? ` + ${held.length} posizioni da gestire` : ''}`, 'scan');
     await this.market.refreshStats(mints, coreMints);
     const shortMints = cfg.shortsOn || cfg.perpLongs ? Object.keys(P.SHORT_MARKETS).filter((m) => !mints.includes(m)) : [];
     if (shortMints.length) { try { await this.market.refreshStats(shortMints, coreMints); } catch (e) { this.log('SCANSIONE', `dati short: ${e.message}`, 'warn'); } }
@@ -213,10 +214,10 @@ class Engine extends EventEmitter {
         }
       }
       if (reasons.length) { if (this.watch.has(m) && !this.holding(m)) this.watch.delete(m); continue; }
-      if (!core && !cfg.scanMemes) continue; // modalità solo cripto principali: niente meme in osservazione
+      if (!P.SHORT_MARKETS[m] && !this.holding(m)) continue; // solo mercati con leva (o posizioni ancora aperte)
       if (!this.watch.has(m)) this.watch.set(m, { symbol: s.symbol, approvedAt: now, core });
     }
-    if (!cfg.scanMemes) for (const [m, w] of [...this.watch]) if (!w.core && !this.holding(m)) this.watch.delete(m);
+    for (const m of [...this.watch.keys()]) if (!P.SHORT_MARKETS[m] && !this.holding(m)) this.watch.delete(m);
     // limita la watchlist: core + meme più liquidi
     if (this.watch.size > cfg.maxWatch) {
       // ordine: token principali, poi ciò che il MENTORE ha visto funzionare, poi volume
@@ -250,22 +251,28 @@ class Engine extends EventEmitter {
 
   async pipeline() {
     const cfg = this.cfg; const b = this.book; const now = Date.now();
+    // REALE: con la leva obbligatoria e i perps reali non ancora verificati, nessuna nuova operazione
+    const block = this.entryBlock();
+    if (block) {
+      this.bump('RISCHIO'); this.agent('RISCHIO', block, 'block');
+      if (now - (this.analysisRejectTs.REALBLOCK || 0) > 30 * 60000) { this.analysisRejectTs.REALBLOCK = now; this.log('RISCHIO', `${block} Le posizioni già aperte continuano a essere gestite.`, 'warn'); }
+      return;
+    }
     this.emit('ev', { type: 'pipe', step: 'start' });
-    // SOCIAL + CAPO
+    // SOCIAL + CAPO: nuovi ingressi solo con leva su SOL/BTC/ETH
     const cands = [];
-    for (const [m, w] of this.watch) {
+    if (cfg.perpLongs) for (const m of Object.keys(P.SHORT_MARKETS)) {
       if (b.positions.some((p) => p.mint === m)) continue;
-      if (!cfg.scanMemes && !coreMints.has(m)) continue; // mai nuovi ingressi su meme
       if (b.cooldown[m] && b.cooldown[m] > now) continue;
-      const s = this.market.stats[m]; const c = this.market.candles[m];
-      if (!s || !c) continue;
+      const c = this.market.candles[m]; if (!c) continue;
+      const st = this.market.stats[m] || {};
+      const s = { ...st, symbol: P.SHORT_MARKETS[m] };
       const a = S.analyze(c);
-      const f = S.flowScore(s);
+      const f = st.buys1h != null ? S.flowScore(st) : { score: 0, ratio: 0, volAccel: 1, buys: 0, sells: 0 };
       this.bump('SOCIAL'); this.bump('CAPO');
-      const core = coreMints.has(m);
-      const feat = a.ok ? K.featuresOf({ s, a, f, core, solMom60: this.solMom60() }) : [];
+      const feat = a.ok ? [...K.featuresOf({ s, a, f, core: true, solMom60: this.solMom60() }), `leva:${this.leverage()}x`] : [];
       const kn = K.assess(this.kb, feat); // consiglio del MENTORE
-      cands.push({ m, w, s, a, f, feat, kn, side: 'LONG', total: (a.ok ? a.score : -9) + f.score + kn.adj });
+      cands.push({ m, w: { symbol: s.symbol, core: true }, s, a, f, feat, kn, side: 'LONG', total: (a.ok ? a.score : -9) + f.score + kn.adj });
     }
     // SHORT: solo SOL/BTC/ETH (mercati Jupiter Perps), mai insieme a un long sullo stesso asset
     if (cfg.shortsOn) {
@@ -291,7 +298,7 @@ class Engine extends EventEmitter {
         cands.push(x);
       }
     }
-    if (!cands.length) { this.agent('CAPO', 'nessun token pronto (candele in caricamento o in cooldown)', 'idle'); return; }
+    if (!cands.length) { this.agent('CAPO', cfg.perpLongs || cfg.shortsOn ? 'nessun mercato pronto (candele in caricamento o in cooldown)' : 'long con leva e short spenti: nessun nuovo ingresso', 'idle'); return; }
     const sigOk = (x) => x.a.ok && (x.side === 'SHORT' ? x.a.short.signal : x.a.signal === 'LONG');
     const flowOk = (x) => (x.side === 'SHORT' ? x.f.score < 0.2 : x.f.score > -0.2);
     cands.sort((x, y) => y.total - x.total);
@@ -351,12 +358,12 @@ class Engine extends EventEmitter {
     if (!sz.size) { this.agent('DIMENSIONE', sz.reason, 'block'); return; }
     const size = round(sz.size, this.base.decimals);
     // long con leva (perps) solo su SOL/BTC/ETH, solo se attivati, e in REALE solo quando i perps reali saranno verificati
+    // ogni nuovo ingresso è con leva (minimo 5x): mai più acquisti spot
     const perpMarket = P.SHORT_MARKETS[best.m];
-    const perpLong = !isShort && cfg.perpLongs && !!perpMarket && (cfg.mode === 'SIM' || P.REAL_SHORTS_ENABLED);
-    if (!isShort && cfg.perpLongs && perpMarket && !perpLong) this.log('RISCHIO', `long con leva non attivi in REALE: compro $${sym} spot 1x · ${P.REAL_SHORTS_BLOCK_MSG}`, 'warn');
-    const usePerp = isShort || perpLong; const sideTxt = isShort ? 'SHORT' : 'LONG';
-    const lev = usePerp ? this.leverage() : 1;
-    if (perpLong) best.feat = [...(best.feat || []), `leva:${lev}x`];
+    if (!perpMarket) { this.agent('RISCHIO', `$${sym}: niente acquisti spot, solo operazioni con leva su SOL/BTC/ETH`, 'block', { token: sym }); return; }
+    const perpLong = !isShort;
+    const usePerp = true; const sideTxt = isShort ? 'SHORT' : 'LONG';
+    const lev = this.leverage();
     this.agent('DIMENSIONE', usePerp
       ? `margine ${this.fmtBase(size)} su $${sym} ${sideTxt} ${lev}x · esposizione ${this.fmtBase(size * lev)} (${((size / capital) * 100).toFixed(1)}% del capitale come margine)`
       : `${this.fmtBase(size)} su $${sym} (${((size / capital) * 100).toFixed(1)}% del capitale${core ? '' : ', meme ×' + cfg.memeSizeMult})`, 'size', { token: sym, size });
@@ -374,8 +381,7 @@ class Engine extends EventEmitter {
     await sleep(400);
 
     // ESECUZIONE
-    if (usePerp) await this.openShort(isShort ? best : { ...best, s: { ...best.s, symbol: perpMarket } }, size, plan, sideTxt);
-    else await this.openPosition(best, size, plan);
+    await this.openShort({ ...best, s: { ...best.s, symbol: perpMarket } }, size, plan, sideTxt);
   }
 
   cash() {
@@ -432,6 +438,11 @@ class Engine extends EventEmitter {
     this.save();
   }
 
+  // messaggio se in questa modalità non si possono aprire nuove operazioni (null = si può)
+  entryBlock() {
+    if (this.cfg.mode === 'REAL' && !P.REAL_SHORTS_ENABLED) return P.REAL_ENTRY_BLOCK_MSG;
+    return null;
+  }
   leverage() { return Math.min(P.MAX_LEV, snapLeverage(this.cfg.leverage)); } // 2x / 5x / 10x, limite rigido 10x
 
   // ---------- SHORT (Jupiter Perps: collaterale USDC, esecuzione al prezzo dell'oracolo da parte dei keeper)
@@ -1000,7 +1011,7 @@ class Engine extends EventEmitter {
     };
     return {
       t: Date.now(), mode: cfg.mode, trading: cfg.trading, killed: b.killed, killReason: b.killReason, busy: this.busy,
-      cfg: { ...cfg }, base: cfg.baseCurrency, shorts: { realEnabled: P.REAL_SHORTS_ENABLED, realMsg: P.REAL_SHORTS_BLOCK_MSG, markets: Object.values(P.SHORT_MARKETS), maxLev: P.MAX_LEV, leverages: LEVERAGES, liqDist: Object.fromEntries(LEVERAGES.map((l) => [l, P.liqDistancePct(l)])), fees: P.FEES },
+      cfg: { ...cfg }, base: cfg.baseCurrency, entryBlock: this.entryBlock(), shorts: { realEnabled: P.REAL_SHORTS_ENABLED, realMsg: P.REAL_SHORTS_BLOCK_MSG, markets: Object.values(P.SHORT_MARKETS), maxLev: P.MAX_LEV, leverages: LEVERAGES, liqDist: Object.fromEntries(LEVERAGES.map((l) => [l, P.liqDistancePct(l)])), fees: P.FEES },
       equity: eq, equityEur: toEur(eq), startEquity: b.startEquity, pnl: eq - b.startEquity, pnlEur: toEur(eq - b.startEquity),
       roi: b.startEquity > 0 ? eq / b.startEquity : 1, realizedPnl: b.realizedPnl, fees: b.feesBase, cash: b.cash, solReserve: b.solReserve,
       capital: (({ positions: _ps, ...c }) => c)(this.capital(b)),

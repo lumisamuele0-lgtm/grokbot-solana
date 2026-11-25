@@ -1,6 +1,6 @@
 'use strict';
 const { CORE, OLD_MEMES } = require('./tokens');
-const CFG_VERSION = 6; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
+const CFG_VERSION = 7; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
 const DEFAULTS = {
   cfgVersion: CFG_VERSION,
   mode: 'SIM', // SIM | REAL
@@ -27,7 +27,7 @@ const DEFAULTS = {
   timeStopOn: true, timeStopMin: 90, timeStopMinGainPct: 0.5, // dopo 90 min sotto +0,5% e senza prese → esce
   // LONG + SHORT: short su SOL/BTC/ETH tramite Jupiter Perps, collaterale USDC, leva massima 2x (limite rigido)
   // leva perps selezionabile 5x / 10x (minimo 5x, limite rigido 10x); i long con leva sono facoltativi (spenti = long spot)
-  shortsOn: true, leverage: 5, perpLongs: false,
+  shortsOn: true, leverage: 5, perpLongs: true,
   reversalExit: true, reversalPct: 3, // uscita rapida su crollo del momentum a 5 min o ondata di vendite
   cooldownMin: 20,
   cycleSec: 20,
@@ -74,6 +74,8 @@ const MIGRATIONS = {
   5: (c) => { c.shortsOn = true; c.leverage = 2; },
   // v6: leva minima 5x (solo la leva; resto della configurazione, wallet e PIN invariati)
   6: (c) => { if (!(Number(c.leverage) >= 5)) c.leverage = 5; },
+  // v7: si entra SEMPRE con leva (min 5x): accende i long con leva (resto invariato)
+  7: (c) => { c.perpLongs = true; if (!(Number(c.leverage) >= 5)) c.leverage = 5; },
   4: (c) => { c.scanMemes = false; const extra = (Array.isArray(c.tokens) ? c.tokens : []).filter((m) => !OLD_MEMES.includes(m) && !CORE.some((t) => t.mint === m)); c.tokens = [...CORE.map((t) => t.mint), ...extra]; if ((c.maxWatch || 0) < CORE.length + 1) c.maxWatch = CORE.length + 1; },
 };
 function migrateConfig(saved) {

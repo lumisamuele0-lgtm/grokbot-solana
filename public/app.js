@@ -413,7 +413,8 @@
     tween('sR', $('#sR'), s.counters.rejected, (v) => Math.round(v).toLocaleString('it-IT'));
     tween('sO', $('#sO'), s.counters.approved, (v) => Math.round(v).toLocaleString('it-IT'));
     renderAgents();
-    $('#subTag').textContent = s.cfg.scanMemes ? 'Cripto principali + meme coin · gestione rischio rigorosa' : 'Solo cripto principali su Solana · niente meme · rischio ' + s.cfg.maxTradePct + '% per operazione';
+    $('#subTag').textContent = `SOL · BTC · ETH sempre con leva ${s.cfg.leverage || 5}x · margine ${s.cfg.maxTradePct}% per operazione`;
+    const eb = $('#entryBlock'); if (eb) { eb.classList.toggle('hidden', !s.entryBlock); eb.textContent = s.entryBlock ? '⏸ ' + s.entryBlock + ' Le posizioni già aperte restano gestite.' : ''; }
     renderPnl(s);
     renderKnowledge(s);
     if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; requestAnimationFrame(drawSpark); }
@@ -630,10 +631,10 @@
         ${num('maxOpen', 'Posizioni max', '1')}${num('slippageBps', 'Slippage (bps, 100=1%)', '1')}
         ${num('maxPriceImpactPct', 'Impatto prezzo max %')}${num('cooldownMin', 'Pausa dopo un token (min)', '1')}
         ${num('maxHoldMin', 'Durata max posizione (min)', '1')}${num('feeReserveSol', 'Riserva SOL commissioni')}</div>
-        <p class="note">LONG spot 1x (con leva solo su SOL/BTC/ETH se attivi l'interruttore sotto). Stop-loss e target sono calcolati sulla volatilità (ATR).</p></div>
+        <p class="note">Ogni nuova operazione è con leva (min 5x) su SOL/BTC/ETH. Stop-loss e target sono calcolati sulla volatilità (ATR).</p></div>
       <div class="grp"><span class="lbl">Short (LONG + SHORT)</span>
         <div class="switch"><span>Short su SOL, BTC, ETH (Jupiter Perps, collaterale USDC)</span><span class="toggle ${c.shortsOn ? 'on' : ''}" data-t="shortsOn"></span></div>
-        <div class="switch"><span>Long con leva su SOL, BTC, ETH (spento = long spot 1x)</span><span class="toggle ${c.perpLongs ? 'on' : ''}" data-t="perpLongs"></span></div>
+        <div class="switch"><span>Long con leva su SOL, BTC, ETH (spento = solo short)</span><span class="toggle ${c.perpLongs ? 'on' : ''}" data-t="perpLongs"></span></div>
         <span class="field"><span>Leva perps (minimo 5x)</span></span>
         <div class="seg" id="sLev">${[5, 10].map((l) => `<button type="button" class="${(c.leverage || 5) === l ? 'on' : ''} hot" data-lev="${l}">${l}x</button>`).join('')}</div>
         <input type="hidden" data-k="leverage" value="${c.leverage || 5}">
@@ -652,10 +653,8 @@
         <div class="grid2">${num('reversalPct', 'Crollo 5 min oltre %')}</div>
         <p class="note">R = distanza dello stop-loss iniziale (dipende dalla volatilità). Esempio: stop −4% → presa 1 a +4% vende il 40%, lo stop sale a pareggio; presa 2 a +8% vende un altro 30%; il resto segue il trailing (distanza 1,5 × ATR, mai più larga dello stop iniziale). Sui meme le distanze sono ×0,75.</p></div>
       <div class="grp"><span class="lbl">Cripto su cui lavora</span>
-        <div class="switch"><span>Meme coin e pool nuovi (spento = solo cripto principali)</span><span class="toggle ${c.scanMemes ? 'on' : ''}" data-t="scanMemes"></span></div>
-        <div class="chips" id="sToks" style="margin-top:10px">${core.map(([s, m]) => `<button class="chip ${c.tokens.includes(m) ? 'on' : ''}" data-m="${m}">${s}</button>`).join('')}${custom.map((m) => `<button class="chip on" data-m="${m}">${short(m)}</button>`).join('')}</div>
-        <label class="field"><span>Aggiungi token (indirizzo mint)</span><input class="in" id="sMint" placeholder="es. 7GCi…"></label>
-        <div class="grid2">${num('minLiquidityUsd', 'Liquidità min ($)', '1000')}${num('minVolume24hUsd', 'Volume 24h min ($)', '1000')}${num('minPairAgeMin', 'Età min creazione token (minuti)', '1')}${num('maxRugScore', 'RugCheck max (0–100)', '1')}${num('minMcapUsd', 'Market cap min meme ($)', '1000')}${num('maxPump1hPct', 'Scarta se +% in 1h oltre')}</div></div>
+        <div class="chips" style="margin-top:4px">${['SOL', 'BTC', 'ETH'].map((x) => `<span class="chip on">${x} · ${c.leverage || 5}x</span>`).join('')}</div>
+        <p class="note">Si entra <b>sempre con leva</b> (minimo 5x, ora ${c.leverage || 5}x) su SOL, BTC ed ETH tramite Jupiter Perps, sia LONG sia SHORT. Niente più acquisti spot: eventuali posizioni spot ancora aperte su altri token vengono solo gestite fino alla chiusura (stop, prese, trailing), senza vendite forzate.</p></div>
       <div class="grp"><span class="lbl">Rete Solana</span>${`<label class="field"><span>RPC (gratuito di default; puoi usarne uno tuo)</span><input class="in" data-k="rpcUrl" value="${esc(c.rpcUrl)}"></label>`}</div>
       <div class="btns"><button class="btn pri" id="sSave">Salva impostazioni</button></div><div class="err" id="sErr"></div>
       <div class="grp"><span class="lbl">Portafoglio del bot</span><div class="card wallet">
@@ -686,11 +685,9 @@
       };
       $$('#sLev button', b).forEach((x) => x.addEventListener('click', () => { $$('#sLev button', b).forEach((y) => y.classList.toggle('on', y === x)); $('[data-k="leverage"]', b).value = x.dataset.lev; levNote(Number(x.dataset.lev)); }));
       levNote(c.leverage || 5);
-      $('#sToks', b).addEventListener('click', (e) => { const x = e.target.closest('.chip'); if (x) x.classList.toggle('on'); });
       $('#sSave', b).addEventListener('click', async () => {
         const patch = {}; $$('[data-k]', b).forEach((i) => { patch[i.dataset.k] = i.dataset.k === 'rpcUrl' ? i.value.trim() : Number(i.value); });
         $$('.toggle', b).forEach((t) => { patch[t.dataset.t] = t.classList.contains('on'); });
-        patch.tokens = $$('#sToks .chip.on', b).map((x) => x.dataset.m); const nm = $('#sMint', b).value.trim(); if (nm) patch.tokens.push(nm);
         try { await api('/api/config', patch); toast('Impostazioni salvate'); closeSheet(); } catch (e) { $('#sErr', b).textContent = e.message; }
       });
       $('#sMode', b).addEventListener('click', async () => { if (S.mode === 'REAL') { try { await api('/api/mode', { mode: 'SIM' }); toast('Modalità simulazione'); closeSheet(); } catch (e) { toast(e.message); } } else { closeSheet(); setTimeout(realGuide, 280); } });

@@ -103,7 +103,7 @@ Su iPhone il collegamento a Phantom funziona dentro l'app Phantom: tocca **Phant
 | Kill switch % | 20 | se il capitale scende del 20%, vende tutto (in USDC) e si ferma |
 | Kill switch assoluto | 0 (off) | come sopra ma in importo fisso |
 | Stop giornaliero | 8% | niente nuove operazioni fino a domani |
-| Cripto | solo principali | SOL, BTC (cbBTC), ETH, JUP, RAY, KMNO, JTO, PYTH, ORCA, RENDER, HNT, W · niente meme né pool nuovi (attivabili in Impostazioni) |
+| Cripto | solo SOL, BTC, ETH con leva | ogni nuovo ingresso è con leva (min 5x) su Jupiter Perps, LONG o SHORT · niente acquisti spot (le vecchie posizioni spot vengono solo gestite fino alla chiusura) |
 | Rischio per operazione | 7% | del capitale (budget + utili realizzati) investito in ogni trade, meme compresi |
 | Posizioni max | 3 | |
 | Slippage | 100 bps (1%) | |
@@ -111,7 +111,7 @@ Su iPhone il collegamento a Phantom funziona dentro l'app Phantom: tocca **Phant
 | Durata max | 240 min | poi chiude comunque |
 | Filtri meme | Liq ≥ 40k $, Vol 24h ≥ 3k $, età dalla creazione del pool ≥ 1 minuto, MCap ≥ 300k $, RugCheck ≤ 30, niente mint/freeze authority | |
 
-I **LONG** sono sempre spot (1x). Gli **SHORT** (solo SOL, BTC, ETH) usano Jupiter Perps con leva **5x o 10x** (minimo 5x, default 5x, limite rigido 10x); facoltativamente anche i long su SOL/BTC/ETH possono usare la leva: vedi sotto.
+Il bot entra **sempre con leva**: LONG e SHORT solo su **SOL, BTC, ETH** tramite Jupiter Perps, leva **5x o 10x** (minimo 5x, default 5x, limite rigido 10x). Nessun nuovo acquisto spot: vedi sotto.
 
 ### Uscite furbe (attive di default)
 R = distanza dello stop-loss iniziale, calcolata sulla volatilità (ATR × 2,2, tra 1,5% e 10%; meme almeno 3%).
@@ -127,7 +127,7 @@ Le prese parziali entrano subito nel PnL realizzato; il resto resta "aperto". Ne
 - Il CAPO cerca anche segnali **SHORT** speculari a quelli LONG: EMA9 sotto EMA21, trend 5m ribassista, EMA21 in discesa, RSI 28–50, momentum 15m negativo, flusso non in acquisto; niente short se il mercato SOL sale più dell'1% in un'ora.
 - Solo **SOL, BTC, ETH** si possono shortare (mercati Jupiter Perps, collaterale **USDC**). Mai un long e uno short sullo stesso asset insieme.
 - **Margine** = rischio per operazione (7% del capitale, non cambia con la leva). **Leva** selezionabile 5x (default e minimo) o 10x → esposizione 35% o 70% del capitale. Valori sotto 5x vengono portati a 5x.
-- **Long con leva** (interruttore, spento di default): i LONG su SOL/BTC/ETH usano Jupiter Perps alla stessa leva; gli altri token restano spot 1x.
+- **Long con leva** (acceso di default, migrazione v7): i LONG su SOL/BTC/ETH usano Jupiter Perps alla stessa leva. Se lo spegni il bot fa solo SHORT. Gli altri token non vengono più comprati; una posizione spot già aperta resta gestita (stop, prese, trailing) fino alla chiusura, senza vendite forzate.
 
 | Leva | Liquidazione (movimento contrario) | Stop-loss massimo | Chiusura forzata |
 |---|---|---|---|
@@ -138,7 +138,7 @@ Prese parziali e trailing sono multipli dello stop, quindi con più leva diventa
 - **Commissioni** (lette on-chain il 25/11/2026): 0,06% all'apertura + 0,06% alla chiusura sull'esposizione, più il **prestito orario** (oggi ~0,0001%/h; in simulazione contiamo 0,001%/h, prudente). L'impatto prezzo per importi piccoli è trascurabile.
 - **Liquidazione**: lo stop-loss è sempre al massimo il 40% della distanza dalla liquidazione (commissioni e prestito inclusi) e il bot chiude comunque se il prezzo arriva all'80% della distanza.
 - Uscite furbe specchiate: prese parziali quando il prezzo scende, stop a pareggio, trailing che scende col minimo, uscita rapida su rimbalzo, time stop.
-- **Stato in REALE**: le transazioni (apertura, chiusura parziale e totale) sono costruite dal bot e **simulate su mainnet** con esito positivo (`node scripts/perps-check.js`, nessun invio). L'esecuzione da parte dei keeper Jupiter con fondi veri non è ancora verificata, quindi **in REALE short e long con leva restano spenti** (il bot fa solo LONG spot e lo scrive nel Logger). In SIMULAZIONE funzionano completamente.
+- **Stato in REALE**: le transazioni (apertura, chiusura parziale e totale) sono costruite dal bot e **simulate su mainnet** con esito positivo (`node scripts/perps-check.js`, nessun invio). L'esecuzione da parte dei keeper Jupiter con fondi veri non è ancora verificata, quindi **in REALE il bot non apre nessuna nuova operazione**: dashboard e Logger mostrano *«In REALE nessuna nuova operazione: la leva è ancora in attesa del test con 5-10 USDC.»* Le posizioni già aperte continuano a essere gestite. In SIMULAZIONE funzionano completamente.
 
 ### Il Mentore (9° bot)
 Impara da ogni trade chiuso, simulato o reale (i reali pesano 1,5×), quali caratteristiche portano a vincere o perdere: tipo di token, età del pool, volume, liquidità, fascia oraria, volatilità, RSI, momentum, flusso acquisti/vendite, condizioni rispettate e andamento di SOL. Le statistiche sono smussate (prior bayesiano di 8 trade verso la media), salvate in `knowledge.json` e sopravvivono ai riavvii. Dopo 10 trade inizia a consigliare: riordina i candidati e la watchlist e blocca i setup con rendimento atteso negativo e un pattern chiaramente perdente (≥ 8 trade, < 40% vincenti). Non cambia mai il 7% per operazione, i filtri minimi, lo stop-loss o il kill switch.

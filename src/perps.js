@@ -13,6 +13,7 @@ const { PublicKey, SystemProgram, TransactionInstruction } = require('@solana/we
 const REAL_SHORTS_ENABLED = false;
 const REAL_SHORTS_BLOCK_MSG = 'Short in REALE non ancora attivi: le transazioni Jupiter Perps sono costruite e simulate su mainnet, ma l\'esecuzione del keeper con fondi veri non è ancora stata verificata. In REALE il bot fa solo LONG; gli short funzionano in SIMULAZIONE.';
 
+const REAL_ENTRY_BLOCK_MSG = 'In REALE nessuna nuova operazione: la leva è ancora in attesa del test con 5-10 USDC.';
 const PROGRAM_ID = new PublicKey('PERPHjGBqRHArX4DySjwM6UJHiR3sWAatqfdBS2qQJu');
 const EVENT_AUTHORITY = new PublicKey('37hJBDnntwqhGbK7L6M1bLyvccj4u55CCUiLPdYkiqBN');
 const POOL = new PublicKey('5BUwFW4nRbftYTDMbgxykoFWqWHPzahFSNAaaaJtVKsq');
@@ -112,4 +113,4 @@ function liqDistancePct(lev, fees = FEES) {
 }
 const perpState = shortState;
 
-module.exports = { liqDistancePct, perpState, MAX_LEV: 10, REAL_SHORTS_ENABLED, REAL_SHORTS_BLOCK_MSG, PROGRAM_ID, POOL, CUSTODY, USDC_MINT, SHORT_MARKETS, FEES, disc, positionPda, positionRequestPda, increaseShortIx, decreaseShortIx, createAtaIdempotentIx, decodePosition, openShortModel, shortState, liquidationPrice, ata };
+module.exports = { REAL_ENTRY_BLOCK_MSG, liqDistancePct, perpState, MAX_LEV: 10, REAL_SHORTS_ENABLED, REAL_SHORTS_BLOCK_MSG, PROGRAM_ID, POOL, CUSTODY, USDC_MINT, SHORT_MARKETS, FEES, disc, positionPda, positionRequestPda, increaseShortIx, decreaseShortIx, createAtaIdempotentIx, decodePosition, openShortModel, shortState, liquidationPrice, ata };

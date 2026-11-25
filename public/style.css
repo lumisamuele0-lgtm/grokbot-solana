@@ -221,3 +221,5 @@ nav.bn button:active{background:#ffffff10}
 @media (prefers-reduced-motion:reduce){.capFloat{animation:capFloatRM 1.6s linear forwards}.pc-bar i{transition:none}.pc-i.hit-out,.pc-i.hit-win,.pc-i.hit-loss{animation-duration:.01s}}
 @keyframes capFloatRM{0%,80%{opacity:1;transform:translate(4px,-18px)}100%{opacity:0;transform:translate(4px,-18px)}}
 .pnlbar.compact .pc-sub{display:none}
+
+.entryBlock{margin:0 0 12px;padding:12px 14px;border-radius:14px;background:#2a1a05;border:1px solid #f59e0b;color:#fcd34d;font-weight:700;font-size:13.5px;line-height:1.35}

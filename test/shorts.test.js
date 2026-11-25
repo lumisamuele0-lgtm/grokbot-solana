@@ -65,7 +65,7 @@ test('leva: solo 5x / 10x, minimo 5x, limite rigido 10x (impostazioni e motore)'
   assert.strictEqual(sanitize({ leverage: 4 }, DEFAULTS).leverage, 5);
   assert.strictEqual(sanitize({ leverage: 8 }, DEFAULTS).leverage, 10);
   assert.strictEqual(DEFAULTS.leverage, 5, 'default 5x');
-  assert.strictEqual(DEFAULTS.perpLongs, false, 'long con leva spenti di default');
+  assert.strictEqual(DEFAULTS.perpLongs, true, 'long con leva accesi di default (si entra sempre con leva)');
   const e = mkEngine(); e.cfg.leverage = 50; assert.strictEqual(e.leverage(), 10);
   e.cfg.leverage = 2; assert.strictEqual(e.leverage(), 5, 'il motore non usa mai meno di 5x');
   e.cfg.leverage = 1; assert.strictEqual(e.leverage(), 5);
@@ -116,7 +116,7 @@ test('SIMULAZIONE: long con leva 5x su SOL (perps) e REALE ancora bloccato', asy
 
 test('migrazione v6: leva salvata sotto 5x → 5x, il resto invariato', () => {
   const r = migrateConfig({ cfgVersion: 5, maxTradePct: 5, budget: 33, shortsOn: false, leverage: 2, perpLongs: true, scanMemes: false });
-  assert.strictEqual(r.changed, true); assert.strictEqual(r.cfg.cfgVersion, 6);
+  assert.strictEqual(r.changed, true); assert.strictEqual(r.cfg.cfgVersion, 7);
   assert.strictEqual(r.cfg.leverage, 5);
   assert.strictEqual(r.cfg.shortsOn, false, 'la scelta sugli short resta'); assert.strictEqual(r.cfg.perpLongs, true);
   assert.strictEqual(r.cfg.maxTradePct, 5); assert.strictEqual(r.cfg.budget, 33);
@@ -204,4 +204,35 @@ test('pipeline: con "long con leva" attivo, un LONG su SOL va su Jupiter Perps a
   const p = e.book.positions[0]; assert.ok(p, 'posizione aperta'); assert.strictEqual(p.side, 'LONG'); assert.ok(p.perp); assert.strictEqual(p.lev, 5);
   assert.ok(Math.abs(p.costBase - 70) < 0.01 && Math.abs(p.sizeUsd - 350) < 0.1, 'margine 7%, esposizione 35%');
   assert.ok(p.feat.includes('leva:5x'));
+});
+
+test('migrazione v7: accende i long con leva, il resto invariato', () => {
+  const r = migrateConfig({ cfgVersion: 6, perpLongs: false, leverage: 10, shortsOn: true, maxTradePct: 6, budget: 50, tokens: ['x'] });
+  assert.strictEqual(r.cfg.cfgVersion, 7); assert.strictEqual(r.cfg.perpLongs, true);
+  assert.strictEqual(r.cfg.leverage, 10); assert.strictEqual(r.cfg.maxTradePct, 6); assert.strictEqual(r.cfg.budget, 50); assert.deepStrictEqual(r.cfg.tokens, ['x']);
+  assert.strictEqual(migrateConfig(r.cfg).changed, false);
+});
+
+test('sempre con leva: nessun nuovo acquisto spot, il LONG su SOL va su perps a 5x', async () => {
+  const JUP = 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN';
+  const e = mkEngine({ cfgVersion: 7 }); e.refreshBalances = async () => {};
+  const jup = require('../src/jupiter'); let quoted = 0; jup.quote = async () => { quoted++; throw new Error('niente spot'); };
+  e.market.candles[JUP] = candles(200, 0.0005, 0.3); setPx(e, JUP, 0.5);
+  e.market.stats[JUP] = { symbol: 'JUP', buys1h: 80, sells1h: 20, volume1h: 1e6, volume6h: 6e6, decimals: 6 };
+  e.watch.set(JUP, { symbol: 'JUP', core: true });
+  await e.pipeline();
+  assert.strictEqual(e.book.positions.length, 0, 'JUP non si compra spot'); assert.strictEqual(quoted, 0);
+  e.market.candles[SOL] = candles(200, 0.0005, 0.3); setPx(e, SOL, e.market.candles[SOL][199].c);
+  await e.pipeline();
+  const p = e.book.positions[0]; assert.ok(p && p.perp); assert.strictEqual(p.side, 'LONG'); assert.strictEqual(p.lev, 5); assert.strictEqual(p.symbol, 'SOL');
+});
+
+test('REALE: nessuna nuova operazione finché la leva non è testata, messaggio in Logger e dashboard', async () => {
+  const e = mkEngine({ cfgVersion: 7 }); e.cfg.mode = 'REAL'; e.st.books.REAL = newBook(1000, e.cfg); e.refreshBalances = async () => {};
+  e.market.candles[SOL] = candles(200, -0.0005, 0.3); setPx(e, SOL, e.market.candles[SOL][199].c);
+  await e.pipeline();
+  assert.strictEqual(e.book.positions.length, 0);
+  assert.ok(e.st.log.some((l) => /In REALE nessuna nuova operazione: la leva è ancora in attesa del test con 5-10 USDC/.test(l.text)));
+  assert.match(e.snapshot().entryBlock, /In REALE nessuna nuova operazione/);
+  e.cfg.mode = 'SIM'; assert.strictEqual(e.snapshot().entryBlock, null);
 });
