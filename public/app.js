@@ -22,6 +22,7 @@
     scale: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"><path d="M12 4v16M6 7h12M6 7l-3 6h6zM18 7l-3 6h6zM8 20h8"/></svg>',
     risk: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17.5v.5"/></svg>',
     exec: '<svg viewBox="0 0 24 24" fill="#fff"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
+    book: '<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round"><path d="M3 5.5C5.5 4.5 9 4.5 12 6.5c3-2 6.5-2 9-1v13c-2.5-1-6-1-9 1-3-2-6.5-2-9-1z"/><path d="M12 6.5v13"/></svg>',
     eye: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   };
 
@@ -251,6 +252,25 @@
     bar.addEventListener('click', () => { const on = !bar.classList.contains('compact'); localStorage.setItem('sb_pnl_compact', on ? '1' : '0'); setC(on); });
   })();
 
+  // ---------- conoscenze del MENTORE
+  const pctS = (x) => (x == null ? '—' : (x >= 0 ? '+' : '−') + nf(Math.abs(x), 2) + '%');
+  function knowledgeHtml(k, full) {
+    if (!k) return '<div class="empty">in caricamento…</div>';
+    const row = (x, good) => `<div class="kn-row"><span class="kn-dot ${good ? 'g' : 'r'}"></span><span class="kn-l">${esc(x.label)}</span><span class="kn-v ${good ? 'mint' : 'red'}">${nf(x.winRate * 100, 0)}% · ${pctS(x.exp)}</span><small>${x.n} trade</small></div>`;
+    const head = `<div class="kn-head"><div><b>${k.trades}</b> trade studiati <small class="mu">(${k.sim} simulati · ${k.real} reali)</small></div><div class="mu kn-up">${k.updatedAt ? 'aggiornato ' + hhmm(k.updatedAt) : 'nessun aggiornamento'}</div></div>`;
+    const status = k.active
+      ? `<div class="kn-st on">Consigli attivi: riordina i candidati e blocca i setup storicamente perdenti</div>`
+      : `<div class="kn-st">Sta osservando: inizia a consigliare dopo ancora <b>${k.need}</b> trade chiusi</div>`;
+    const lists = (k.best.length || k.worst.length)
+      ? `${k.best.length ? `<div class="lbl kn-t">Cosa funziona</div>${k.best.map((x) => row(x, true)).join('')}` : ''}${k.worst.length ? `<div class="lbl kn-t">Da evitare</div>${k.worst.map((x) => row(x, false)).join('')}` : ''}`
+      : '<div class="empty" style="padding:6px 0">Nessun pattern ancora affidabile (servono almeno 5 trade con la stessa caratteristica).</div>';
+    const last = k.lastLesson ? `<div class="mu kn-last">Ultima lezione: ${esc(k.lastLesson.text)}</div>` : '';
+    const note = full ? '<p class="note">Il Mentore impara da ogni trade chiuso (anche in simulazione). Le percentuali sono smussate: con pochi dati restano vicine alla media. Non cambia mai il 7% per operazione, i filtri minimi, lo stop-loss o il kill switch: può solo rendere i bot più selettivi.</p>' : '';
+    return head + status + lists + last + note;
+  }
+  let lastKnH = '';
+  function renderKnowledge(s) { const h = knowledgeHtml(s.knowledge, false); if (h !== lastKnH) { lastKnH = h; $('#know').innerHTML = h; } }
+
   // ---------- agenti
   function buildAgents() {
     $('#agents').innerHTML = S.agents.map((a) => `
@@ -261,6 +281,7 @@
       </button>`).join('');
     $('#agN').textContent = S.agents.length;
     $('#agents').addEventListener('click', (e) => { const b = e.target.closest('.ag'); if (b) agentSheet(b.dataset.id); });
+    $('#know').addEventListener('click', () => agentSheet('MENTORE'));
   }
   const lastAct = {};
   function renderAgents() {
@@ -290,6 +311,7 @@
       const a = S.agents.find((z) => z.id === id);
       const lines = S.log.filter((l) => l.agent === id).slice(-12).reverse();
       return `<div class="row"><span class="ic" style="width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:${a.color}">${ICONS[a.icon]}</span><div><h4>${a.id}</h4><div class="mu" style="font-size:13px">${esc(a.role)} · ${a.count} ${a.unit}</div></div></div>
+      ${id === 'MENTORE' ? `<div class="card know" style="margin-top:14px">${knowledgeHtml(S.knowledge, true)}</div>` : ''}
       <div class="card" style="margin-top:14px"><div class="lbl">Decisione attuale</div><div style="margin-top:6px;font-size:15px;line-height:1.45">${esc(a.last ? a.last.text : 'In attesa…')}</div></div>
       <div class="grp"><span class="lbl">Ultime azioni</span><div class="console mono" style="height:auto;max-height:260px">${lines.map(logLine).join('') || '<div>nessuna azione registrata</div>'}</div></div>
       <div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>`;
@@ -347,6 +369,7 @@
     tween('sO', $('#sO'), s.counters.approved, (v) => Math.round(v).toLocaleString('it-IT'));
     renderAgents();
     renderPnl(s);
+    renderKnowledge(s);
     if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; requestAnimationFrame(drawSpark); }
     // regole
     const rules = Object.entries(s.counters.rules).sort((a, b) => b[1] - a[1]).slice(0, 10);

@@ -7,6 +7,8 @@ const { readJson, debounceWriter } = require('./store');
 const { DEFAULTS, sanitize, migrateConfig } = require('./config');
 const { CORE, BASES, SOL, USDC } = require('./tokens');
 const S = require('./strategy');
+const K = require('./knowledge');
+const { momentum } = require('./indicators');
 const jup = require('./jupiter');
 const chain = require('./chain');
 const { Market } = require('./market');
@@ -21,6 +23,7 @@ const AGENTS = [
   { id: 'RISCHIO', role: 'Rischio · stop e limiti', color: '#EF4444', icon: 'risk', unit: 'bloccati' },
   { id: 'ESECUZIONE', role: 'Esecutore · swap su Jupiter', color: '#22C55E', icon: 'exec', unit: 'ordini' },
   { id: 'SORVEGLIANZA', role: 'Sorveglianza · posizioni', color: '#A855F7', icon: 'eye', unit: 'chiusi' },
+  { id: 'MENTORE', role: 'Mentore · insegna a tutti i bot', color: '#E5E7EB', icon: 'book', unit: 'lezioni' },
 ];
 const dayKey = () => new Date().toISOString().slice(0, 10);
 const coreMints = new Set(CORE.map((t) => t.mint));
@@ -48,6 +51,13 @@ class Engine extends EventEmitter {
     if (!this.st.books.SIM) this.st.books.SIM = newBook(this.cfg.budget, this.cfg);
     this.cfgWriter = debounceWriter(path.join(dataDir, 'config.json'), () => this.cfg, 300);
     this.stWriter = debounceWriter(path.join(dataDir, 'state.json'), () => this.st, 2000);
+    // MENTORE: base di conoscenza condivisa, salvata su /data/knowledge.json
+    this.kb = K.load(readJson(path.join(dataDir, 'knowledge.json'), null));
+    this.kbWriter = debounceWriter(path.join(dataDir, 'knowledge.json'), () => this.kb, 1000);
+    let boot = 0;
+    for (const [mode, bk] of Object.entries(this.st.books)) for (const tr of [...(bk.trades || [])].reverse()) if (K.learn(this.kb, { id: tr.id, feat: tr.feat || [], pnlPct: tr.pnlPct, mode: tr.mode || mode })) boot++;
+    if (boot) this.kbWriter.schedule();
+    this.lastMentorIdle = 0;
     if (this.cfgMigrated) this.cfgWriter.flush(); // salva subito i nuovi parametri sul volume
     if (this.cfgMigrated) this.log('SISTEMA', `Parametri aggiornati: rischio ${this.cfg.maxTradePct}% per operazione, volume 24h min ${this.cfg.minVolume24hUsd} $, età min ${this.cfg.minPairAgeMin} min`);
     this.market = new Market((lvl, t) => this.log('SISTEMA', t, lvl));
@@ -98,6 +108,7 @@ class Engine extends EventEmitter {
     setTimeout(() => every(60000, () => this.scan()), 1500);
     this.loopTimer = setTimeout(() => this.cycleLoop(), 8000);
     every(30000, () => this.recordEquity());
+    setTimeout(() => every(5 * 60000, () => this.mentorReview()), 20000);
     every(20000, () => this.refreshBalances());
     every(3600000, () => this.market.refreshEur());
     if (process.env.BOT_WALLET_PASSWORD && this.ks.exists()) {
@@ -105,7 +116,7 @@ class Engine extends EventEmitter {
     }
     if (process.env.BOT_AUTOSTART === '1') { this.cfg.trading = true; this.log('SISTEMA', 'Avvio automatico del trading (BOT_AUTOSTART=1)'); }
   }
-  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); this.cfgWriter.flush(); this.stWriter.flush(); }
+  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); }
   async cycleLoop() {
     try { await this.cycle(); } catch (e) { this.log('SISTEMA', `Errore ciclo: ${e.message}`, 'error'); }
     this.loopTimer = setTimeout(() => this.cycleLoop(), this.cfg.cycleSec * 1000);
@@ -177,7 +188,10 @@ class Engine extends EventEmitter {
     }
     // limita la watchlist: core + meme più liquidi
     if (this.watch.size > cfg.maxWatch) {
-      const arr = [...this.watch.entries()].sort((a, b) => (b[1].core - a[1].core) || ((this.market.stats[b[0]] || {}).volume24h - (this.market.stats[a[0]] || {}).volume24h));
+      // ordine: token principali, poi ciò che il MENTORE ha visto funzionare, poi volume
+      const kAdj = (m, core) => K.assess(this.kb, K.featuresOf({ s: this.market.stats[m] || {}, core, solMom60: this.solMom60() })).adj;
+      const arr = [...this.watch.entries()].map((e) => [...e, kAdj(e[0], e[1].core)])
+        .sort((a, b) => (b[1].core - a[1].core) || (b[2] - a[2]) || ((this.market.stats[b[0]] || {}).volume24h - (this.market.stats[a[0]] || {}).volume24h));
       for (const [m] of arr.slice(cfg.maxWatch)) if (!this.holding(m)) this.watch.delete(m);
     }
     this.agent('SCANSIONE', `${newOnes} nuovi controllati · ${ok} ok · ${rej} scartati · in osservazione ${this.watch.size}`, 'scan');
@@ -215,14 +229,25 @@ class Engine extends EventEmitter {
       const a = S.analyze(c);
       const f = S.flowScore(s);
       this.bump('SOCIAL'); this.bump('CAPO');
-      cands.push({ m, w, s, a, f, total: (a.ok ? a.score : -9) + f.score });
+      const core = coreMints.has(m);
+      const feat = a.ok ? K.featuresOf({ s, a, f, core, solMom60: this.solMom60() }) : [];
+      const kn = K.assess(this.kb, feat); // consiglio del MENTORE
+      cands.push({ m, w, s, a, f, feat, kn, total: (a.ok ? a.score : -9) + f.score + kn.adj });
     }
     if (!cands.length) { this.agent('CAPO', 'nessun token pronto (candele in caricamento o in cooldown)', 'idle'); return; }
     cands.sort((x, y) => y.total - x.total);
     const top = cands[0];
     this.agent('SOCIAL', `$${top.s.symbol}: ${top.f.buys} acquisti / ${top.f.sells} vendite (1h) · volume x${top.f.volAccel.toFixed(2)}`, 'flow', { token: top.s.symbol, score: top.f.score });
     await sleep(400);
-    const best = cands.find((x) => x.a.ok && x.a.signal === 'LONG' && x.f.score > -0.2);
+    // il MENTORE può solo togliere setup storicamente perdenti: mai aggiungerne o aumentare la dimensione
+    for (const x of cands) {
+      if (x.a.ok && x.a.signal === 'LONG' && x.f.score > -0.2 && x.kn.skip && now - (this.analysisRejectTs['K' + x.m] || 0) > 15 * 60000) {
+        this.analysisRejectTs['K' + x.m] = now; this.rule('Mentore: pattern perdente'); this.bump('MENTORE');
+        this.agent('MENTORE', `sconsiglio $${x.s.symbol}: ${x.kn.reasons[0]}`, 'advise', { token: x.s.symbol, target: 'CAPO' });
+        this.log('MENTORE', `sconsiglio $${x.s.symbol} · rendimento atteso ${x.kn.expected.toFixed(2)}% · ${x.kn.reasons.join(', ')}`);
+      }
+    }
+    const best = cands.find((x) => x.a.ok && x.a.signal === 'LONG' && x.f.score > -0.2 && !x.kn.skip);
     // conteggia scarti dell'analisi (al massimo uno ogni 15 min per token)
     for (const x of cands) {
       if (x === best) continue;
@@ -241,6 +266,7 @@ class Engine extends EventEmitter {
     const a = best.a; const sym = best.s.symbol; const core = coreMints.has(best.m);
     const passed = Object.entries(a.checks).filter(([, v]) => v).map(([k]) => k);
     this.agent('CAPO', `scelto $${sym}: ${passed.length}/6 condizioni (RSI ${a.rsi.toFixed(0)}, mom15 +${a.m15.toFixed(2)}%), fiducia ${(a.confidence * 100).toFixed(0)}%`, 'pick', { token: sym });
+    if (best.kn.active) this.agent('MENTORE', best.kn.good.length ? `a favore di $${sym}: ${best.kn.good.slice(0, 2).map((g) => g.label).join(', ')}` : `$${sym}: nessun pattern storico forte, decide il CAPO`, 'advise', { token: sym, target: 'CAPO' });
     this.log('CAPO', `$${sym} LONG · EMA9 ${a.ema9.toPrecision(5)} > EMA21 ${a.ema21.toPrecision(5)} · RSI ${a.rsi.toFixed(1)} · ATR ${a.atrPct.toFixed(2)}% · flusso ${best.f.score.toFixed(2)}`);
     await sleep(400);
 
@@ -315,7 +341,7 @@ class Engine extends EventEmitter {
     const qty = Number(qtyRaw) / 10 ** decimals;
     const entry = spent / qty;
     const pos = { id: uid(), mint: c.m, symbol: sym, decimals, qtyRaw: qtyRaw.toString(), qty, costBase: spent, entryPrice: entry, highest: entry,
-      slPct: plan.slPct, tpPct: plan.tpPct, trailPct: plan.trailPct, openedAt: Date.now(), feesBase: feeBase, sigOpen: sig, impactPct: impact, core: coreMints.has(c.m) };
+      slPct: plan.slPct, tpPct: plan.tpPct, trailPct: plan.trailPct, openedAt: Date.now(), feesBase: feeBase, sigOpen: sig, impactPct: impact, core: coreMints.has(c.m), feat: c.feat || [] };
     b.positions.push(pos); b.feesBase += feeBase;
     this.bump('ESECUZIONE');
     const t = `comprato $${sym} per ${this.fmtBase(spent)}`;
@@ -379,8 +405,9 @@ class Engine extends EventEmitter {
       b.positions = b.positions.filter((x) => x !== p);
       b.realizedPnl += pnl; b.feesBase += feeBase; if (pnl >= 0) b.wins++; else b.losses++;
       b.cooldown[p.mint] = Date.now() + cfg.cooldownMin * 60000;
-      const tr = { id: p.id, symbol: p.symbol, mint: p.mint, openedAt: p.openedAt, closedAt: Date.now(), costBase: p.costBase, outBase: valueBase, pnl, pnlPct: (pnl / p.costBase) * 100, fees: p.feesBase + feeBase, reason, sigOpen: p.sigOpen, sigClose: sig, mode: cfg.mode, estimated };
+      const tr = { id: p.id, symbol: p.symbol, mint: p.mint, openedAt: p.openedAt, closedAt: Date.now(), costBase: p.costBase, outBase: valueBase, pnl, pnlPct: (pnl / p.costBase) * 100, fees: p.feesBase + feeBase, reason, sigOpen: p.sigOpen, sigClose: sig, mode: cfg.mode, estimated, feat: p.feat || [] };
       b.trades.unshift(tr); if (b.trades.length > 500) b.trades.pop();
+      this.mentorLearn(tr);
       this.bump('SORVEGLIANZA');
       const t = `venduto $${p.symbol} · ${reason} · ${pnl >= 0 ? '+' : ''}${this.fmtBase(pnl)}`;
       this.agent('SORVEGLIANZA', t, pnl >= 0 ? 'win' : 'loss', { token: p.symbol, pnl });
@@ -615,6 +642,34 @@ class Engine extends EventEmitter {
     return { ok: true, sig };
   }
 
+  // ---------- MENTORE
+  solMom60() { const c = this.market.candles[SOL]; return c && c.length > 60 ? momentum(c.map((x) => x.c), 60) : null; }
+  mentorLearn(tr) {
+    if (!K.learn(this.kb, { id: tr.id, feat: tr.feat, pnlPct: tr.pnlPct, mode: tr.mode })) return;
+    this.bump('MENTORE');
+    const sm = K.summary(this.kb, 1);
+    const tag = tr.mode === 'REAL' ? 'reale' : 'simulato';
+    const lesson = `imparato da $${tr.symbol} (${tag}, ${tr.pnlPct >= 0 ? '+' : ''}${tr.pnlPct.toFixed(2)}%) · ${sm.trades} trade in memoria`;
+    this.kb.lastLesson = { t: Date.now(), text: lesson };
+    this.kbWriter.schedule();
+    this.log('MENTORE', lesson + (sm.active ? (sm.best[0] ? ` · migliore: ${sm.best[0].label}` : '') + (sm.worst[0] ? ` · peggiore: ${sm.worst[0].label}` : '') : ` · inizio a influenzare dopo ${sm.trades + sm.need} trade`));
+    this.agent('MENTORE', `condivido la lezione con tutti i bot (${sm.trades} trade)`, 'teach', { targets: AGENTS.filter((a) => a.id !== 'MENTORE').map((a) => a.id) });
+  }
+  mentorReview() {
+    const sm = K.summary(this.kb, 2);
+    if (!sm.trades) {
+      if (Date.now() - this.lastMentorIdle > 30 * 60000) { this.lastMentorIdle = Date.now(); this.log('MENTORE', 'nessun trade chiuso da cui imparare: osservo il mercato e aspetto i primi risultati'); }
+      this.agent('MENTORE', 'osservo: ancora nessun trade da studiare', 'idle'); return;
+    }
+    const m = this.solMom60();
+    const ctx = m == null ? '' : ` · mercato SOL ${m > 1 ? 'in rialzo' : m < -1 ? 'in ribasso' : 'laterale'} (${m >= 0 ? '+' : ''}${m.toFixed(2)}% in 1h)`;
+    const text = sm.active
+      ? `ripasso ${sm.trades} trade: ${sm.best.length ? 'funziona ' + sm.best.map((x) => x.label).join(', ') : 'nessun pattern vincente chiaro'}${sm.worst.length ? ' · evitare ' + sm.worst.map((x) => x.label).join(', ') : ''}${ctx}`
+      : `studio ${sm.trades} trade (servono ${sm.need} in più prima di dare consigli)${ctx}`;
+    this.log('MENTORE', text);
+    this.agent('MENTORE', 'aggiorno le conoscenze di tutti i bot', 'teach', { targets: AGENTS.filter((a) => a.id !== 'MENTORE').map((a) => a.id) });
+  }
+
   // ---------- istantanea per l'interfaccia
   snapshot() {
     const b = this.book; const cfg = this.cfg; const eq = this.equity();
@@ -646,7 +701,7 @@ class Engine extends EventEmitter {
       cfg: { ...cfg }, base: cfg.baseCurrency,
       equity: eq, equityEur: toEur(eq), startEquity: b.startEquity, pnl: eq - b.startEquity, pnlEur: toEur(eq - b.startEquity),
       roi: b.startEquity > 0 ? eq / b.startEquity : 1, realizedPnl: b.realizedPnl, fees: b.feesBase, cash: b.cash, solReserve: b.solReserve,
-      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox,
+      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3),
       positions, trades: b.trades.slice(0, 60), equityHist: hist.filter((_, i) => i % step === 0 || i === hist.length - 1),
       counters: this.st.counters, agents: AGENTS.map((a) => ({ ...a, count: this.st.counters.agents[a.id] || 0, last: this.st.agents[a.id] || null })),
       log: this.st.log.slice(-80), watch: ws,

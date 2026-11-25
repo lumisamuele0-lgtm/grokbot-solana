@@ -8,10 +8,10 @@
   };
   const HOME = {
     SCANSIONE: [78, 104], VERIFICA: [108, 186], SOCIAL: [322, 100], CAPO: [200, 188], DIMENSIONE: [282, 188],
-    RISCHIO: [352, 188], ESECUZIONE: [296, 254], SORVEGLIANZA: [196, 234],
+    RISCHIO: [352, 188], ESECUZIONE: [296, 254], SORVEGLIANZA: [196, 234], MENTORE: [250, 118],
   };
-  const COLORS = { SCANSIONE: '#3B82F6', VERIFICA: '#EAB308', SOCIAL: '#EC4899', CAPO: '#F97316', DIMENSIONE: '#06B6D4', RISCHIO: '#EF4444', ESECUZIONE: '#22C55E', SORVEGLIANZA: '#A855F7' };
-  const SHORT = { SCANSIONE: 'SCOUT', VERIFICA: 'FILTRO', SOCIAL: 'SOCIAL', CAPO: 'CAPO', DIMENSIONE: 'DIM', RISCHIO: 'RISCHIO', ESECUZIONE: 'ESEC', SORVEGLIANZA: 'SORV' };
+  const COLORS = { SCANSIONE: '#3B82F6', VERIFICA: '#EAB308', SOCIAL: '#EC4899', CAPO: '#F97316', DIMENSIONE: '#06B6D4', RISCHIO: '#EF4444', ESECUZIONE: '#22C55E', SORVEGLIANZA: '#A855F7', MENTORE: '#E5E7EB' };
+  const SHORT = { SCANSIONE: 'SCOUT', VERIFICA: 'FILTRO', SOCIAL: 'SOCIAL', CAPO: 'CAPO', DIMENSIONE: 'DIM', RISCHIO: 'RISCHIO', ESECUZIONE: 'ESEC', SORVEGLIANZA: 'SORV', MENTORE: 'MENTORE' };
 
   let cv, ctx, dpr = 1, scale = 1, ox = 0, oy = 0, cssW = 0, cssH = 0;
   let t = 0, last = 0, running = true;
@@ -37,6 +37,18 @@
   function dance(b, s = 1.6) { b.danceT = Math.max(b.danceT, s); b.happyT = Math.max(b.happyT, s + 0.6); }
   function wave(b, s = 1.4) { b.waveT = Math.max(b.waveT, s); }
   function celebrate(b, d = 0) { after(d, () => { b.sadT = 0; jump(b, 12); dance(b, 1.8); after(0.45, () => jump(b, 8)); }); }
+  // MENTORE: flussi di conoscenza luminosi verso ogni bot
+  function teach(targets) {
+    const m = bots.MENTORE; if (!m) return;
+    jump(m, 9); wave(m, 1.2); m.happyT = Math.max(m.happyT, 1.6); m.glowT = 2.2; emote(m, '📚 lezione', 1.6);
+    ring({ x: m.x, y: m.y - 30 }, '#FDE68A', 34);
+    const ids = (targets && targets.length ? targets : Object.keys(bots)).filter((id) => id !== 'MENTORE' && bots[id]);
+    const per = RM ? 1 : 3;
+    ids.forEach((id, i) => {
+      for (let k = 0; k < per; k++) fx.push({ k: 'know', from: 'MENTORE', to: id, t: -(i * 0.12 + k * 0.1), d: 1.1, arc: 26 + Math.random() * 18 });
+      after(1.1 + i * 0.12, () => { const b = bots[id]; jump(b, 6); b.glowT = 1.2; if (!b.emote) emote(b, '💡', 1); });
+    });
+  }
   function sulk(b, d = 0) { after(d, () => { b.happyT = 0; b.danceT = 0; shake(b, 0.7); b.sadT = 2.2; b.sq = 0.16 * AMP; }); }
 
   // ---------- API pubblica
@@ -119,6 +131,11 @@
     if (e.type !== 'agent') return;
     const b = bots[e.agent]; if (!b) return;
     const a = e.action;
+    if (e.agent === 'MENTORE') {
+      if (a === 'teach') teach(e.targets);
+      else if (a === 'advise') { const to = bots[e.target || 'CAPO']; if (to) { for (let k = 0; k < (RM ? 1 : 4); k++) fx.push({ k: 'know', from: 'MENTORE', to: to.id, t: -k * 0.12, d: 0.9, arc: 20 }); emote(b, /sconsiglio/.test(e.text || '') ? '⚠ ' + tok(e) : '📖 ' + tok(e), 1.4, /sconsiglio/.test(e.text || '') ? '#ff5a6a' : '#00FF88'); after(0.9, () => { to.glowT = 1; emote(to, /sconsiglio/.test(e.text || '') ? '✋ ok' : '👍', 1); }); } }
+      return;
+    }
     // micro-reazioni comuni
     if (a === 'reject' || a === 'block' || a === 'fail') shake(b, 0.45);
     else if (a === 'approve' || a === 'pick' || a === 'plan' || a === 'size') jump(b, a === 'pick' ? 12 : 7);
@@ -219,7 +236,7 @@
     // schiacciamento/allungamento a molla
     b.sqv += (-170 * b.sq - 11 * b.sqv) * dt; b.sq += b.sqv * dt;
     b.shakeT = Math.max(0, b.shakeT - dt); b.spinT = Math.max(0, b.spinT - dt); b.waveT = Math.max(0, b.waveT - dt);
-    b.happyT = Math.max(0, b.happyT - dt); b.sadT = Math.max(0, b.sadT - dt); b.wob = Math.max(0, b.wob - dt * 1.4);
+    b.happyT = Math.max(0, b.happyT - dt); b.glowT = Math.max(0, (b.glowT || 0) - dt); b.sadT = Math.max(0, b.sadT - dt); b.wob = Math.max(0, b.wob - dt * 1.4);
     if (b.danceT > 0) { b.danceT -= dt; if (b.jz === 0 && Math.random() < dt * 2.5) jump(b, 5); }
     if (b.lookT > 0) { b.lookT -= dt; if (b.lookT <= 0) b.look = 0; }
   }
@@ -234,6 +251,7 @@
     if (r0 < 0.38) { wave(b, 1.2); return; }
     if (!RM && r0 < 0.44) { spin(b, 0.7); jump(b, 7); return; }
     if (r0 < 0.5) { b.sq = -0.16 * AMP; b.wob = 1; return; } // stiracchiata
+    if (b.id === 'MENTORE') { b.reading = !b.reading; if (!b.reading && Math.random() < 0.5) { const o = Object.values(bots)[Math.floor(Math.random() * 9)]; if (o && o !== b) { fx.push({ k: 'know', from: 'MENTORE', to: o.id, t: 0, d: 1.2, arc: 22 }); } } if (Math.random() < 0.5) return; }
     if (b.id === 'SORVEGLIANZA' && st.pods.length) {
       // pattuglia le posizioni aperte
       st.pods.forEach((p) => { go(b, p.x, p.y + 18); call(b, () => { b.beam = { x: p.x, y: p.y, s: 0.5 }; }); wait(b, 0.5); });
@@ -338,6 +356,7 @@
     const sh = 1 / (1 + b.jz / 16);
     ctx.fillStyle = `rgba(0,0,0,${0.5 * sh})`; ctx.beginPath(); ctx.ellipse(x, y + 1, 9 * sh * (1 + b.sq * 0.5), 3 * sh, 0, 0, 6.28); ctx.fill();
     if (b.beam) { ctx.save(); ctx.strokeStyle = c; ctx.globalAlpha = 0.25 + 0.25 * Math.sin(t * 20); ctx.lineWidth = 3; glow(c, 10); ctx.beginPath(); ctx.moveTo(x, y - 30 - b.jz); ctx.lineTo(b.beam.x, b.beam.y); ctx.stroke(); noGlow(); ctx.restore(); }
+    if (b.glowT > 0) { ctx.save(); ctx.globalAlpha = Math.min(1, b.glowT) * 0.35; const g = ctx.createRadialGradient(x, y - b.jz - 20, 2, x, y - b.jz - 20, 26); g.addColorStop(0, '#FDE68A'); g.addColorStop(1, '#FDE68A00'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y - b.jz - 20, 26, 0, 6.28); ctx.fill(); ctx.restore(); }
     ctx.save();
     ctx.translate(x + shx, y - b.jz); ctx.rotate(lean);
     const spinK = b.spinT > 0 ? Math.cos((1 - b.spinT / b.spinD) * Math.PI * 2) : 1;
@@ -382,7 +401,24 @@
     const aw = -lean * 10 + Math.sin(t * 14) * 2.2 * b.wob * AMP + (walk ? Math.sin(b.phase) * 0.8 : 0);
     ctx.strokeStyle = '#cfd6dc'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, hy); ctx.quadraticCurveTo(aw * 0.3, hy - 2.5, aw * 0.6, hy - 4.5); ctx.stroke();
     ctx.fillStyle = Math.sin(t * (b.tasks.length ? 9 : 4) + b.phase) > 0 ? c : '#ffffff'; ctx.beginPath(); ctx.arc(aw * 0.6, hy - 5.5, 1.6, 0, 6.28); ctx.fill();
+    if (b.id === 'MENTORE') {
+      // tocco da laurea + nappa che dondola
+      ctx.fillStyle = '#1f2937'; ctx.strokeStyle = '#FDE68A'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(-10, hy - 1); ctx.lineTo(0, hy - 5); ctx.lineTo(10, hy - 1); ctx.lineTo(0, hy + 3); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillRect(-5, hy - 1, 10, 3);
+      const ts = Math.sin(t * 3 + b.phase) * 1.5 * AMP - lean * 8;
+      ctx.strokeStyle = '#FDE68A'; ctx.beginPath(); ctx.moveTo(0, hy - 2); ctx.lineTo(7, hy - 1); ctx.lineTo(7 + ts * 0.4, hy + 5); ctx.stroke();
+      ctx.fillStyle = '#FDE68A'; ctx.beginPath(); ctx.arc(7 + ts * 0.4, hy + 5.6, 1.1, 0, 6.28); ctx.fill();
+    }
     ctx.restore();
+    if (b.id === 'MENTORE' && !b.carry) {
+      // libro luminoso tenuto davanti, pagine che si sfogliano mentre legge
+      const flip = b.reading ? (Math.sin(t * 2.5) * 0.5 + 0.5) : 0.15;
+      ctx.save(); glow('#FDE68A', 6 + (b.glowT > 0 ? 10 : 0)); ctx.fillStyle = '#7c5a10'; rr(-7, by + 6, 14, 8, 1.5); ctx.fill(); noGlow();
+      ctx.fillStyle = '#fff7d6'; ctx.fillRect(-6, by + 6.6, 5.6, 6.6); ctx.fillRect(0.4, by + 6.6, 5.6, 6.6);
+      ctx.fillStyle = '#fffbeb'; ctx.beginPath(); ctx.moveTo(0, by + 6.6); ctx.lineTo(6 - flip * 12, by + 5.6 - Math.sin(flip * 3.14) * 3); ctx.lineTo(6 - flip * 12, by + 12.2 - Math.sin(flip * 3.14) * 3); ctx.lineTo(0, by + 13.2); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
     // oggetto trasportato
     if (b.carry) {
       const cx = 0, cy = hy - 9; const it = b.carry;
@@ -412,6 +448,14 @@
         noGlow(); ctx.restore();
       } else if (f.k === 'ring') { ctx.strokeStyle = f.color; ctx.globalAlpha = 1 - p; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * p + 4, 0, 6.28); ctx.stroke(); ctx.globalAlpha = 1; }
       else if (f.k === 'spark') { ctx.fillStyle = f.color; ctx.globalAlpha = 1 - p; ctx.fillRect(f.x - 1, f.y - 1, 2.2, 2.2); ctx.globalAlpha = 1; }
+      else if (f.k === 'know') {
+        const A = bots[f.from], B = bots[f.to]; if (!A || !B) continue;
+        const x0 = A.x, y0 = A.y - A.jz - 40, x1 = B.x, y1 = B.y - B.jz - 36;
+        const pt = (q) => { const e = q < 0.5 ? 2 * q * q : 1 - Math.pow(-2 * q + 2, 2) / 2; return [x0 + (x1 - x0) * e, y0 + (y1 - y0) * e - Math.sin(q * 3.14) * f.arc]; };
+        ctx.save(); glow('#FDE68A', 12);
+        for (let j = 3; j >= 0; j--) { const q = Math.max(0, p - j * 0.05); const [x, y] = pt(q); ctx.globalAlpha = (1 - j * 0.22) * (p > 0.92 ? (1 - p) / 0.08 : 1); ctx.fillStyle = j ? '#FDE68A' : '#ffffff'; ctx.beginPath(); ctx.arc(x, y, j ? 1.8 - j * 0.3 : 2.4, 0, 6.28); ctx.fill(); }
+        noGlow(); ctx.restore(); ctx.globalAlpha = 1;
+      }
       else if (f.k === 'txt') { ctx.globalAlpha = 1 - p * p; text(f.txt, f.x, f.y - p * 26, 9, f.color, 'center', '900'); ctx.globalAlpha = 1; }
     }
   }
