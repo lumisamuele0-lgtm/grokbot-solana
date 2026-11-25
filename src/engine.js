@@ -169,7 +169,9 @@ class Engine extends EventEmitter {
   stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); this.research.stop(); this.mentor.flush(); this.match.writer.flush(); }
   async cycleLoop() {
     try { await this.cycle(); } catch (e) { this.log('SISTEMA', `Errore ciclo: ${e.message}`, 'error'); }
-    this.loopTimer = setTimeout(() => this.cycleLoop(), this.cfg.cycleSec * 1000);
+    // DERBY: durante la partita le squadre cercano occasioni più spesso (ogni 15 s al massimo)
+    const sec = this.match && this.match.live() && this.cfg.derby ? Math.min(this.cfg.cycleSec, 15) : this.cfg.cycleSec;
+    this.loopTimer = setTimeout(() => this.cycleLoop(), sec * 1000);
   }
 
   tradeMints() {
@@ -393,7 +395,7 @@ class Engine extends EventEmitter {
 
   // RISCHIO → DIMENSIONE → piano → ESECUZIONE per il candidato scelto (comune al banco e alle squadre della partita).
   // opts.capital/opts.cash: capitale e liquidità della squadra (metà del disponibile a inizio partita).
-  async enterTrade(best, { conf, fromLib = false, capital: capIn = null, cash: cashIn = null, team = null, player = null, perp = null } = {}) {
+  async enterTrade(best, { conf, fromLib = false, capital: capIn = null, cash: cashIn = null, team = null, player = null, perp = null, lev: levReq = null } = {}) {
     const cfg = this.cfg; const b = this.book;
     const a = best.a; const sym = best.s.symbol; const isShort = best.side === 'SHORT'; const core = isShort || coreMints.has(best.m);
     // RISCHIO: limiti globali
@@ -421,7 +423,7 @@ class Engine extends EventEmitter {
     if (!perpMarket) { this.agent('RISCHIO', `$${sym}: niente acquisti spot, solo operazioni con leva su SOL/BTC/ETH`, 'block', { token: sym }); return; }
     const perpLong = !isShort;
     const usePerp = true; const sideTxt = isShort ? 'SHORT' : 'LONG';
-    const lev = this.leverage();
+    const lev = this.tradeLev(levReq); best.lev = lev;
     this.agent('DIMENSIONE', usePerp
       ? `margine ${this.fmtBase(size)} su $${sym} ${sideTxt} ${lev}x · esposizione ${this.fmtBase(size * lev)} (${((size / capital) * 100).toFixed(1)}% del capitale come margine)`
       : `${this.fmtBase(size)} su $${sym} (${((size / capital) * 100).toFixed(1)}% del capitale${core ? '' : ', meme ×' + cfg.memeSizeMult})`, 'size', { token: sym, size });
@@ -447,7 +449,7 @@ class Engine extends EventEmitter {
     await sleep(400);
 
     // ESECUZIONE
-    return this.openShort({ ...best, s: { ...best.s, symbol: perpMarket }, team, player }, size, plan, sideTxt);
+    return this.openShort({ ...best, s: { ...best.s, symbol: perpMarket }, team, player }, size, plan, sideTxt, lev);
   }
 
   // SPOT della partita: long 1x via swap Jupiter, dimensione 7% della cassa di squadra, uscite intelligenti e stop
@@ -521,7 +523,7 @@ class Engine extends EventEmitter {
     const entry = spent / qty;
     const pos = { id: uid(), mint: c.m, symbol: sym, decimals, qtyRaw: qtyRaw.toString(), qty, costBase: spent, entryPrice: entry, highest: entry,
       slPct: plan.slPct, tpPct: plan.tpPct, trailPct: plan.trailPct, openedAt: Date.now(), feesBase: feeBase, sigOpen: sig, impactPct: impact, core: coreMints.has(c.m), feat: c.feat || [], atrPct: plan.atrPct != null ? plan.atrPct : (c.a && c.a.atrPct), initQty: qty, origCost: spent, origFees: feeBase,
-      ctx: c.ctx || null, tpMult: (c.ctx && c.ctx.tpMult) || 1, side: 'LONG', lev: 1, team: c.team || null, player: c.player || null, matchId: c.team && this.st.match ? this.st.match.id : null };
+      ctx: c.ctx || null, tpMult: (c.ctx && c.ctx.tpMult) || 1, side: 'LONG', lev: 1, team: c.team || null, player: c.player || null, matchId: c.team && this.st.match ? this.st.match.id : null, runner: !!(c.derby && c.team) };
     b.positions.push(pos); b.feesBase += feeBase;
     this.bump('ESECUZIONE');
     const t = `comprato $${sym} per ${this.fmtBase(spent)}`;
@@ -549,15 +551,17 @@ class Engine extends EventEmitter {
     return pb;
   }
   leverage() { return Math.min(P.MAX_LEV, snapLeverage(this.cfg.leverage)); } // 2x / 5x / 10x, limite rigido 10x
+  // leva di una singola operazione: mai sotto la leva impostata (minimo 5x), mai sopra il limite rigido 10x
+  tradeLev(req) { const base = this.leverage(); if (req == null) return base; return Math.min(P.MAX_LEV, Math.max(base, snapLeverage(Number(req) || base))); }
 
   // ---------- SHORT (Jupiter Perps: collaterale USDC, esecuzione al prezzo dell'oracolo da parte dei keeper)
   // apre una posizione perps (side 'SHORT' o 'LONG' con leva); in REALE bloccata finché i perps reali non sono verificati
-  async openShort(c, margin, plan, side = 'SHORT') {
+  async openShort(c, margin, plan, side = 'SHORT', levIn = null) {
     const b = this.book; const cfg = this.cfg; const sym = c.s.symbol;
     if (cfg.mode === 'REAL' && !P.REAL_SHORTS_ENABLED) { this.bump('RISCHIO'); this.agent('RISCHIO', 'perps reali (short/leva) non ancora attivi: resto solo LONG spot', 'block', { token: sym }); this.log('RISCHIO', P.REAL_SHORTS_BLOCK_MSG, 'warn'); return; }
     const px = this.market.usd(c.m), bu = this.baseUsd();
     if (!px || !bu) { this.agent('ESECUZIONE', `prezzo $${sym} non disponibile: short annullato`, 'fail', { token: sym }); return; }
-    const lev = this.leverage(); const now = Date.now();
+    const lev = this.tradeLev(levIn); const now = Date.now();
     this.agent('ESECUZIONE', `apro ${side} ${lev}x su $${sym} (Jupiter Perps)…`, 'quote', { token: sym, side });
     const m = P.openShortModel({ marginUsd: margin * bu, lev, priceUsd: px });
     const feeSol = (5000 + cfg.simPriorityLamports) / LAMPORTS_PER_SOL; const feeBase = this.solToBase(feeSol);
@@ -566,7 +570,7 @@ class Engine extends EventEmitter {
       costBase: margin, origCost: margin, feesBase: feeBase, origFees: feeBase, entryPrice: px, highest: px, sizeUsd: m.sizeUsd, initSizeUsd: m.sizeUsd, collateralUsd: m.collateralUsd,
       openFeeUsd: m.openFeeUsd, perpFeesUsd: m.openFeeUsd, borrowUsd: 0, lastAccrual: now, slPct: plan.slPct, tpPct: plan.tpPct, trailPct: plan.trailPct, openedAt: now, sigOpen: null,
       core: true, feat: c.feat || [], atrPct: c.a && c.a.atrPct, ctx: c.ctx || null, tpMult: (c.ctx && c.ctx.tpMult) || 1, mfe: 0, mae: 0,
-      team: c.team || null, player: c.player || null, matchId: c.team && this.st.match ? this.st.match.id : null };
+      team: c.team || null, player: c.player || null, matchId: c.team && this.st.match ? this.st.match.id : null, runner: !!(c.derby && c.team) };
     pos.liqPrice = P.liquidationPrice(pos);
     pos.slPct = S.shortStopCap(pos.slPct, px, pos.liqPrice);
     b.positions.push(pos); b.feesBase += feeBase;

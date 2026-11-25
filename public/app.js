@@ -440,6 +440,7 @@
   function onEv(e) {
     Scene.event(e);
     if (e.type === 'match' && e.phase === 'start') toast("⚽ Calcio d'inizio! Fulmini Rossi contro Squali Blu");
+    if (e.type === 'goal') toast(`⚽ GOOOL! ${e.name} (${e.team === 'A' ? 'Fulmini' : 'Squali'}) ${money(e.pnl || 0)}${e.symbol ? ' su ' + e.symbol : ''}`);
     if (e.type === 'match' && e.phase === 'whistle') toast('🏁 Fischio finale: chiudo le posizioni della partita');
     if (e.type === 'trade' && e.team && S && S.match) { const pf = findPlayer(e.player); if (pf) { e = { ...e, symbol: `${e.symbol} · ${pf.p.name} (${pf.T.short})` }; } }
     if (e.type === 'log') appendLog(e);
@@ -487,14 +488,16 @@
   const LOOK_EMO = { cap: '🧢', beanie: '🧶' };
   function teamHtml(T, m) {
     const c = T.coach; const now = Date.now() + clockSkew;
-    const coachSt = [`selettività ${c.selectivity}/2`, c.focus ? `focus ${c.focus}` : null, c.timeoutUntil > now ? `time-out ${clockTxt(c.timeoutUntil - now)}` : null].filter(Boolean).join(' · ');
+    const MOOD = { rimonta: '🔥 rimonta', protect: '🛡 difende il vantaggio', derby: '⚔️ derby' };
+    const who = (id) => { if (id === c.id) return c.name; const p = T.players.find((x) => x.id === id); return p ? p.name : ''; };
+    const coachSt = [MOOD[T.mood] || null, `selettività ${c.selectivity}/2`, c.focus ? `focus ${c.focus}` : null, c.timeoutUntil > now ? `time-out ${clockTxt(c.timeoutUntil - now)}` : null].filter(Boolean).join(' · ');
     return `<div class="team" style="--c:${T.color};--c2:${T.color2}">
       <div class="tm-hd"><span class="kit" aria-hidden="true"></span><div class="tm-n"><b>${esc(T.name)}</b><small>${esc(T.styleLabel)} · «${esc(T.motto)}»</small></div>
         <div class="tm-s"><b class="${T.pnl >= 0 ? 'mint' : 'red'}">${money(T.pnl)}</b><small>${nf(T.pct, 2)}% · ${T.trades} trade · ${m.tally ? m.tally[T.id] : 0} vittorie</small></div></div>
       <div class="tm-coins">${(T.coins || []).map((k) => `<span class="coin" style="--cc:${k.color}" title="${esc(k.name || k.symbol)}">${k.icon ? `<img src="${esc(k.icon)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<i class="cdot"></i>`}<span class="cn"><b title="${esc(k.name || '')}">${esc(k.symbol)}${k.phantom ? ' 👻' : ''}</b><em class="bdg ${k.perp ? 'perp' : 'spot'}">${esc(k.label)}</em></span></span>`).join('') || '<span class="mu" style="font-size:12px">l\'allenatore sceglie le cripto al calcio d\'inizio</span>'}</div>
       <button class="pl coach" data-pl="${c.id}"><span class="av">${LOOK_EMO[c.look] || '📋'}</span><span class="tx"><b>${esc(c.name)} <small>allenatore</small></b><small>${esc(coachSt)}</small>${c.lastTalk ? `<span class="say">«${esc(c.lastTalk.text)}»</span>` : ''}</span></button>
-      ${T.players.map((p) => `<button class="pl${p.holding ? ' hold' : ''}${p.mint ? '' : ' bench'}" data-pl="${p.id}"><span class="av num"${p.coinColor ? ` style="border-color:${p.coinColor}"` : ''}>${p.num}</span><span class="tx"><b>${esc(p.name)}${p.holding ? ' ⚽' : ''}${p.bonus ? ` <i class="bz">⚡+${nf(p.bonus, 2)}</i>` : ''}</b><small>${esc(p.role)}</small></span><span class="r"><b class="${p.pnl > 0 ? 'mint' : p.pnl < 0 ? 'red' : ''}">${money(p.pnl)}</b><small>${p.trades} trade${p.trades ? ` · ${p.wins}V/${p.losses}P` : ''}</small></span></button>`).join('')}
-      ${T.actions.length ? `<div class="tm-act">${T.actions.slice(0, 3).map((a) => `<div><span>${hhmm(a.t)}</span> ${esc(a.text)}</div>`).join('')}</div>` : ''}
+      ${T.players.map((p) => `<button class="pl${p.holding ? ' hold' : ''}${p.mint ? '' : ' bench'}" data-pl="${p.id}"><span class="av num"${p.coinColor ? ` style="border-color:${p.coinColor}"` : ''}>${p.num}</span><span class="tx"><b>${esc(p.name)}${p.holding ? ' ⚽' : ''}${p.bonus ? ` <i class="bz">⚡+${nf(p.bonus, 2)}</i>` : ''}</b><small>${p.resting > now ? `🪑 riposa in panchina ${clockTxt(p.resting - now)}` : esc(p.role)}</small></span><span class="r"><b class="${p.pnl > 0 ? 'mint' : p.pnl < 0 ? 'red' : ''}">${money(p.pnl)}</b><small>${p.trades} trade${p.trades ? ` · ${p.wins}V/${p.losses}P` : ''}</small></span></button>`).join('')}
+      ${T.actions.length ? `<div class="tm-act">${T.actions.slice(0, 3).map((a) => `<div${a.who ? ' class="bt"' : ''}><span>${hhmm(a.t)}</span> ${a.who ? `<b>${esc(who(a.who))}:</b> ` : ''}${esc(a.text)}</div>`).join('')}</div>` : ''}
     </div>`;
   }
   function renderMatch(s) {
@@ -502,17 +505,19 @@
     clockSkew = (m.now || Date.now()) - Date.now();
     const [A, B] = m.teams; const live = m.state === 'live'; const real = m.mode === 'REAL';
     const stateTxt = live ? (s.trading ? 'IN CORSO' : 'IN PAUSA · premi Avvia') : m.state === 'closing' ? 'FISCHIO FINALE · chiusura posizioni' : m.state === 'ended' ? 'FINITA' : 'PRONTA';
-    const diff = A.pnl - B.pnl; const span = Math.max(Math.abs(A.pnl) + Math.abs(B.pnl), 0.01); const tug = 50 + Math.max(-48, Math.min(48, (diff / span) * 48));
+    const diff = A.pnl - B.pnl; const span = Math.max(Math.abs(A.pnl) + Math.abs(B.pnl), 0.01); const D = m.derby || {}; const derby = !!D.on;
+    const tug = 50 + Math.max(-48, Math.min(48, (derby ? D.meter || 0 : diff / span) * 48));
+    const moodTag = (T, x) => (x === 'rimonta' ? `<em class="mood r">🔥 RIMONTA</em>` : x === 'protect' ? `<em class="mood p">🛡 DIFESA</em>` : '');
     const res = m.result; const tl = m.tally || { A: 0, B: 0, draws: 0 };
-    const h = `<div class="mc-top"><span>${m.number ? 'PARTITA N.' + m.number : 'PARTITA'} · ${real ? 'REALE' : 'SIMULAZIONE'}</span><span class="mc-st${live && s.trading ? ' on' : ''}">${stateTxt}</span></div>
+    const h = `${derby ? `<div class="mc-derby" aria-label="Derby"><span>🔥</span><b>DERBY</b><span>🔥</span></div>` : ''}<div class="mc-top"><span>${m.number ? 'PARTITA N.' + m.number : 'PARTITA'} · ${real ? 'REALE' : 'SIMULAZIONE'}</span><span class="mc-st${live && s.trading ? ' on' : ''}">${stateTxt}</span></div>
       <div class="mc-score">
-        <div class="mc-team" style="--c:${A.color}"><b>${esc(A.name)}</b><span class="mc-pnl ${A.pnl >= 0 ? 'mint' : 'red'}">${money(A.pnl)}</span><small>${nf(A.pct, 2)}% · ${A.trades} trade · ${A.open} aperte</small></div>
+        <div class="mc-team" style="--c:${A.color}"><b>${esc(A.name)}</b>${derby ? moodTag(A, D.mood && D.mood.A) : ''}<span class="mc-pnl ${A.pnl >= 0 ? 'mint' : 'red'}">${money(A.pnl)}</span><small>${nf(A.pct, 2)}% · ${A.trades} trade · ${A.open} aperte</small></div>
         <div class="mc-mid"><div class="mc-clock" id="mcClock">${live ? clockTxt(m.remainingMs) : m.state === 'ended' ? 'FINE' : m.state === 'closing' ? '00:00' : '20:00'}</div><small>${live ? 'minuti rimasti' : m.state === 'ended' ? (res && res.winner ? 'vince ' + esc(res.winner === 'A' ? A.short : B.short) : 'pareggio') : '20 minuti'}</small></div>
-        <div class="mc-team r" style="--c:${B.color}"><b>${esc(B.name)}</b><span class="mc-pnl ${B.pnl >= 0 ? 'mint' : 'red'}">${money(B.pnl)}</span><small>${nf(B.pct, 2)}% · ${B.trades} trade · ${B.open} aperte</small></div>
+        <div class="mc-team r" style="--c:${B.color}"><b>${esc(B.name)}</b>${derby ? moodTag(B, D.mood && D.mood.B) : ''}<span class="mc-pnl ${B.pnl >= 0 ? 'mint' : 'red'}">${money(B.pnl)}</span><small>${nf(B.pct, 2)}% · ${B.trades} trade · ${B.open} aperte</small></div>
       </div>
-      <div class="mc-tug" aria-hidden="true" style="--a:${A.color};--b:${B.color}"><i style="left:${tug}%"></i></div>
+      ${derby ? `<div class="mc-riv"><span>${esc(A.short)}</span><small>Termometro del derby${D.heat > 0.5 ? ' · 🔥 partita accesa' : ''}</small><span>${esc(B.short)}</span></div>` : ''}<div class="mc-tug${derby && D.heat > 0.5 ? ' hot' : ''}" aria-hidden="true" style="--a:${A.color};--b:${B.color}"><i style="left:${tug}%"></i></div>
       <div class="mc-bar"><i id="mcBar" style="width:${live ? Math.min(100, (1 - m.remainingMs / m.durationMs) * 100) : m.state === 'none' ? 0 : 100}%"></i></div>
-      <div class="mc-cap">Cassa per squadra: ${money(A.bankroll, false)} (metà del disponibile ciascuna) · max ${m.maxCoins || 3} cripto per squadra · ${s.cfg.maxTradePct}% per operazione · leva ${s.cfg.leverage || 5}x e short solo su SOL/BTC/ETH (stop prima della liquidazione), spot 1x solo long sulle altre</div>
+      <div class="mc-cap">${derby ? 'DERBY: squadre agguerrite (ricerca ogni 15 s, 10x solo con segnale forte sui perps, trailing per chi vince, panchina per chi sbaglia), sempre entro i limiti · ' : ''}Cassa per squadra: ${money(A.bankroll, false)} (metà del disponibile ciascuna) · max ${m.maxCoins || 3} cripto per squadra · ${s.cfg.maxTradePct}% per operazione · leva ${s.cfg.leverage || 5}x e short solo su SOL/BTC/ETH (stop prima della liquidazione), spot 1x solo long sulle altre</div>
       ${m.realWaiting ? `<div class="mc-real">⏳ ${esc(m.realWaiting)}</div>` : ''}${m.realNote ? `<div class="mc-real note2">ℹ️ ${esc(m.realNote)}</div>` : ''}
       <div class="mc-foot"><span>Vittorie: ${esc(A.short)} ${tl.A} · ${esc(B.short)} ${tl.B} · pareggi ${tl.draws}</span>${live ? '<button class="chip" data-mstop>Termina</button>' : m.state !== 'closing' ? '<button class="chip pri" data-mstart>Nuova partita</button>' : ''}</div>`;
     const mc = $('#matchCard'); if (mc.dataset.h !== h) { mc.dataset.h = h; mc.innerHTML = h; }
@@ -824,6 +829,9 @@
         <div class="switch"><span>Uscita rapida su inversione / ondata di vendite</span><span class="toggle ${c.reversalExit ? 'on' : ''}" data-t="reversalExit"></span></div>
         <div class="grid2">${num('reversalPct', 'Crollo 5 min oltre %')}</div>
         <p class="note">R = distanza dello stop-loss iniziale (dipende dalla volatilità). Esempio: stop −4% → presa 1 a +4% vende il 40%, lo stop sale a pareggio; presa 2 a +8% vende un altro 30%; il resto segue il trailing (distanza 1,5 × ATR, mai più larga dello stop iniziale). Sui meme le distanze sono ×0,75.</p></div>
+      <div class="grp"><span class="lbl">Modalità DERBY (partita)</span>
+        <div class="switch"><span>Derby: bot agguerriti a caccia del massimo guadagno</span><span class="toggle ${c.derby ? 'on' : ''}" data-t="derby"></span></div>
+        <p class="note">Nel derby le squadre cercano occasioni ogni 15 s, entrano anche con segnali quasi pieni, rientrano dopo 30 s da un gol, lasciano correre i guadagni col trailing stop, usano 10x sui perps solo con segnale forte e mandano in panchina chi sbaglia due volte di fila. Chi è sotto va in rimonta, chi è avanti negli ultimi 3 minuti difende. <b>I limiti non cambiano mai</b>: margine ${c.maxTradePct}%, leva 5–10x, stop prima della liquidazione, kill switch, limiti giornalieri, filtri di sicurezza e blocchi REALE. Nessun guadagno è garantito.</p></div>
       <div class="grp"><span class="lbl">Cripto su cui lavora (partita)</span>
         <div class="chips" style="margin-top:4px">${['SOL', 'BTC', 'ETH'].map((x) => `<span class="chip on">${x} · ${c.leverage || 5}x L/S</span>`).join('')}<span class="chip">tutte le altre · spot 1x long</span></div>
         <p class="note">Ogni squadra gioca su <b>massimo 3 cripto</b> scelte dall'allenatore fra tutte quelle scambiabili su Solana con Phantom/Jupiter (anche quelle nel tuo Phantom) che superano i filtri di sicurezza: verificate su Jupiter, niente autorità di mint/freeze, niente Token-2022, liquidità ≥ ${Math.round(c.uniMinLiqUsd / 1000)}k $, volume 24h ≥ ${Math.round(c.uniMinVol24hUsd / 1000)}k $, capitalizzazione ≥ ${Math.round(c.uniMinMcapUsd / 1e6)}M $, età ≥ ${c.uniMinAgeDays} giorni, RugCheck e via di vendita su Jupiter. <b>Leva e short solo su SOL, BTC, ETH</b> (Jupiter Perps, min 5x); sulle altre cripto <b>spot 1x, solo long</b>, stessa dimensione (${c.maxTradePct}%) e uscite furbe.</p>

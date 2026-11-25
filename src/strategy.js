@@ -187,8 +187,9 @@ function exitPlanCore(pos, price, now, cfg, ctx = {}) {
   // prese di profitto parziali
   const initQty = pos.initQty || pos.qty;
   if (cfg.partialTp) {
-    if (!pos.tp1Done && ch >= L.tp1) return { action: 'partial', stage: 1, frac: Math.min(1, cfg.tp1Pct / 100), reason: `Presa parziale 1 (${fmt(ch)})`, change: ch, events };
-    if (pos.tp1Done && !pos.tp2Done && cfg.tp2Pct > 0 && ch >= Math.max(L.tp2, L.tp1)) {
+    // DERBY (pos.runner): si incassa solo metà della prima presa e niente seconda: il resto corre col trailing stop
+    if (!pos.tp1Done && ch >= L.tp1) return { action: 'partial', stage: 1, frac: Math.min(1, (cfg.tp1Pct / 100) * (pos.runner ? 0.5 : 1)), reason: `Presa parziale 1 (${fmt(ch)})`, change: ch, events };
+    if (!pos.runner && pos.tp1Done && !pos.tp2Done && cfg.tp2Pct > 0 && ch >= Math.max(L.tp2, L.tp1)) {
       const rem = initQty > 0 ? pos.qty / initQty : 1;
       return { action: 'partial', stage: 2, frac: Math.min(1, (cfg.tp2Pct / 100) / Math.max(rem, 1e-9)), reason: `Presa parziale 2 (${fmt(ch)})`, change: ch, events };
     }

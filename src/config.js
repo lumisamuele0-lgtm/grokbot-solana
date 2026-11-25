@@ -1,6 +1,6 @@
 'use strict';
 const { CORE, OLD_MEMES } = require('./tokens');
-const CFG_VERSION = 8; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
+const CFG_VERSION = 9; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
 const DEFAULTS = {
   cfgVersion: CFG_VERSION,
   mode: 'SIM', // SIM | REAL
@@ -31,6 +31,7 @@ const DEFAULTS = {
   // PARTITA: ogni squadra su max 3 cripto fra tutte quelle di Solana/Phantom. Leva e short solo dove ci sono i perps (SOL/BTC/ETH);
   // sulle altre spot 1x solo long. In REALE lo spot vero (swap Jupiter) parte solo se lo attivi tu (realSpot).
   spotLongs: true, realSpot: false,
+  derby: true, // DERBY: squadre più agguerrite in partita, sempre entro i limiti rigidi (margine 7%, leva 5–10x, stop, kill switch, limiti giornalieri)
   uniMinLiqUsd: 250000, uniMinVol24hUsd: 500000, uniMinMcapUsd: 10000000, uniMinAgeDays: 7, uniMinOrganic: 50, uniMaxTopHoldersPct: 50,
   reversalExit: true, reversalPct: 3, // uscita rapida su crollo del momentum a 5 min o ondata di vendite
   cooldownMin: 20,
@@ -88,6 +89,8 @@ const MIGRATIONS = {
     c.minMcapUsd = Math.max(Number(c.minMcapUsd) || 0, 5000000); c.minPairAgeMin = Math.max(Number(c.minPairAgeMin) || 0, 1440);
     if (!(Number(c.leverage) >= 5)) c.leverage = 5;
   },
+  // v9: modalità DERBY attiva (solo questa chiave; leva, margine, stop e limiti invariati)
+  9: (c) => { c.derby = true; if (!(Number(c.leverage) >= 5)) c.leverage = 5; },
   4: (c) => { c.scanMemes = false; const extra = (Array.isArray(c.tokens) ? c.tokens : []).filter((m) => !OLD_MEMES.includes(m) && !CORE.some((t) => t.mint === m)); c.tokens = [...CORE.map((t) => t.mint), ...extra]; if ((c.maxWatch || 0) < CORE.length + 1) c.maxWatch = CORE.length + 1; },
 };
 function migrateConfig(saved) {

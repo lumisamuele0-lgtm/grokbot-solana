@@ -39,7 +39,7 @@ test('timer: fischio finale a 20:00, risultato salvato in /data, trading in paus
 });
 
 test('turno: i Fulmini (trend) entrano col loro specialista, 7% della cassa di squadra, leva 5x, stop prima della liquidazione', async () => {
-  const e = mkEngine(); e.market.candles[SOL] = trendUp(); e.market.prices[SOL] = { usd: e.market.candles[SOL][199].c, ts: Date.now() };
+  const e = mkEngine(); e.cfg.derby = false; e.market.candles[SOL] = trendUp(); e.market.prices[SOL] = { usd: e.market.candles[SOL][199].c, ts: Date.now() };
   e.match.start();
   const pos = await e.match.teamTurn('A');
   assert.ok(pos, 'posizione aperta'); assert.strictEqual(pos.team, 'A'); assert.strictEqual(pos.player, 'A1'); assert.strictEqual(pos.side, 'LONG'); assert.strictEqual(pos.lev, 5);

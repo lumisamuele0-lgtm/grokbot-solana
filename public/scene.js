@@ -1,4 +1,5 @@
-/* STADIO: 14 bot in due squadre (6 giocatori + allenatore) si sfidano a chi fa più profitto in 20 minuti.
+/* STADIO (DERBY): cori, sfottò amichevoli, fumogeni nei colori delle squadre, GOL! a ogni chiusura in profitto, termometro della rivalità.
+   14 bot in due squadre (6 giocatori + allenatore) si sfidano a chi fa più profitto in 20 minuti.
    Le animazioni seguono gli eventi reali del motore. Canvas 2D leggero (niente librerie), si ferma quando non è visibile
    e rispetta "Riduci movimento" di iPhone. */
 (function () {
@@ -58,6 +59,10 @@
   function floatTxt(x, y, txt, col, d = 1.8) { addFx({ k: 'txt', x, y, txt, color: col, t: 0, d }); }
   function burst(x, y, col, n = 14) { if (RM) n = 4; for (let i = 0; i < n; i++) { const a = Math.random() * 6.28, v = 40 + Math.random() * 80; addFx({ k: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, color: col, t: 0, d: 0.7 + Math.random() * 0.6 }); } }
   function confetti(cols, n, x0 = 0, x1 = W) { if (RM) n = Math.min(n, 6); for (let i = 0; i < n; i++) addFx({ k: 'conf', x: x0 + Math.random() * (x1 - x0), y: -10 - Math.random() * 40, vx: (Math.random() - 0.5) * 30, vy: 40 + Math.random() * 50, r: Math.random() * 6, vr: (Math.random() - 0.5) * 10, color: cols[i % cols.length], t: 0, d: 4 + Math.random() * 2 }); }
+  // fumogeni in curva: fiamma tremolante + fumo colorato che sale
+  const STAND = { A: [24, 62, 100], B: [300, 338, 376] };
+  function flare(team, n = 3) { const T = st.teams && st.teams[team]; const cols = T ? [T.color, T.color2] : ['#fff']; const xs = STAND[team]; for (let i = 0; i < Math.min(n, xs.length); i++) addFx({ k: 'flare', x: xs[i] + (Math.random() - 0.5) * 8, y: 26, color: cols[i % cols.length], t: -i * 0.15, d: RM ? 1.6 : 3.2, puff: 0 }); }
+  function smoke(x, y, col) { addFx({ k: 'smoke', x, y, vx: (Math.random() - 0.5) * 8, vy: -10 - Math.random() * 8, r0: 3 + Math.random() * 2, color: col, t: 0, d: 2.4 + Math.random() * 1.2 }); }
   function firework(x, y, cols) { addFx({ k: 'rocket', x, y0: H, y1: y, t: 0, d: 0.55, color: cols[0], cols }); }
   const money = (v, sign = true) => { const d = st.base === 'SOL' ? 4 : 2; const s = Math.abs(v).toLocaleString('it-IT', { minimumFractionDigits: d, maximumFractionDigits: d }); return (sign ? (v >= 0 ? '+' : '−') : '') + s + (st.base === 'SOL' ? ' ◎' : ' $'); };
 
@@ -65,9 +70,29 @@
   function onEvent(e) {
     if (!e || !st.built) return;
     if (e.type === 'match') {
-      if (e.phase === 'start') kickoff();
+      if (e.phase === 'start') { kickoff(); if (e.derby) after(3, () => { banner('È DERBY!', 'Fulmini Rossi contro Squali Blu · si gioca per ogni centesimo', '#FFD54A', 3); flare('A', 3); flare('B', 3); }); }
       else if (e.phase === 'whistle') { banner('FISCHIO FINALE', 'chiudo le posizioni della partita', '#FFD54A'); Object.values(bots).forEach((b) => { if (!b.coach) emote(b, '🏁', 2); }); }
       else if (e.phase === 'end') finale(e.winner, e.mvp, false);
+      return;
+    }
+    if (e.type === 'banter') {
+      const b = bots[e.who]; if (b) { say(b, e.text, 4.6); if (!b.coach) { emote(b, e.kind === 'react' ? '👀' : '😏', 1.6); jump(b, 5); } else b.gest = 1.4; }
+      if (e.reply && bots[e.reply.who]) { const r = bots[e.reply.who]; after(2.3, () => { say(r, e.reply.text, 4.4); if (!r.coach) { emote(r, '😄', 1.4); jump(r, 5); } else r.gest = 1.2; }); }
+      return;
+    }
+    if (e.type === 'chant') { st.chant = { team: e.team, text: e.text, t: 0, d: 4.5 }; st.crowd[e.team] = Math.max(st.crowd[e.team], 3); if (!RM && Math.random() < 0.5) flare(e.team, 1); return; }
+    if (e.type === 'goal') {
+      const T = st.teams && st.teams[e.team]; const col = T ? T.color2 : '#FFD54A';
+      banner('GOOOL!', `${e.name} · ${money(e.pnl || 0)}${e.symbol ? ' su ' + e.symbol : ''}`, col, 2.8);
+      flare(e.team, 3); st.crowd[e.team] = 4; st.shake = Math.max(st.shake, RM ? 0 : 0.3); st.goalT = { team: e.team, t: 0 };
+      confetti(T ? [T.color, T.color2, '#fff'] : ['#fff'], RM ? 4 : 26, e.team === 'A' ? 0 : W / 2, e.team === 'A' ? W / 2 : W);
+      const b = bots[e.player]; if (b) { after(0.3, () => { say(b, 'GOOOL! ⚽', 2.4); }); }
+      const other = e.team === 'A' ? 'B' : 'A'; teamBots(other).forEach((o) => { if (Math.random() < 0.5) emote(o, '😤', 1.6); });
+      return;
+    }
+    if (e.type === 'sub') {
+      const o = bots[e.out]; if (o) { emote(o, '🪑', 2.4); sad(o, 1.5); }
+      if (e.in && bots[e.in]) { const n = bots[e.in]; emote(n, '🔁', 2); jump(n, 9); }
       return;
     }
     if (e.type === 'coach') {
@@ -78,6 +103,9 @@
       if (e.kind === 'coins') teamBots(e.team).forEach((b, i) => after(i * 0.08, () => jump(b, 6)));
       if (e.kind === 'select') teamBots(e.team).forEach((b) => emote(b, '🧐', 1.6));
       if (e.kind === 'mentor') st.mentorT = 2.4;
+      if (e.kind === 'rimonta') { banner('RIMONTA!', c.name, '#FF8A3D', 2.2); teamBots(e.team).forEach((b, i) => after(i * 0.07, () => { emote(b, '🔥', 2); jump(b, 7); })); flare(e.team, 2); }
+      if (e.kind === 'protect') { teamBots(e.team).forEach((b) => emote(b, '🛡', 2)); }
+      if (e.kind === 'sub') jump(c, 5);
       return;
     }
     if (e.type === 'agent' && e.agent === 'MENTORE') { st.mentorT = 2.2; return; }
@@ -156,7 +184,7 @@
       const T = Object.fromEntries(m.teams.map((x) => [x.id, x])); st.teams = T;
       // formazione dinamica: se l'allenatore cambia cripto i giocatori corrono al nuovo posto
       for (const team of m.teams) team.players.forEach((p, i) => {
-        const b = bots[p.id]; if (!b) return; b.asset = p.asset; b.side = p.side; b.coinColor = p.coinColor; b.perp = p.perp; b.lineRole = p.lineRole;
+        const b = bots[p.id]; if (!b) return; b.asset = p.asset; b.side = p.side; b.coinColor = p.coinColor; b.perp = p.perp; b.lineRole = p.lineRole; b.resting = !!p.resting;
         const h = homeOf(team.id, p, i); if (Math.abs(h.x - b.hx) > 0.5 || Math.abs(h.y - b.hy) > 0.5) { b.hx = h.x; b.hy = h.y; if (!b.hold) { b.path = []; home(b); } }
       });
       if (st.finale && (m.state === 'live' || !m.awaitingNew)) clearFinale();
@@ -211,6 +239,10 @@
       if (st.finale && st.finale.winner === b.team && b.happyT < 0.3) happy(b, 2); // festa continua
     }
     for (const k of ['A', 'B']) st.crowd[k] = Math.max(0, st.crowd[k] - dt);
+    if (st.chant) { st.chant.t += dt; if (st.chant.t > st.chant.d) st.chant = null; }
+    if (st.goalT) { st.goalT.t += dt; if (st.goalT.t > 1.2) st.goalT = null; }
+    // derby in corso: ogni tanto un fumogeno nella curva di chi è avanti
+    const D = st.m && st.m.derby; if (!RM && D && D.on && st.m.state === 'live' && Math.random() < dt * (0.04 + 0.12 * (D.heat || 0))) flare(D.meter > 0.05 ? 'A' : D.meter < -0.05 ? 'B' : (Math.random() < 0.5 ? 'A' : 'B'), 1);
     st.mentorT = Math.max(0, st.mentorT - dt); st.orbT = Math.max(0, (st.orbT || 0) - dt); st.alarm = Math.max(0, st.alarm - dt);
     if (st.vaultT) for (const k in st.vaultT) st.vaultT[k] = Math.max(0, st.vaultT[k] - dt);
     if (st.banner) { st.banner.t += dt; if (st.banner.t > st.banner.d) st.banner = null; }
@@ -228,6 +260,8 @@
     for (let i = fx.length - 1; i >= 0; i--) {
       const f = fx[i]; f.t += dt; if (f.t < 0) continue;
       if (f.k === 'spark') { f.x += f.vx * dt; f.y += f.vy * dt; f.vy += 140 * dt; f.vx *= 0.98; }
+      if (f.k === 'flare' && f.t > 0 && f.t < f.d * 0.85) { f.puff -= dt; if (f.puff <= 0) { f.puff = RM ? 0.5 : 0.12; smoke(f.x, f.y - 4, f.color); } }
+      if (f.k === 'smoke') { f.x += f.vx * dt; f.y += f.vy * dt; f.vx *= 0.99; }
       if (f.k === 'conf') { f.x += (f.vx + Math.sin(t * 3 + f.r) * 14) * dt; f.y += f.vy * dt; f.r += f.vr * dt; }
       if (f.k === 'rocket' && f.t >= f.d) { const n = 26; for (let j = 0; j < n; j++) { const a = (j / n) * 6.28, v = 60 + Math.random() * 40; addFx({ k: 'spark', x: f.x, y: f.y1, vx: Math.cos(a) * v, vy: Math.sin(a) * v, color: f.cols[j % f.cols.length], t: 0, d: 1.1 + Math.random() * 0.5 }); } }
       if (f.t >= f.d) fx.splice(i, 1);
@@ -292,6 +326,26 @@
     const prog = m && m.state === 'live' && rem != null ? 1 - rem / (m.durationMs || 1200e3) : m && m.state !== 'none' ? 1 : 0;
     ctx.fillStyle = '#1b2236'; rr(176, 32, 48, 3, 1.5); ctx.fill(); ctx.fillStyle = rem != null && rem < 60e3 ? '#ff4d5e' : '#FFD54A'; rr(176, 32, Math.max(2, 48 * prog), 3, 1.5); ctx.fill();
     if (st.mode === 'REAL') text('REALE', 200, 39.5, 4.5, '#ff9aa5', 'center', '900');
+    const D = m && m.derby;
+    if (D && D.on && m.state !== 'none') {
+      const ic = { rimonta: '🔥', protect: '🛡' };
+      if (D.mood && ic[D.mood.A]) text(ic[D.mood.A], 123, 13, 6, '#fff'); if (D.mood && ic[D.mood.B]) text(ic[D.mood.B], 277, 13, 6, '#fff');
+      // termometro della rivalità: il cursore va verso chi sta perdendo terreno (Fulmini avanti → a destra)
+      const x0 = 150, w = 100, y = 46; const g = ctx.createLinearGradient(x0, 0, x0 + w, 0); g.addColorStop(0, A.color); g.addColorStop(0.5, '#2a2a2a'); g.addColorStop(1, B.color);
+      ctx.fillStyle = g; rr(x0, y, w, 3, 1.5); ctx.fill();
+      const mx = x0 + w / 2 + Math.max(-1, Math.min(1, D.meter || 0)) * (w / 2 - 3); st.meterX = st.meterX == null ? mx : st.meterX + (mx - st.meterX) * 0.08;
+      const hot = (D.heat || 0) > 0.5 && !RM ? 0.6 + 0.4 * Math.sin(t * 10) : 1;
+      ctx.fillStyle = '#fff'; ctx.globalAlpha = hot; ctx.beginPath(); ctx.arc(st.meterX, y + 1.5, 2.6, 0, 6.28); ctx.fill(); ctx.globalAlpha = 1;
+      text('DERBY', 200, 57.5, 5, `rgba(255,213,74,${0.55 + 0.25 * Math.sin(t * 2)})`, 'center', '900');
+    }
+  }
+  function drawChant() {
+    const c = st.chant; if (!c) return; const T = st.teams && st.teams[c.team]; if (!T) return;
+    const p = c.t / c.d; const a = p < 0.1 ? p / 0.1 : p > 0.85 ? (1 - p) / 0.15 : 1; const x = c.team === 'A' ? 60 : 340;
+    ctx.globalAlpha = a; ctx.font = '900 6px Inter,-apple-system,sans-serif'; const w = Math.min(112, ctx.measureText(c.text).width + 10);
+    ctx.fillStyle = 'rgba(0,0,0,0.65)'; rr(x - w / 2, 34, w, 10, 4); ctx.fill(); ctx.save(); ctx.beginPath(); ctx.rect(x - w / 2 + 2, 34, w - 4, 10); ctx.clip();
+    const tw = ctx.measureText(c.text).width; const off = tw > w - 10 ? ((c.t * 22) % (tw + 20)) - 10 : 0;
+    text(c.text, tw > w - 10 ? x - w / 2 + 5 - off + tw / 2 : x, 39.2, 6, T.color2, 'center', '900'); ctx.restore(); ctx.globalAlpha = 1;
   }
   function drawCoinRows() {
     // le (max) 3 cripto di ogni squadra: nome, colore e "5x · L/S" o "Spot · Long"
@@ -403,7 +457,7 @@
       ctx.fillStyle = pc >= 0 ? '#06301cdd' : '#3a0a12dd'; rr(b.x - w / 2, y - 31, w, 8, 3); ctx.fill(); text(lbl, b.x, y - 27, 5.6, pc >= 0 ? '#3dffa0' : '#ff6b7a', 'center', '800');
     }
     text(b.coach ? b.name.replace('Mister ', 'Mr ') : b.name, b.x, b.y + 15.5, 5.4, b.coach ? '#fff' : b.color2, 'center', '800');
-    if (!b.coach) text(b.asset ? `${b.asset}${b.side === 'SHORT' ? '▼' : '▲'}${b.perp ? '' : b.lineRole === 'scalper' ? ' scalp' : ' spot'}` : 'riserva', b.x, b.y + 21.5, 4.4, b.coinColor || '#ffffff88', 'center', '700');
+    if (!b.coach) text(b.asset ? `${b.asset}${b.side === 'SHORT' ? '▼' : '▲'}${b.perp ? '' : b.lineRole === 'scalper' ? ' scalp' : ' spot'}` : (b.resting ? 'riposo' : 'riserva'), b.x, b.y + 21.5, 4.4, b.coinColor || '#ffffff88', 'center', '700');
     if (b.emote && !b.hold) { ctx.globalAlpha = Math.min(1, b.emoteT * 3); text(b.emote, b.x, y - 26 - (1 - Math.min(1, b.emoteT)) * 4, 8, '#fff'); ctx.globalAlpha = 1; }
     if (sadNow && st.finale && !RM) { // nuvoletta di pioggia per chi perde
       const cx = b.x, cy = y - 32; ctx.fillStyle = '#7b8494'; ctx.beginPath(); ctx.arc(cx - 3, cy, 3.2, 0, 6.28); ctx.arc(cx + 2, cy - 1, 4, 0, 6.28); ctx.arc(cx + 6, cy + 0.5, 2.6, 0, 6.28); ctx.fill();
@@ -447,6 +501,8 @@
         text(f.txt, f.x, f.y - p * 22, 9 * s, f.color, 'center', '900'); ctx.globalAlpha = 1;
       } else if (f.k === 'spark') { ctx.fillStyle = f.color; ctx.globalAlpha = 1 - p; ctx.fillRect(f.x - 1.1, f.y - 1.1, 2.2, 2.2); ctx.globalAlpha = 1; }
       else if (f.k === 'conf') { ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.r); ctx.globalAlpha = p > 0.85 ? (1 - p) / 0.15 : 1; ctx.fillStyle = f.color; ctx.fillRect(-2, -1, 4, 2 * Math.abs(Math.cos(f.r * 2)) + 0.4); ctx.restore(); ctx.globalAlpha = 1; }
+      else if (f.k === 'smoke') { ctx.globalAlpha = 0.28 * (1 - p); ctx.fillStyle = f.color; ctx.beginPath(); ctx.arc(f.x, f.y, f.r0 + p * 12, 0, 6.28); ctx.fill(); ctx.globalAlpha = 1; }
+      else if (f.k === 'flare') { const fl = 0.7 + 0.3 * Math.sin(t * 40 + f.x); ctx.globalAlpha = (p > 0.85 ? (1 - p) / 0.15 : 1) * fl; const g = ctx.createRadialGradient(f.x, f.y - 3, 0, f.x, f.y - 3, 9); g.addColorStop(0, '#fff'); g.addColorStop(0.3, f.color); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.fillRect(f.x - 9, f.y - 12, 18, 18); ctx.fillStyle = '#ccc'; ctx.fillRect(f.x - 0.6, f.y - 2, 1.2, 6); ctx.globalAlpha = 1; }
       else if (f.k === 'rocket') { const y = f.y0 + (f.y1 - f.y0) * (1 - (1 - p) * (1 - p)); ctx.fillStyle = '#fff'; ctx.fillRect(f.x - 0.8, y - 2, 1.6, 4); ctx.fillStyle = f.color; ctx.globalAlpha = 0.5; ctx.fillRect(f.x - 0.5, y + 2, 1, 6); ctx.globalAlpha = 1; }
     }
   }
@@ -461,6 +517,7 @@
     }
     const F = st.finale;
     if (F && F.winner) drawTrophy(F.winner === 'A' ? 129 : 271, RM ? 1 : Math.min(1, F.t / 1.2));
+    if (st.goalT && !RM) { const g = st.goalT; const k = 1 - g.t / 1.2; ctx.fillStyle = `rgba(255,255,255,${0.18 * k})`; ctx.fillRect(g.team === 'A' ? W / 2 : 0, 52, W / 2, 242); }
     if (st.banner) {
       const b = st.banner; const p = b.t / b.d; const a = p < 0.12 ? p / 0.12 : p > 0.85 ? (1 - p) / 0.15 : 1; const s = RM ? 1 : p < 0.12 ? 0.6 + 0.4 * (p / 0.12) + Math.sin(p * 26) * 0.04 : 1;
       ctx.globalAlpha = a; ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 140, W, 46);
@@ -477,7 +534,7 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(bg, 0, 0);
     const sx = st.shake > 0 ? (Math.random() - 0.5) * st.shake * 4 : 0, sy = st.shake > 0 ? (Math.random() - 0.5) * st.shake * 4 : 0;
     ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sx * scale), dpr * (oy + sy * scale));
-    drawCrowd(); drawBoard(); drawCoinRows(); drawVault('A'); drawVault('B'); drawOrb(); drawMentor();
+    drawCrowd(); drawBoard(); drawChant(); drawCoinRows(); drawVault('A'); drawVault('B'); drawOrb(); drawMentor();
     Object.values(bots).sort((a, b) => a.y - b.y).forEach(drawBot);
     drawFx();
     Object.values(bots).forEach(drawTalk);

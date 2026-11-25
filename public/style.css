@@ -306,3 +306,18 @@ nav.bn button:active{background:#ffffff10}
 .bdg{font-style:normal;font-size:9.5px;font-weight:800;padding:2px 5px;border-radius:6px;white-space:nowrap}.bdg.perp{background:#FFB0201f;color:#FFB020}.bdg.spot{background:#00E5C71a;color:#00E5C7}
 .pl.bench{opacity:.55}
 .mc-real.note2{background:#0d1a2a;border-color:#3BA4FF77;color:#bcdcff}
+
+/* DERBY */
+.mc-derby{display:flex;justify-content:center;align-items:center;gap:8px;margin:-2px 0 8px;font-size:13px;letter-spacing:4px}
+.mc-derby b{font-weight:900;background:linear-gradient(90deg,#FF4D5E,#FFD54A,#3BA4FF);-webkit-background-clip:text;background-clip:text;color:transparent;animation:derbyPulse 2.4s ease-in-out infinite}
+.mc-derby span{animation:derbyFlame 1.2s ease-in-out infinite alternate}
+@keyframes derbyPulse{50%{filter:brightness(1.35);letter-spacing:5px}}
+@keyframes derbyFlame{to{transform:translateY(-2px) scale(1.12)}}
+.mood{display:inline-block;font-style:normal;font-size:9.5px;font-weight:900;letter-spacing:.6px;padding:2px 6px;border-radius:6px;margin:2px 0}
+.mood.r{background:#ff8a3d22;color:#ffb27a;border:1px solid #ff8a3d66}.mood.p{background:#3ba4ff22;color:#9fd0ff;border:1px solid #3ba4ff66}
+.mc-riv{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:10px;font-weight:900;color:#aab}.mc-riv small{font-weight:700;color:var(--mu2);font-size:10.5px}
+.mc-riv+.mc-tug{margin-top:4px}
+.mc-tug.hot{box-shadow:0 0 12px #ff8a3d88;animation:derbyHot 1s ease-in-out infinite alternate}
+@keyframes derbyHot{to{box-shadow:0 0 18px #ffd54aaa}}
+.tm-act .bt b{color:var(--c2)}
+@media (prefers-reduced-motion:reduce){.mc-derby b,.mc-derby span,.mc-tug.hot{animation:none}}

@@ -8,6 +8,11 @@
 // Le squadre hanno stili diversi: FULMINI = trend/momentum, SQUALI = contropiede (mean reversion).
 // L'allenatore riceve le lezioni del MENTORE e "potenzia" i giocatori SOLO in modo limitato: piccoli bonus di punteggio,
 // più selettività dopo le perdite, time-out. Non cambia MAI margine (7%), leva (5–10x), stop o kill switch.
+// DERBY (cfg.derby): squadre più agguerrite, SEMPRE entro i limiti rigidi (margine 7%, leva 5–10x, stop prima della liquidazione,
+// kill switch, limiti giornalieri, filtri di sicurezza, blocchi REALE). Dentro quei limiti: soglie d'ingresso un po' più basse
+// (segnali "quasi pieni"), ricerca più frequente (ogni 15 s), rientro rapido dopo un gol, chi vince corre col trailing stop,
+// 10x sui perps solo con segnale forte, la panchina sostituisce chi è in crisi. Chi è sotto va in "rimonta" (un filo più
+// aggressivo), chi è avanti negli ultimi 3 minuti difende il vantaggio (più selettivo, niente 10x). Cori, sfottò amichevoli, fumogeni.
 // Funziona in SIMULAZIONE e in REALE (in REALE resta il blocco dei perps finché il test con 5-10 USDC non è approvato).
 const path = require('path');
 const { readJson, debounceWriter } = require('./store');
@@ -21,6 +26,9 @@ const MATCH_MS = 20 * 60e3;
 const CLOSE_GRACE_MS = 2 * 60e3;
 const MAX_COINS = 3; // massimo 3 cripto per squadra alla volta
 const COACH = { BONUS_STEP: 0.25, BONUS_MAX: 0.5, FOCUS_BONUS: 0.2, SEL_MAX: 2, TIMEOUT_MS: 2 * 60e3, FOCUS_EVERY_MS: 2 * 60e3, TALK_EVERY_MS: 3 * 60e3, PICK_EVERY_MS: 5 * 60e3 };
+// DERBY: solo parametri di comportamento, nessun limite di rischio
+const DERBY = { TURN_SEC: 15, NEAR_TREND: 5 / 6 - 1e-9, NEAR_CONTRA: 0.75, NEAR_TOTAL: 1.0, RIMONTA_TOTAL: 0.8, STRONG_CONF: 0.9, RIMONTA_STRONG_CONF: 5 / 6 - 1e-9, STRONG_TOTAL: 2.5, STRONG_LEV: 10,
+  RIMONTA_BOOST: 0.2, REACT_BONUS: 0.15, REACT_MS: 90e3, PROTECT_MS: 3 * 60e3, RIMONTA_AFTER_MS: 60e3, WIN_COOLDOWN_MS: 30e3, COLD_STREAK: 2, BENCH_MS: 3 * 60e3, BANTER_MS: 70e3, CHANT_MS: 45e3 };
 const ROLE_TXT = { attaccante: 'attaccante', difensore: 'difensore', scalper: 'scalper', riserva: 'riserva', uscita: 'chiude la posizione' };
 const clampCh = (x) => Math.max(-15, Math.min(15, Number(x) || 0));
 
@@ -64,7 +72,33 @@ const TALK = {
   lastMin: { lead: ['Ultimo minuto: difendiamo il vantaggio, niente regali!'], behind: ['Ultimo minuto: crediamoci, ma sempre con lo stop!'], tie: ['Ultimo minuto, è tutto aperto!'] },
   idle: { A: ['Aspettiamo che il trend parta, niente fretta.', 'Occhi aperti: appena il mercato corre, si entra.'], B: ['Lasciamoli esagerare, poi colpiamo.', 'Pazienza: l\'eccesso arriva sempre.'] },
 };
+// DERBY: cori, sfottò amichevoli (mai insulti), reazioni
+const DTALK = {
+  kickoff: ['È DERBY! Oggi si gioca per la città: grinta, ma stop sempre!', 'Derby, ragazzi: vogliamo ogni centesimo, con la testa!'],
+  chant: { A: ['Forza Fulmini, alé alé! ⚡', 'Rosso fuoco, trend nel cuore! 🔥', 'Chi non salta è uno squalo, oh oh! ⚡'], B: ['Forza Squali, alé alé! 🦈', 'Blu come il mare, contropiede letale! 🌊', 'Chi non salta è un fulmine, oh oh! 🦈'] },
+  banter: {
+    A: ['Squali, oggi il trend vi travolge!', 'Contropiede? Noi corriamo più veloci!', 'Occhio al tabellone, Squali: si accende di rosso!', 'Pinne pronte? Noi abbiamo i razzi!'],
+    B: ['Fulmini, correte pure: vi aspettiamo al varco!', 'Tanto rumore, Fulmini... e poi il mercato torna indietro!', 'Calma, Fulmini: la marea arriva sempre!', 'Bel lampo, peccato che duri un secondo!'],
+  },
+  reply: {
+    A: ['Ah sì? Ne riparliamo al fischio finale!', 'Parlate meno e guardate il punteggio!', 'Ci vediamo sul tabellone!'],
+    B: ['Vedremo chi ride all\'ultimo minuto!', 'Il derby è lungo, amici!', 'Calma, si decide alla fine!'],
+  },
+  react: ['{r} ha aperto {a}? Rispondiamo subito!', 'Visto {r} su {a}? Tocca a noi!', 'Loro su {a}: non lasciamogli il campo!'],
+  rimonta: ['Siamo sotto: REMUNTADA! Un filo più aggressivi, ma stop sempre al loro posto!', 'Rimonta, ragazzi! Spingiamo, sempre dentro i limiti!'],
+  protect: ['Ultimi 3 minuti: difendiamo il vantaggio! Solo colpi sicuri.', 'Catenaccio! Siamo avanti: niente rischi inutili.'],
+  sub: ['Cambio! Entra {p} al posto di {o}: riposati un attimo, {o}!', 'Sostituzione: dentro {p}, fuori {o}. Forze fresche!'],
+  rest: ['{o}, due errori: pausa in panchina e poi torni carico!'],
+  goal: ['GOOOL di {p}! Che derby!', 'Rete di {p}! La curva esplode!', '{p} segna! Avanti così!'],
+  rivalGoal: ['Hanno segnato loro... rispondiamo subito!', 'Gol loro? Il derby non è finito!'],
+};
 const fill = (s, o) => s.replace(/\{(\w)\}/g, (_, k) => o[k] || '');
+// DERBY: leva dell'operazione. 10x (limite rigido) solo sui perps con segnale forte; mai in difesa del vantaggio. null = leva impostata
+function derbyLev({ perp, mood, sig, total }) {
+  if (!perp || mood === 'protect' || mood === 'normal' || !sig || !sig.signal) return null;
+  const confMin = mood === 'rimonta' ? DERBY.RIMONTA_STRONG_CONF : DERBY.STRONG_CONF;
+  return (sig.conf >= confMin || total >= DERBY.STRONG_TOTAL) ? DERBY.STRONG_LEV : null;
+}
 
 class MatchManager {
   constructor(engine, dataDir) {
@@ -74,6 +108,25 @@ class MatchManager {
     this.firstTeam = 0;
   }
   get m() { return this.e.st.match || null; }
+  derbyOn() { return !!this.e.cfg.derby; }
+  // stato d'animo della squadra nel derby: 'rimonta' se sotto, 'protect' se avanti negli ultimi 3 minuti, altrimenti 'derby'
+  moodOf(teamId, sc, now = Date.now()) {
+    const m = this.m; if (!this.derbyOn() || !m) return 'normal';
+    const other = teamId === 'A' ? 'B' : 'A'; const eps = this.e.cfg.baseCurrency === 'SOL' ? 1e-4 : 0.01;
+    const d = sc[teamId].pnl - sc[other].pnl;
+    if (d > eps && m.endAt - now <= DERBY.PROTECT_MS) return 'protect';
+    if (d < -eps && now - m.startAt >= DERBY.RIMONTA_AFTER_MS) return 'rimonta';
+    return 'derby';
+  }
+  // battuta del derby (giocatore o allenatore) con risposta del rivale: sempre amichevole
+  banter(teamId, whoId, text, kind = 'banter', now = Date.now(), reply = null) {
+    const m = this.m; if (!m) return;
+    const t = m.teams[teamId]; t.actions.unshift({ t: now, kind, text, who: whoId }); if (t.actions.length > 12) t.actions.pop();
+    const ev = { type: 'banter', team: teamId, who: whoId, kind, text };
+    if (reply) { const o = m.teams[reply.team]; o.actions.unshift({ t: now + 1, kind: 'banter', text: reply.text, who: reply.who }); if (o.actions.length > 12) o.actions.pop(); ev.reply = reply; }
+    this.e.emit('ev', ev);
+  }
+  chant(teamId, now = Date.now(), text = null) { const m = this.m; if (!m) return; m.chantAt = now; this.e.emit('ev', { type: 'chant', team: teamId, text: text || pick(DTALK.chant[teamId]) }); }
   live() { const m = this.m; return !!(m && m.state === 'live'); }
   // ---------- inizio
   start(now = Date.now()) {
@@ -83,16 +136,17 @@ class MatchManager {
     const avail = Math.max(0, e.cash());
     const half = avail / 2;
     const teams = {};
-    for (const id of TEAM_IDS) teams[id] = { bankroll: half, coach: { selectivity: 0, timeoutUntil: 0, focus: null, focusAt: 0, bonus: {}, wins: 0, losses: 0, talkAt: now, lastMin: false }, actions: [] };
-    e.st.match = { id: uid(), state: 'live', mode: e.cfg.mode, startAt: now, endAt: now + MATCH_MS, teams, result: null, awaitingNew: false, number: (this.hist.history[0] ? this.hist.history[0].number || this.hist.history.length : this.hist.history.length) + 1 };
+    for (const id of TEAM_IDS) teams[id] = { bankroll: half, coach: { selectivity: 0, timeoutUntil: 0, focus: null, focusAt: 0, bonus: {}, wins: 0, losses: 0, talkAt: now, lastMin: false, mood: e.cfg.derby ? 'derby' : 'normal', streak: {}, benchUntil: {}, react: null }, actions: [] };
+    e.st.match = { id: uid(), state: 'live', mode: e.cfg.mode, derby: !!e.cfg.derby, banterAt: now, chantAt: now, banterTurn: 0, startAt: now, endAt: now + MATCH_MS, teams, result: null, awaitingNew: false, number: (this.hist.history[0] ? this.hist.history[0].number || this.hist.history.length : this.hist.history.length) + 1 };
     for (const id of TEAM_IDS) this.pickCoins(id, now, false);
     e.save();
     const fm = (x) => e.fmtBase(x);
     e.log('PARTITA', `Calcio d'inizio! Partita n.${e.st.match.number} (${e.cfg.mode === 'SIM' ? 'SIMULAZIONE' : 'REALE'}) · 20 minuti · ${TEAMS.A.name} vs ${TEAMS.B.name} · cassa ${fm(half)} per squadra (metà del disponibile ciascuna)`);
     const block = e.entryBlock();
     if (block) e.log('PARTITA', `Partita REALE in attesa: ${block} Nessun ordine reale finché il test non è approvato.`, 'warn');
-    e.emit('ev', { type: 'match', phase: 'start', id: e.st.match.id, endAt: e.st.match.endAt });
-    for (const id of TEAM_IDS) { this.talk(id, pick(TALK.start[id]), 'start', now); this.announceCoins(id, now, false); }
+    e.emit('ev', { type: 'match', phase: 'start', id: e.st.match.id, endAt: e.st.match.endAt, derby: !!e.cfg.derby });
+    for (const id of TEAM_IDS) { this.talk(id, pick(this.derbyOn() ? DTALK.kickoff : TALK.start[id]), 'start', now); this.announceCoins(id, now, false); }
+    if (this.derbyOn()) e.log('PARTITA', 'Modalità DERBY: squadre agguerrite, sempre entro i limiti (margine 7%, leva 5–10x, stop prima della liquidazione, kill switch, limiti giornalieri)');
     this.mentorBrief(now);
     return e.st.match;
   }
@@ -158,8 +212,9 @@ class MatchManager {
     this.e.log('PARTITA', `${TEAMS[teamId].name}: cripto in campo ${txt}`);
   }
   // formazione: 2 giocatori per cripto (perps: long + short; spot: attaccante + scalper, entrambi solo long), gli altri in panchina
-  assign(teamId) {
+  assign(teamId, now = Date.now()) {
     const e = this.e; const m = this.m; const ts = m.teams[teamId]; const T = TEAMS[teamId]; const prev = ts.lineup || {};
+    const bench = (ts.coach && ts.coach.benchUntil) || {}; const resting = (pid) => bench[pid] > now; // DERBY: chi è in crisi riposa in panchina
     const slots = [];
     ts.coins.forEach((c, i) => {
       const base = { mint: c.mint, symbol: c.symbol, perp: c.perp, slot: i };
@@ -174,12 +229,14 @@ class MatchManager {
       let i = free.findIndex((x) => same(x) && prev[pl.id] && prev[pl.id].role === x.role); if (i < 0) i = free.findIndex(same);
       if (i >= 0) { lineup[pl.id] = free[i]; free.splice(i, 1); } else lineup[pl.id] = { mint: null, symbol: h.symbol, side: h.side || 'LONG', role: 'uscita', slot: -1 };
     }
-    for (const pl of T.players) {
-      if (lineup[pl.id]) continue;
-      const p0 = prev[pl.id]; let i = p0 ? free.findIndex((x) => x.mint === p0.mint && x.side === p0.side && x.role === p0.role) : -1; // chi era già in campo resta al suo posto
-      if (i < 0) i = free.length ? 0 : -1;
-      lineup[pl.id] = i >= 0 ? free.splice(i, 1)[0] : { mint: null, symbol: null, side: null, role: 'riserva', slot: -1 };
+    // prima chi era già in campo, poi le riserve fresche; nel derby chi ha sbagliato due volte di fila riposa 3 minuti in panchina
+    const order = T.players.filter((pl) => !lineup[pl.id] && !resting(pl.id));
+    for (const pl of order) { // chi era già in campo resta al suo posto
+      const p0 = prev[pl.id]; const i = p0 ? free.findIndex((x) => x.mint === p0.mint && x.side === p0.side && x.role === p0.role) : -1;
+      if (i >= 0) lineup[pl.id] = free.splice(i, 1)[0];
     }
+    for (const pl of order) { if (lineup[pl.id]) continue; lineup[pl.id] = free.length ? free.shift() : { mint: null, symbol: null, side: null, role: 'riserva', slot: -1 }; }
+    for (const pl of T.players) if (!lineup[pl.id]) lineup[pl.id] = { mint: null, symbol: null, side: null, role: 'riserva', slot: -1, resting: true };
     ts.lineup = lineup;
   }
   coinMints() { const m = this.m; if (!m || m.state !== 'live') return []; return [...new Set(TEAM_IDS.flatMap((id) => (m.teams[id].coins || []).map((c) => c.mint)))]; }
@@ -270,17 +327,36 @@ class MatchManager {
         for (const coin of ts.coins || []) { const s = this.coinScore(id, coin); if (s > bs) { bs = s; best = coin.symbol; } }
         if (best !== c.focus) { c.focus = best; if (best) this.talk(id, fill(pick(TALK.focus), { a: best }), 'focus', now); }
       }
+      // DERBY: stato d'animo (rimonta / difesa del vantaggio), rientro dalla panchina
+      if (this.derbyOn()) {
+        const mood = this.moodOf(id, sc, now);
+        if (mood !== c.mood) { const was = c.mood; c.mood = mood; if (mood === 'rimonta') this.talk(id, pick(DTALK.rimonta), 'rimonta', now); else if (mood === 'protect') this.talk(id, pick(DTALK.protect), 'protect', now); else if (was === 'rimonta') this.talk(id, 'Siamo tornati in partita! Avanti così, con la testa.', 'derby', now); }
+        const exp = Object.entries(c.benchUntil || {}).filter(([, u]) => u && u <= now);
+        if (exp.length) { for (const [pid] of exp) delete c.benchUntil[pid]; this.assign(id, now); }
+      } else c.mood = 'normal';
       // ultimo minuto
       if (!c.lastMin && m.endAt - now <= 60e3) {
         c.lastMin = true; const other = id === 'A' ? 'B' : 'A'; const d = sc[id].pnl - sc[other].pnl;
         this.talk(id, pick(Math.abs(d) < 1e-9 ? TALK.lastMin.tie : d > 0 ? TALK.lastMin.lead : TALK.lastMin.behind), 'lastmin', now);
       } else if (now - c.talkAt >= COACH.TALK_EVERY_MS) this.talk(id, pick(TALK.idle[id]), 'idle', now);
     }
+    if (this.derbyOn()) this.derbyAtmosphere(now);
+  }
+  // DERBY: sfottò amichevoli a turno e cori delle curve
+  derbyAtmosphere(now) {
+    const m = this.m;
+    if (now - (m.banterAt || 0) >= DERBY.BANTER_MS) {
+      m.banterAt = now; const id = TEAM_IDS[(m.banterTurn = (m.banterTurn || 0) + 1) % 2]; const other = id === 'A' ? 'B' : 'A';
+      const who = Math.random() < 0.35 ? TEAMS[id].coach.id : pick(TEAMS[id].players).id; const rw = Math.random() < 0.35 ? TEAMS[other].coach.id : pick(TEAMS[other].players).id;
+      this.banter(id, who, pick(DTALK.banter[id]), 'banter', now, { team: other, who: rw, text: pick(DTALK.reply[other]) });
+    }
+    if (now - (m.chantAt || 0) >= DERBY.CHANT_MS) { const sc = this.score(now); const lead = sc.A.pnl === sc.B.pnl ? pick(TEAM_IDS) : sc.A.pnl > sc.B.pnl ? 'A' : 'B'; this.chant(Math.random() < 0.65 ? lead : (lead === 'A' ? 'B' : 'A'), now); }
   }
   // trade chiuso di una squadra: l'allenatore reagisce (bonus limitato, selettività, time-out)
   onClose(tr, now = Date.now()) {
     const m = this.m; if (!m || tr.matchId !== m.id || !m.teams[tr.team]) return;
     const c = m.teams[tr.team].coach; const pl = TEAMS[tr.team].players.find((x) => x.id === tr.player); const name = pl ? pl.name : 'squadra';
+    if (this.derbyOn()) this.derbyClose(tr, c, pl, now);
     if (tr.pnl >= 0) {
       c.wins++; c.losses = 0;
       if (pl) c.bonus[pl.id] = Math.min(COACH.BONUS_MAX, (c.bonus[pl.id] || 0) + COACH.BONUS_STEP);
@@ -294,6 +370,28 @@ class MatchManager {
     }
     this.e.save();
   }
+  // DERBY: gol, rientro rapido dopo una vincita (mai sotto i 30 s), panchina per chi sbaglia due volte di fila
+  derbyClose(tr, c, pl, now) {
+    const b = this.e.book; const other = tr.team === 'A' ? 'B' : 'A'; c.streak = c.streak || {}; c.benchUntil = c.benchUntil || {};
+    if (tr.pnl > 0) {
+      if (pl) c.streak[pl.id] = 0;
+      const key = `${tr.team}:${tr.mint}:${tr.side || 'LONG'}`; if (b.cooldown[key]) b.cooldown[key] = Math.min(b.cooldown[key], now + DERBY.WIN_COOLDOWN_MS);
+      this.e.emit('ev', { type: 'goal', team: tr.team, player: tr.player, name: pl ? pl.name : TEAMS[tr.team].name, pnl: tr.pnl, symbol: tr.symbol });
+      this.e.log('PARTITA', `⚽ GOL! ${pl ? pl.name : 'squadra'} (${TEAMS[tr.team].name}) chiude $${tr.symbol} in profitto`);
+      this.chant(tr.team, now);
+      if (Math.random() < 0.6) { const r = pick(TEAMS[other].players); this.banter(other, Math.random() < 0.5 ? TEAMS[other].coach.id : r.id, pick(DTALK.rivalGoal), 'banter', now); }
+    } else if (tr.pnl < 0 && pl) {
+      c.streak[pl.id] = (c.streak[pl.id] || 0) + 1;
+      if (c.streak[pl.id] >= DERBY.COLD_STREAK) {
+        c.streak[pl.id] = 0; c.benchUntil[pl.id] = now + DERBY.BENCH_MS;
+        const ts = this.m.teams[tr.team]; const before = ts.lineup || {}; const slot = before[pl.id];
+        this.assign(tr.team, now);
+        const inn = slot && slot.mint ? TEAMS[tr.team].players.find((x) => x.id !== pl.id && ts.lineup[x.id] && ts.lineup[x.id].mint === slot.mint && ts.lineup[x.id].role === slot.role && (!before[x.id] || !before[x.id].mint)) : null;
+        const txt = inn ? fill(pick(DTALK.sub), { p: inn.name, o: pl.name }) : fill(pick(DTALK.rest), { o: pl.name });
+        this.talk(tr.team, txt, 'sub', now); this.e.emit('ev', { type: 'sub', team: tr.team, out: pl.id, in: inn ? inn.id : null });
+      }
+    }
+  }
   // ---------- turno di gioco di una squadra (stesse fasi e limiti di rischio del banco)
   async teamTurn(teamId, now = Date.now()) {
     const prevCtx = this.e.actx; this.e.actx = { team: teamId };
@@ -302,7 +400,9 @@ class MatchManager {
   async teamTurnInner(teamId, now) {
     const e = this.e; const cfg = e.cfg; const b = e.book; const m = this.m; const T = TEAMS[teamId]; const ts = m.teams[teamId]; const c = ts.coach;
     if (c.timeoutUntil > now) { e.agent('CAPO', `${T.name}: time-out dell'allenatore`, 'idle'); return null; }
-    const sc = this.score(now)[teamId];
+    const scAll = this.score(now); const sc = scAll[teamId];
+    const mood = this.derbyOn() ? this.moodOf(teamId, scAll, now) : 'normal'; const derby = mood !== 'normal';
+    const react = c.react && c.react.until > now ? c.react : null;
     const teamMax = Math.max(1, Math.ceil(cfg.maxOpen / 2));
     if (sc.open >= teamMax) { e.agent('CAPO', `${T.name}: già ${sc.open} posizioni (max ${teamMax} per squadra)`, 'idle'); return null; }
     if (!ts.coins) this.pickCoins(teamId, now, false);
@@ -335,7 +435,8 @@ class MatchManager {
       const rs = coin.perp ? e.research.signalFor(asset, side, T.strategies) : { score: 0, against: 0, strategies: [], opposite: [], atrPct: null };
       const feat = [...K.featuresOf({ s, a, f, core: coin.perp, solMom60: e.solMom60(), side: side === 'SHORT' ? 'short' : 'long' }), coin.perp ? `${side === 'SHORT' ? 'short.' : ''}leva:${e.leverage()}x` : 'spot:1x', ...rs.strategies.map((id) => (side === 'SHORT' ? 'short.' : '') + 'strat:' + id)];
       const kn = K.assess(e.kb, feat);
-      const boost = (c.bonus[pl.id] || 0) + (c.focus === asset ? COACH.FOCUS_BONUS : 0); // spinta dell'allenatore (limitata)
+      // spinta dell'allenatore (limitata); DERBY: +rimonta e +risposta alla mossa del rivale sulla stessa cripto
+      const boost = (c.bonus[pl.id] || 0) + (c.focus === asset ? COACH.FOCUS_BONUS : 0) + (mood === 'rimonta' ? DERBY.RIMONTA_BOOST : 0) + (react && react.mint === mint ? DERBY.REACT_BONUS : 0);
       const flowW = contra ? 0.3 : 1;
       const x = { m: mint, s, a, f, feat, kn, rs, side, sig, pl, boost, coin, contra, conf: sig.conf, total: sig.score + d * f.score * flowW + kn.adj + rs.score - rs.against + boost };
       e.mentorGate(x);
@@ -344,9 +445,12 @@ class MatchManager {
     }
     if (!cands.length) { e.agent('CAPO', `${T.name}: nessun mercato libero (cooldown, posizioni o candele in caricamento)`, 'idle'); return null; }
     const libOk = (x) => x.rs.score >= 1 && x.rs.against < 1;
-    const sigOk = (x) => x.sig.signal || libOk(x);
+    // DERBY: si accettano anche segnali "quasi pieni" (5 condizioni su 6 nel trend, 3 su 4 nel contropiede) con punteggio sufficiente
+    const nearOk = (x) => derby && mood !== 'protect' && x.sig.conf >= (x.contra ? DERBY.NEAR_CONTRA : DERBY.NEAR_TREND) && x.total >= (mood === 'rimonta' ? DERBY.RIMONTA_TOTAL : DERBY.NEAR_TOTAL);
+    const sigOk = (x) => x.sig.signal || libOk(x) || nearOk(x);
     const flowOk = (x) => (x.contra ? (x.side === 'SHORT' ? x.f.score < 0.6 : x.f.score > -0.6) : x.side === 'SHORT' ? x.f.score < 0.2 : x.f.score > -0.2);
-    const selOk = (x) => c.selectivity === 0 || (c.selectivity === 1 ? x.sig.conf >= 0.75 || libOk(x) : x.total >= 2 && (x.sig.conf >= 0.9 || libOk(x)));
+    const sel = mood === 'protect' ? Math.max(1, c.selectivity) : mood === 'rimonta' ? Math.max(0, c.selectivity - 1) : c.selectivity;
+    const selOk = (x) => sel === 0 || (sel === 1 ? x.sig.conf >= 0.75 || libOk(x) : x.total >= 2 && (x.sig.conf >= 0.9 || libOk(x)));
     cands.sort((x, y) => y.total - x.total);
     const top = cands[0];
     e.agent('SOCIAL', `${T.name} · ${top.pl.name}: $${top.s.symbol} ${top.f.buys} acquisti / ${top.f.sells} vendite (1h)`, 'flow', { token: top.s.symbol, player: top.pl.id });
@@ -357,19 +461,43 @@ class MatchManager {
       return null;
     }
     const prev = e.actx; e.actx = { team: teamId, player: best.pl.id };
+    const lev = best.coin.perp ? e.tradeLev(derbyLev({ perp: best.coin.perp, mood, sig: best.sig, total: best.total })) : 1;
+    best.derby = derby && mood !== 'protect'; // chi vince corre col trailing stop
     try {
       const passed = Object.values(best.sig.checks || {}).filter(Boolean).length;
-      e.agent('CAPO', `${best.pl.name} (${T.name}) entra ${best.side === 'SHORT' ? 'SHORT ▼' : 'LONG ▲'}${best.coin.perp ? ` ${e.leverage()}x` : ' spot 1x'} su $${best.s.symbol}: ${passed}/${Object.keys(best.sig.checks || {}).length} condizioni${best.boost ? ` · spinta allenatore +${best.boost.toFixed(2)}` : ''}${best.rs.strategies.length ? ' · strategie: ' + best.rs.strategies.join(', ') : ''}`, 'pick', { token: best.s.symbol, side: best.side });
+      e.agent('CAPO', `${best.pl.name} (${T.name}) entra ${best.side === 'SHORT' ? 'SHORT ▼' : 'LONG ▲'}${best.coin.perp ? ` ${lev}x${lev > e.leverage() ? ' (segnale forte)' : ''}` : ' spot 1x'} su $${best.s.symbol}: ${passed}/${Object.keys(best.sig.checks || {}).length} condizioni${best.boost ? ` · spinta allenatore +${best.boost.toFixed(2)}` : ''}${derby && !best.sig.signal && !libOk(best) ? ' · derby: segnale quasi pieno' : ''}${mood === 'rimonta' ? ' · rimonta' : mood === 'protect' ? ' · difesa del vantaggio' : ''}${best.rs.strategies.length ? ' · strategie: ' + best.rs.strategies.join(', ') : ''}`, 'pick', { token: best.s.symbol, side: best.side });
       e.log('PARTITA', `${best.pl.name} (${T.name}, ${T.styleLabel}) sceglie $${best.s.symbol} ${best.side} · punteggio ${best.total.toFixed(2)} · fiducia ${(best.sig.conf * 100).toFixed(0)}%`);
       await sleep(250);
       const fromLib = !best.sig.signal;
-      const pos = await e.enterTrade(best, { conf: best.sig.conf, fromLib, capital: sc.capital, cash: sc.free, team: teamId, player: best.pl.id, perp: best.coin.perp });
+      const pos = await e.enterTrade(best, { conf: best.sig.conf, fromLib, capital: sc.capital, cash: sc.free, team: teamId, player: best.pl.id, perp: best.coin.perp, lev: best.coin.perp ? lev : null });
       return (pos && pos.mint ? pos : null) || b.positions.find((p) => p.team === teamId && p.player === best.pl.id) || null;
     } finally { e.actx = prev; }
   }
   async turn(now = Date.now()) {
     const order = this.firstTeam ? ['B', 'A'] : ['A', 'B']; this.firstTeam ^= 1;
-    for (const id of order) { if (!this.live()) break; await this.teamTurn(id, now); }
+    for (const id of order) {
+      if (!this.live()) break;
+      const pos = await this.teamTurn(id, now);
+      if (pos && this.derbyOn() && this.live()) this.rivalReact(id, pos, now);
+    }
+  }
+  // DERBY: il rivale reagisce a una nuova posizione (piccolo bonus sulla stessa cripto per 90 s, gioca per primo al prossimo giro)
+  rivalReact(teamId, pos, now = Date.now()) {
+    const m = this.m; const other = teamId === 'A' ? 'B' : 'A'; const oc = m.teams[other].coach;
+    oc.react = { mint: pos.mint, symbol: pos.symbol, side: pos.side || 'LONG', until: now + DERBY.REACT_MS, by: pos.player };
+    this.firstTeam = other === 'A' ? 0 : 1;
+    const by = TEAMS[teamId].players.find((x) => x.id === pos.player);
+    const ln = m.teams[other].lineup || {}; const mine = TEAMS[other].players.filter((x) => ln[x.id] && ln[x.id].mint === pos.mint);
+    const who = (mine.length ? pick(mine) : pick(TEAMS[other].players)).id;
+    this.banter(other, who, fill(pick(DTALK.react), { r: by ? by.name : TEAMS[teamId].name, a: `${pos.symbol} ${pos.side === 'SHORT' ? 'short' : 'long'}` }), 'react', now);
+  }
+  // DERBY: termometro della rivalità (−1 = Squali avanti, +1 = Fulmini avanti) e ritmo (operazioni negli ultimi 3 minuti)
+  derbyView(m, sc, now) {
+    const on = m ? !!m.derby || this.derbyOn() : this.derbyOn();
+    if (!sc) return { on, meter: 0, heat: 0 };
+    const diff = sc.A.pct - sc.B.pct; const meter = Math.tanh(diff / 0.6);
+    const recent = this.e.book.trades.filter((x) => x.matchId === m.id && now - x.closedAt < 3 * 60e3).length + this.matchPositions().filter((p) => now - p.openedAt < 3 * 60e3).length;
+    return { on, meter: +meter.toFixed(3), heat: Math.min(1, recent / 8), mood: { A: m.teams.A.coach.mood || 'normal', B: m.teams.B.coach.mood || 'normal' } };
   }
   view(now = Date.now()) {
     const m = this.m; const sc = m ? this.score(now) : null;
@@ -377,11 +505,13 @@ class MatchManager {
       const T = TEAMS[id]; const st = m && m.teams[id]; const s = sc && sc[id];
       return { id, name: T.name, short: T.short, style: T.style, styleLabel: T.styleLabel, color: T.color, color2: T.color2, motto: T.motto,
         bankroll: st ? st.bankroll : 0, pnl: s ? s.pnl : 0, pct: s ? s.pct : 0, trades: s ? s.trades : 0, wins: s ? s.wins : 0, losses: s ? s.losses : 0, open: s ? s.open : 0,
+        mood: st ? st.coach.mood || 'normal' : 'normal',
         coach: { ...T.coach, selectivity: st ? st.coach.selectivity : 0, timeoutUntil: st ? st.coach.timeoutUntil : 0, focus: st ? st.coach.focus : null, lastTalk: st ? st.coach.lastTalk || null : null },
         actions: st ? st.actions.slice(0, 6) : [],
         coins: st && st.coins ? st.coins : [],
         players: T.players.map((p) => { const ps = s ? s.players.find((x) => x.id === p.id) : null; const L = (st && st.lineup && st.lineup[p.id]) || null; const cv = L && L.mint && st.coins ? st.coins.find((x) => x.mint === L.mint) : null;
-          return { ...p, asset: L ? L.symbol : null, mint: L ? L.mint : null, side: L ? L.side : null, lineRole: L ? L.role : 'riserva', slot: L ? L.slot : -1, perp: !!(L && L.perp), coinColor: cv ? cv.color : null, role: roleText(L, this.e.leverage()), pnl: ps ? ps.pnl : 0, trades: ps ? ps.trades : 0, wins: ps ? ps.wins : 0, losses: ps ? ps.losses : 0, holding: ps ? ps.holding : false, bonus: ps ? ps.bonus : 0 }; }) };
+          const rest = st && st.coach.benchUntil && st.coach.benchUntil[p.id] > now ? st.coach.benchUntil[p.id] : 0;
+          return { ...p, resting: rest, streak: st && st.coach.streak ? st.coach.streak[p.id] || 0 : 0, asset: L ? L.symbol : null, mint: L ? L.mint : null, side: L ? L.side : null, lineRole: L ? L.role : 'riserva', slot: L ? L.slot : -1, perp: !!(L && L.perp), coinColor: cv ? cv.color : null, role: roleText(L, ((m && this.e.book.positions.find((x) => x.matchId === m.id && x.player === p.id && x.perp)) || {}).lev || this.e.leverage()), pnl: ps ? ps.pnl : 0, trades: ps ? ps.trades : 0, wins: ps ? ps.wins : 0, losses: ps ? ps.losses : 0, holding: ps ? ps.holding : false, bonus: ps ? ps.bonus : 0 }; }) };
     });
     const block = this.e.entryBlock(); const pb = this.e.perpBlock(); const sb = this.e.spotBlock();
     return { id: m ? m.id : null, number: m ? m.number : null, state: m ? m.state : 'none', mode: m ? m.mode : this.e.cfg.mode, startAt: m ? m.startAt : null, endAt: m ? m.endAt : null, now, durationMs: MATCH_MS,
@@ -389,7 +519,8 @@ class MatchManager {
       realWaiting: block && (!m || m.mode === 'REAL' || this.e.cfg.mode === 'REAL') ? `Partita REALE in attesa del test con 5-10 USDC: nessun ordine reale finché non approvi il test.${this.e.cfg.spotLongs ? ' Lo spot reale (solo long, 1x) è spento: si può attivare in Impostazioni.' : ''}` : null,
       realNote: !block && this.e.cfg.mode === 'REAL' && (pb || sb) ? (pb ? 'REALE: solo spot 1x long con swap veri su Jupiter. Leva e short in attesa del test con 5-10 USDC.' : 'REALE: solo perps (spot reale spento).') : null,
       maxCoins: MAX_COINS,
+      derby: this.derbyView(m, sc, now),
       tally: this.hist.tally, history: this.hist.history.slice(0, 5) };
   }
 }
-module.exports = { MatchManager, TEAMS, TEAM_IDS, MATCH_MS, COACH, MAX_COINS };
+module.exports = { MatchManager, TEAMS, TEAM_IDS, MATCH_MS, COACH, MAX_COINS, DERBY, derbyLev };
