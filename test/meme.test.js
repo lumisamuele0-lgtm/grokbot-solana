@@ -80,19 +80,19 @@ test('memecoin: etichetta 🐸, solo spot 1x long al 7%, honeypot e Token-2022 r
   const real = jup.quote;
   jup.quote = async (i, o, amt) => (i === USDC ? { outAmount: String(Math.floor((Number(amt) / 1e6 / e.market.prices[MEME].usd) * 1e6)), priceImpactPct: '0.001' } : { outAmount: '1000', priceImpactPct: '0' });
   try {
-    const m = e.match.start(); const c = m.teams.A.coins.find((x) => x.mint === MEME); assert.ok(c && c.meme && /🐸/.test(c.label));
-    assert.ok(Object.values(m.teams.A.lineup).filter((L) => L.mint === MEME).every((L) => L.side === 'LONG'));
-    const pos = await e.match.teamTurn('A');
-    assert.ok(pos && pos.mint === MEME); assert.strictEqual(pos.lev, 1); assert.strictEqual(pos.side, 'LONG'); assert.ok(!pos.perp); assert.ok(Math.abs(pos.costBase - 35) < 0.01, `7% di 500 (${pos.costBase})`); assert.strictEqual(pos.core, false, 'uscite furbe per meme');
-    const sh = await e.enterTrade({ m: MEME, s: { symbol: 'FROG' }, a: { atrPct: 1, last: 1 }, side: 'SHORT', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, team: 'B', player: 'B1', perp: false });
-    assert.ok(!sh); assert.ok(!e.book.positions.some((p) => p.team === 'B'));
+    const f = e.galaxy.pickFocus(); const c = f.find((x) => x.mint === MEME); assert.ok(c && c.meme && /🐸/.test(c.label));
+    const opened = await e.galaxy.turn(); const pos = opened[0];
+    assert.ok(opened.every((p) => p.side === 'LONG'), 'memecoin: solo long');
+    assert.ok(pos && pos.mint === MEME); assert.strictEqual(pos.lev, 1); assert.strictEqual(pos.side, 'LONG'); assert.ok(!pos.perp); assert.ok(Math.abs(pos.costBase - 70) < 0.01, `7% di 1000 (${pos.costBase})`); assert.strictEqual(pos.core, false, 'uscite furbe per meme');
+    const sh = await e.enterTrade({ m: MEME, s: { symbol: 'FROG' }, a: { atrPct: 1, last: 1 }, side: 'SHORT', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, bot: 'selene', perp: false });
+    assert.ok(!sh); assert.ok(!e.book.positions.some((p) => p.bot === 'selene'));
     // Token-2022 con commissione di trasferimento: scartato al controllo on-chain
     const BAD = 'Bad2222222222222222222222222222222222222222'; readySpot(e, BAD, 'FEE', { token2022Ext: true });
-    assert.ok(!(await e.enterTrade({ m: BAD, s: { symbol: 'FEE' }, a: { atrPct: 1, last: 1 }, side: 'LONG', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, team: 'B', player: 'B1', perp: false })));
+    assert.ok(!(await e.enterTrade({ m: BAD, s: { symbol: 'FEE' }, a: { atrPct: 1, last: 1 }, side: 'LONG', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, bot: 'selene', perp: false })));
     // honeypot: nessuna via di vendita su Jupiter
     const H = 'Hny3333333333333333333333333333333333333333'; readySpot(e, H, 'HONEY');
     jup.quote = async (i) => { if (i === H) throw new Error('No routes found'); return { outAmount: '1000000', priceImpactPct: '0' }; };
-    assert.ok(!(await e.enterTrade({ m: H, s: { symbol: 'HONEY' }, a: { atrPct: 1, last: 1 }, side: 'LONG', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, team: 'B', player: 'B1', perp: false })));
+    assert.ok(!(await e.enterTrade({ m: H, s: { symbol: 'HONEY' }, a: { atrPct: 1, last: 1 }, side: 'LONG', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, bot: 'selene', perp: false })));
     assert.ok(!e.book.positions.some((p) => p.mint === H || p.mint === BAD));
   } finally { jup.quote = real; }
 });
@@ -103,19 +103,19 @@ test('memecoin in REALE: niente acquisti finché «Spot REALE» è spento', asyn
   let swaps = 0; e.realSwap = async () => { swaps++; return { ok: false, err: 'test' }; };
   const real = jup.quote; jup.quote = async (i, o, amt) => ({ outAmount: String(Number(amt)), priceImpactPct: '0' });
   try {
-    assert.strictEqual(e.cfg.realSpot, false); e.setTrading(true); await e.cycle(); await e.match.turn();
+    assert.strictEqual(e.cfg.realSpot, false); e.setTrading(true); await e.cycle(); await e.galaxy.turn();
     assert.strictEqual(swaps, 0); assert.strictEqual(e.book.positions.length, 0);
-    const r = await e.enterTrade({ m: MEME, s: { symbol: 'FROG' }, a: { atrPct: 1, last: 1 }, side: 'LONG', rs: { score: 0 } }, { conf: 1, capital: 50, cash: 50, team: 'A', player: 'A1', perp: false });
+    const r = await e.enterTrade({ m: MEME, s: { symbol: 'FROG' }, a: { atrPct: 1, last: 1 }, side: 'LONG', rs: { score: 0 } }, { conf: 1, capital: 50, cash: 50, bot: 'nova', perp: false });
     assert.ok(!r); assert.strictEqual(swaps, 0);
   } finally { jup.quote = real; }
 });
 
-test('memecoin scartata dal controllo on-chain (es. Token-2022 con commissioni): l\'allenatore la toglie dal campo', async () => {
+test('memecoin scartata dal controllo on-chain (es. Token-2022 con commissioni): il Mentore la toglie dal focus', async () => {
   const e = mkEngine(); const M2 = 'Good444444444444444444444444444444444444444';
   e.universe.setCoins([meme(), meme({ mint: M2, symbol: 'DOGE2', tokenProgram: T22 })]);
-  const m = e.match.start(); assert.ok(m.teams.A.coins.some((c) => c.mint === M2) || m.teams.B.coins.some((c) => c.mint === M2));
+  assert.ok(e.galaxy.pickFocus().some((c) => c.mint === M2));
   e.market.safety[M2] = { ts: Date.now(), rugScore: 5, danger: [], holderRisk: false, holderDanger: false, mintAuthority: null, freezeAuthority: null, token2022Ext: true };
-  assert.ok(!e.match.candidates().some((c) => c.mint === M2));
-  e.match.coachTick(Date.now() + 11e3);
-  assert.ok(!m.teams.A.coins.some((c) => c.mint === M2) && !m.teams.B.coins.some((c) => c.mint === M2));
+  assert.ok(!e.galaxy.candidates().some((c) => c.mint === M2));
+  e.galaxy.tick(Date.now() + 11e3);
+  assert.ok(!e.galaxy.focusMints().includes(M2));
 });

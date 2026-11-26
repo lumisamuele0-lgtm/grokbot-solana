@@ -1,4 +1,4 @@
-/* GrokBot Solana — interfaccia (mobile first). Tutti i dati arrivano dal motore locale via SSE. */
+/* GrokBot · Osservatorio Galattico — interfaccia (mobile first, iPhone). Tutti i dati arrivano dal motore via SSE. */
 (function () {
   'use strict';
   const $ = (s, r = document) => r.querySelector(s);
@@ -14,6 +14,7 @@
   let S = null; // ultima istantanea
   let es = null;
   let sheetRefresh = null;
+  let tab = 'sky';
   const ICONS = {
     scout: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>',
     shield: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/></svg>',
@@ -39,7 +40,7 @@
     return j;
   }
   function toast(msg, ms = 3200) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = msg; document.body.appendChild(d); setTimeout(() => d.remove(), ms); }
-  function show(id) { ['login', 'setup', 'dash'].forEach((x) => $('#' + x).classList.toggle('hidden', x !== id)); $('#nav').classList.toggle('hidden', id !== 'dash'); window.scrollTo(0, 0); }
+  function show(id) { ['login', 'setup', 'dash'].forEach((x) => $('#' + x).classList.toggle('hidden', x !== id)); window.scrollTo(0, 0); if (window.Sky) Sky.setVisible(id === 'dash' && tab === 'sky'); }
 
   // ---------- accesso
   let setupMode = false;
@@ -75,10 +76,10 @@
 
   async function start() {
     S = await api('/api/state');
-    buildAgents();
-    if (!window.__sceneInit) { window.__sceneInit = 1; Scene.init($('#scene'), onBotTap); }
+    if (!window.__skyInit) { window.__skyInit = 1; Sky.init($('#skyCanvas'), { onTap: onSkyTap }); }
     if (!localStorage.getItem('sb_started')) openSetup(false); else { show('dash'); }
     render(S);
+    applyList(); let t0 = 'sky'; try { t0 = sessionStorage.getItem('sb_tab') || 'sky'; } catch {} setTab(t0);
     connect();
   }
   function connect() {
@@ -167,31 +168,6 @@
     requestAnimationFrame(tick);
   })(0);
 
-  // ---------- sparkline
-  let sparkP = 0;
-  function drawSpark() {
-    const c = $('#spark'); if (!c || !S) return;
-    const r = c.getBoundingClientRect(); const dpr = Math.min(2.5, devicePixelRatio || 1);
-    if (c.width !== Math.round(r.width * dpr)) { c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); }
-    const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, r.width, r.height);
-    let pts = (S.equityHist || []).map((p) => p.v); if (S.equity != null) pts = pts.concat([S.equity]);
-    if (pts.length < 2) pts = [S.startEquity, S.equity ?? S.startEquity];
-    let mn = Math.min(...pts), mx = Math.max(...pts); if (mx - mn < Math.abs(mx) * 1e-4) { mn -= Math.abs(mx) * 0.001 + 1e-9; mx += Math.abs(mx) * 0.001 + 1e-9; } const sp = mx - mn;
-    const W = r.width, H = r.height, pad = 8;
-    const P = pts.map((v, i) => [pad + (i / (pts.length - 1)) * (W - pad * 2), H - pad - ((v - mn) / sp) * (H - pad * 2)]);
-    sparkP = Math.min(1, sparkP + 0.025);
-    const n = Math.max(2, Math.ceil(P.length * sparkP));
-    const up = pts[pts.length - 1] >= pts[0]; const col = up ? '#00FF88' : '#ff5a6a';
-    const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, up ? '#00FF8833' : '#ff5a6a33'); g.addColorStop(1, '#00000000');
-    x.beginPath(); P.slice(0, n).forEach(([a, b], i) => (i ? x.lineTo(a, b) : x.moveTo(a, b)));
-    const [lx, ly] = P[n - 1];
-    x.strokeStyle = col; x.lineWidth = 2; x.lineJoin = 'round'; x.shadowColor = col; x.shadowBlur = 8; x.stroke(); x.shadowBlur = 0;
-    x.lineTo(lx, H); x.lineTo(P[0][0], H); x.closePath(); x.fillStyle = g; x.fill();
-    const pulse = 3 + Math.sin(performance.now() / 300) * 1.2;
-    x.fillStyle = col; x.shadowColor = col; x.shadowBlur = 16; x.beginPath(); x.arc(lx, ly, pulse, 0, 6.28); x.fill(); x.shadowBlur = 0;
-    requestAnimationFrame(drawSpark);
-  }
-
   // ---------- pannello guadagni/perdite (in alto, aggiornato a ogni istantanea live ~2 s)
   const sgn = (v) => (v > 0 ? '+' : v < 0 ? '−' : '');
   const fUsd = (v) => (v == null || !isFinite(v) ? '—' : sgn(v) + (Math.abs(v) < 0.995 && v !== 0 ? nf(Math.abs(v), 3) + ' $' : nf(Math.abs(v), 2) + ' $'));
@@ -257,7 +233,7 @@
     if (RMQ) { setTimeout(() => fl.remove(), 1600); return; }
     // destinazione/partenza: la card della posizione se visibile, altrimenti la sala operativa
     const card = document.querySelector(`.pcard[data-pid="${e.id}"]`); const vis = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight && r.width ? r : null; };
-    const tr = vis(card) || vis($('#sceneBox')) || vis($('#pos'));
+    const tr = vis(card) || vis($('#sky')) || vis($('#pos'));
     const chip = document.createElement('div'); chip.className = 'capChip ' + col; chip.textContent = txt; document.body.appendChild(chip);
     const from = out ? { x: ar.left + ar.width / 2, y: ar.top + ar.height / 2 } : tr ? { x: tr.left + tr.width / 2, y: tr.top + Math.min(40, tr.height / 2) } : { x: ar.left, y: ar.top + 80 };
     const to = out ? (tr ? { x: tr.left + tr.width / 2, y: tr.top + Math.min(40, tr.height / 2) } : { x: ar.left, y: ar.top + 120 }) : { x: ar.left + ar.width / 2, y: ar.top + ar.height / 2 };
@@ -368,97 +344,141 @@
   let lastKnH = '';
   function renderKnowledge(s) { const h = knowledgeHtml(s.knowledge, false); if (h !== lastKnH) { lastKnH = h; $('#know').innerHTML = h; } }
 
-  // ---------- agenti
-  function buildAgents() {
-    $('#teams').addEventListener('click', (e) => { const b = e.target.closest('[data-pl]'); if (b) playerSheet(b.dataset.pl); });
-    $('#matchCard').addEventListener('click', async (e) => {
-      if (e.target.closest('[data-mstop]')) openSheet(`<h4>Terminare la partita?</h4><p class="note">Fischio finale anticipato: chiudo le posizioni della partita al prezzo di mercato e dichiaro il vincitore con il punteggio attuale.</p><div class="btns"><button class="btn ghost" data-close>Annulla</button><button class="btn pri" id="mStopGo">Termina</button></div>`, (b) => $('#mStopGo', b).addEventListener('click', async () => { closeSheet(); try { await api('/api/match/stop', {}); } catch (er) { toast(er.message); } }));
-      if (e.target.closest('[data-mstart]')) { try { await api('/api/match/start', {}); toast("⚽ Calcio d'inizio!"); } catch (er) { toast(er.message, 4500); } }
-    });
-    $('#matchEnd').addEventListener('click', async (e) => {
-      const b = e.target.closest('[data-mend]'); if (!b) return;
-      const id = S.match && S.match.id; endSeen[id] = 1; $('#matchEnd').classList.add('hidden');
-      try { if (b.dataset.mend === 'yes') { await api('/api/match/start', {}); toast("⚽ Nuova partita: calcio d'inizio!"); } else await api('/api/match/dismiss', {}); } catch (er) { toast(er.message, 4500); }
-    });
-    setInterval(tickClock, 1000);
-    if (!$('#agents')) { $('#know').addEventListener('click', () => agentSheet('MENTORE')); $('#research').addEventListener('click', () => agentSheet('MENTORE')); $('#mentorDiary').addEventListener('click', () => agentSheet('MENTORE')); return; }
-    $('#agents').innerHTML = S.agents.map((a) => `
-      <button class="ag" data-id="${a.id}">
-        <span class="ic" style="background:${a.color};color:${a.color}">${ICONS[a.icon] || ''}</span>
-        <span class="tx"><div class="nm">${a.id}<small>${esc(a.role)}</small></div><div class="act" data-act>in attesa…</div></span>
-        <span class="cnt" data-cnt>0</span>
-      </button>`).join('');
-    if ($('#agN')) $('#agN').textContent = S.agents.length;
-    $('#agents').addEventListener('click', (e) => { const b = e.target.closest('.ag'); if (b) agentSheet(b.dataset.id); });
-    $('#know').addEventListener('click', () => agentSheet('MENTORE'));
-    $('#research').addEventListener('click', () => agentSheet('MENTORE'));
-    $('#mentorDiary').addEventListener('click', () => agentSheet('MENTORE'));
-  }
-  const lastAct = {};
-  function renderAgents() {
-    for (const a of S.agents) {
-      const row = $(`.ag[data-id="${a.id}"]`); if (!row) continue;
-      const txt = a.last ? a.last.text : 'in attesa…';
-      const el = row.querySelector('[data-act]');
-      if (lastAct[a.id] !== txt) { el.textContent = txt; if (lastAct[a.id] !== undefined) { el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } lastAct[a.id] = txt; }
-      row.querySelector('[data-cnt]').textContent = `${a.count} ${a.unit}`;
-      row.querySelector('.ic').classList.toggle('busy', !!(a.last && Date.now() - a.last.t < 4000));
-    }
-  }
-  function onBotTap(id, x, y) {
-    $$('.bubble').forEach((b) => b.remove());
-    if (!id) return;
-    const pf = findPlayer(id);
-    if (pf) {
-      const { T, p, coach } = pf; const d = document.createElement('div'); d.className = 'bubble';
-      const box = $('#sceneBox').getBoundingClientRect();
-      d.style.left = Math.max(125, Math.min(box.width - 125, x)) + 'px'; d.style.top = Math.max(70, y) + 'px';
-      d.innerHTML = coach
-        ? `<b style="color:${T.color}">${esc(p.name)} · allenatore ${esc(T.name)}</b>${esc(T.coach.lastTalk ? '«' + T.coach.lastTalk.text + '»' : 'Pronto a guidare la squadra.')}<small>selettività ${T.coach.selectivity}/2${T.coach.focus ? ' · focus ' + T.coach.focus : ''} · tocca per dettagli</small>`
-        : `<b style="color:${T.color}">#${p.num} ${esc(p.name)} · ${esc(T.name)}</b>${esc(p.role)} · ${p.holding ? '⚽ in campo con una posizione' : 'in attesa del segnale'}<small>${money(p.pnl)} · ${p.trades} trade (${p.wins}V/${p.losses}P)${p.bonus ? ' · ⚡ spinta +' + nf(p.bonus, 2) : ''} · tocca per dettagli</small>`;
-      d.addEventListener('click', () => { d.remove(); playerSheet(id); });
-      $('#sceneBox').appendChild(d); setTimeout(() => d.remove(), 7000); return;
-    }
-    const a = S.agents.find((z) => z.id === id); if (!a) return;
-    const d = document.createElement('div'); d.className = 'bubble';
-    const box = $('#sceneBox').getBoundingClientRect();
-    d.style.left = Math.max(125, Math.min(box.width - 125, x)) + 'px'; d.style.top = Math.max(70, y) + 'px';
-    d.innerHTML = `<b style="color:${a.color}">${a.id} · ${esc(a.role)}</b>${esc(a.last ? a.last.text : 'In attesa di lavoro…')}<small>${a.count} ${a.unit}${a.last ? ' · ' + hhmm(a.last.t) : ''} · tocca per dettagli</small>`;
-    d.addEventListener('click', () => { d.remove(); agentSheet(id); });
-    $('#sceneBox').appendChild(d);
-    setTimeout(() => d.remove(), 7000);
-  }
+  // ---------- agenti (Mentore)
   function agentSheet(id) {
     const draw = () => {
       const a = S.agents.find((z) => z.id === id);
       const lines = S.log.filter((l) => l.agent === id).slice(-12).reverse();
-      return `<div class="row"><span class="ic" style="width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:${a.color}">${ICONS[a.icon]}</span><div><h4>${a.id}</h4><div class="mu" style="font-size:13px">${esc(a.role)} · ${a.count} ${a.unit}</div></div></div>
-      ${id === 'MENTORE' ? `<div class="card know research" style="margin-top:14px"><div class="lbl kn-t">Diario del Mentore</div>${mentorHtml(S.mentor, S.research, true)}</div><div class="card know" style="margin-top:12px">${knowledgeHtml(S.knowledge, true)}</div><div class="card know research" style="margin-top:12px"><div class="lbl kn-t">Strategie studiate dal Mentore</div>${researchHtml(S.research, true)}</div>` : ''}
-      <div class="card" style="margin-top:14px"><div class="lbl">Decisione attuale</div><div style="margin-top:6px;font-size:15px;line-height:1.45">${esc(a.last ? a.last.text : 'In attesa…')}</div></div>
+      return `<div class="row"><span class="ic" style="width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:${a.color}">${ICONS[a.icon] || ''}</span><div><h4>${a.id}</h4><div class="mu" style="font-size:13px">${esc(a.role)} · ${a.count} ${a.unit}</div></div></div>
+      ${id === 'MENTORE' ? `<div class="glass know research" style="margin-top:14px"><div class="lbl kn-t">Diario del Mentore</div>${mentorHtml(S.mentor, S.research, true)}</div><div class="glass know" style="margin-top:12px">${knowledgeHtml(S.knowledge, true)}</div><div class="glass know research" style="margin-top:12px"><div class="lbl kn-t">Strategie studiate dal Mentore</div>${researchHtml(S.research, true)}</div>` : ''}
+      <div class="glass" style="margin-top:14px"><div class="lbl">Decisione attuale</div><div style="margin-top:6px;font-size:15px;line-height:1.45">${esc(a.last ? a.last.text : 'In attesa…')}</div></div>
       <div class="grp"><span class="lbl">Ultime azioni</span><div class="console mono" style="height:auto;max-height:260px">${lines.map(logLine).join('') || '<div>nessuna azione registrata</div>'}</div></div>
       <div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>`;
     };
     openSheet(draw, null, true);
   }
 
+
+  // ---------- OSSERVATORIO: schede, cielo, pianeti
+  const TABS = { sky: '#vSky', pos: '#vPos', mentor: '#vMentor', set: '#vSet' };
+  function setTab(t) {
+    if (!TABS[t]) t = 'sky'; tab = t;
+    for (const [k, sel] of Object.entries(TABS)) $(sel).classList.toggle('hidden', k !== t);
+    $$('#nav [data-tab]').forEach((b) => { const on = b.dataset.tab === t; b.classList.toggle('on', on); b.setAttribute('aria-current', on ? 'page' : 'false'); });
+    document.body.classList.toggle('on-sky', t === 'sky');
+    Sky.setVisible(t === 'sky' && !$('#dash').classList.contains('hidden') && !$('#sheet').classList.contains('open'));
+    if (t !== 'sky') window.scrollTo(0, 0);
+    try { sessionStorage.setItem('sb_tab', t); } catch {}
+  }
+  $('#nav').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
+  const botOf = (id) => (S && S.galaxy ? S.galaxy.bots.find((b) => b.id === id) : null);
+  const botName = (id) => { const b = botOf(id); return b ? b.name : null; };
+  function onSkyTap(t) {
+    if (t.type === 'bot') botSheet(t.id);
+    else if (t.type === 'sun') setTab('pos');
+    else if (t.type === 'beacon') setTab('mentor');
+    else if (t.type === 'coin') { const c = (S.galaxy.focus || []).find((x) => x.symbol === t.symbol); if (c) toast(`🔭 Focus del Mentore: ${c.symbol} · ${c.label}${c.phantom ? ' · nel tuo Phantom' : ''}`); }
+  }
+  // vista a lista (alternativa accessibile al cielo)
+  let listMode = localStorage.getItem('sb_list') === '1';
+  function applyList() { $('#botList').classList.toggle('hidden', !listMode); $('#sky').classList.toggle('listing', listMode); $('#listToggle').textContent = listMode ? '🪐 Cielo' : '☰ Lista'; $('#listToggle').setAttribute('aria-pressed', listMode ? 'true' : 'false'); }
+  $('#listToggle').addEventListener('click', () => { listMode = !listMode; localStorage.setItem('sb_list', listMode ? '1' : '0'); applyList(); });
+  $('#botList').addEventListener('click', (e) => { const b = e.target.closest('[data-bot]'); if (b) botSheet(b.dataset.bot); });
+  $('#beacon').addEventListener('click', () => setTab('mentor'));
+  $('#beacon').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab('mentor'); } });
+  $('#focus').addEventListener('click', (e) => { const c = e.target.closest('[data-coin]'); if (c) onSkyTap({ type: 'coin', symbol: c.dataset.coin }); });
+  const dot = (b) => `hsl(${b.hue} 70% 62%)`;
+  const pnlCls = (v) => (v > 1e-9 ? 'mint' : v < -1e-9 ? 'red' : 'mu');
+  function botStatus(b) {
+    if (b.paused) return '⏸ in pausa';
+    if (b.resting) return `🔧 ricalibrazione fino alle ${hhmm(b.resting)}`;
+    if (b.open) return '🛰 posizione aperta';
+    if (b.corrected) return `🔦 più selettivo (${b.selectivity}/2)`;
+    return S.trading ? '● in orbita, cerca segnali' : '○ fermo (premi Avvia)';
+  }
+  function renderBotList(s) {
+    const h = s.galaxy.bots.map((b) => `<button class="bl glass" role="listitem" data-bot="${esc(b.id)}"><span class="bl-dot" style="background:${dot(b)};box-shadow:0 0 12px ${dot(b)}"></span><span class="bl-n"><b>${esc(b.name)}</b><small>${esc(b.strategyName)}</small><small class="bl-s">${esc(botStatus(b))}</small></span><span class="bl-v"><b class="${pnlCls(b.pnl)}">${money(b.pnl)}</b><small>${b.trades} trade · ${b.wins}V/${b.losses}P</small></span></button>`).join('');
+    const el = $('#botList'); if (el.dataset.h !== h) { el.dataset.h = h; el.innerHTML = h; }
+  }
+  function renderFocus(s) {
+    const f = s.galaxy.focus || [];
+    const h = f.length ? `<span class="fl" title="Cripto di focus del Mentore">🔭</span>${f.map((c) => `<button class="fc" data-coin="${esc(c.symbol)}" style="--c:${esc(c.color || '#9ab')}"><i></i>${c.meme ? '🐸 ' : ''}${esc(c.symbol)}<small>${esc(c.perp ? (s.cfg.leverage || 5) + 'x L/S' : 'spot')}</small></button>`).join('')}` : '<span class="fl">🔭 il Mentore sceglie…</span>';
+    const el = $('#focus'); if (el.dataset.h !== h) { el.dataset.h = h; el.innerHTML = h; }
+  }
+  let tickerH = '';
+  function renderBeacon(s) {
+    const g = s.galaxy; const ins = g.insight;
+    const corr = g.corrections || [];
+    const txt = corr.length ? corr.map((c) => c.text).filter(Boolean)[0] || `${corr.length} bot sotto correzione` : ins ? ins.text : (s.entryBlock ? s.entryBlock : 'Il faro osserva i mercati e sceglie le cripto di focus.');
+    $('#beaconX').textContent = txt; $('#beaconT').textContent = ins ? hhmm(ins.t) : '';
+    $('#beacon').classList.toggle('alert', corr.length > 0);
+    const news = (s.research && s.research.news && s.research.news.latest) || [];
+    const h = news.length ? news.map((n) => `<span class="tk ${n.sentiment > 0.15 ? 'up' : n.sentiment < -0.15 ? 'dn' : ''}">${n.sentiment > 0.15 ? '▲' : n.sentiment < -0.15 ? '▼' : '•'} ${esc(n.title)} <small>${esc(n.source || '')}</small></span>`).join('') : '<span class="tk">Notizie in arrivo (controllo ogni 90 s)…</span>';
+    if (h !== tickerH) { tickerH = h; $('#tickerIn').innerHTML = h + (news.length ? h : ''); $('#tickerIn').style.animationDuration = Math.max(30, news.length * 9) + 's'; }
+  }
+  function renderMentorTab(s) {
+    const g = s.galaxy;
+    $('#mInsight').textContent = g.insight ? g.insight.text : 'Nessuna indicazione nuova: il Mentore osserva.';
+    $('#mFocus').textContent = (g.focus || []).length ? `Focus: ${g.focus.map((c) => c.symbol + ' (' + c.label + ')').join(' · ')}` : '';
+    const corr = g.corrections || [];
+    const ch = corr.length ? corr.map((c) => { const b = botOf(c.bot); return `<button class="kv corr" data-bot="${esc(c.bot)}"><span><i class="bl-dot" style="background:${b ? dot(b) : '#999'}"></i> <b>${esc(b ? b.name : c.bot)}</b></span><span class="mu">${esc(c.resting ? 'pausa di 2 min' : 'più selettivo')}</span></button><div class="mu small">${esc(c.text)}</div>`; }).join('') : '<div class="empty">Nessun bot sotto correzione: tutti in orbita regolare.</div>';
+    if ($('#mCorr').dataset.h !== ch) { $('#mCorr').dataset.h = ch; $('#mCorr').innerHTML = ch; }
+    const n = s.research && s.research.news;
+    const nh = n && n.latest && n.latest.length ? n.latest.map((x) => `<a class="nw" href="${esc(/^https:\/\//.test(x.link || '') ? x.link : '#')}" target="_blank" rel="noopener noreferrer"><span class="nw-s ${x.sentiment > 0.15 ? 'mint' : x.sentiment < -0.15 ? 'red' : 'mu'}">${x.sentiment > 0.15 ? '▲' : x.sentiment < -0.15 ? '▼' : '•'}</span><span><b>${esc(x.title)}</b><small class="mu">${esc(x.source || '')}${x.t ? ' · ' + hhmm(x.t) : ''}${x.assets && x.assets.length ? ' · ' + esc(x.assets.join(', ')) : ''}${x.risk > 0.3 ? ' · ⚠️ rischio' : ''}</small></span></a>`).join('') : '<div class="empty">Nessuna notizia recente.</div>';
+    if ($('#news').dataset.h !== nh) { $('#news').dataset.h = nh; $('#news').innerHTML = nh; }
+    $('#newsT').textContent = n && n.lastCheck ? `ogni 90 s · ultimo controllo ${hhmm(n.lastCheck)}` : 'ogni 90 s';
+  }
+  $('#mCorr').addEventListener('click', (e) => { const b = e.target.closest('[data-bot]'); if (b) botSheet(b.dataset.bot); });
+  $('#know').addEventListener('click', () => agentSheet('MENTORE'));
+  $('#research').addEventListener('click', () => agentSheet('MENTORE'));
+  $('#mentorDiary').addEventListener('click', () => agentSheet('MENTORE'));
+  $('#logoutBtn').addEventListener('click', async () => { try { await api('/api/auth/logout', {}); } catch {} location.reload(); });
+
+  // scheda di un pianeta (bot)
+  function botSheet(id) {
+    if (!botOf(id)) return;
+    Sky.select(id);
+    const draw = () => {
+      const b = botOf(id); if (!b) return '<div class="empty">Bot non trovato</div>';
+      const d = S.base === 'SOL' ? 4 : 2;
+      const ps = S.positions.filter((p) => p.bot === id);
+      const posH = ps.length ? ps.map((p) => `<div class="kv"><span><b>$${esc(p.symbol)}</b> <span class="side ${p.side === 'SHORT' ? 'short' : 'long'}">${p.side === 'SHORT' ? '▼ SHORT' : '▲ LONG'} ${p.lev || 1}x</span><br><small class="mu">ingresso ${hhmm(p.openedAt)} · ${p.stopKind === 'trailing' ? 'trailing' : 'stop'} ${p.stopPct != null ? nf(p.stopPct, 1) + '%' : '−' + nf(p.slPct, 1) + '%'}</small></span><span class="r"><b class="${pnlCls(p.pnl)}">${p.pnl >= 0 ? '+' : ''}${nf(p.pnl, d)}</b><br><small>${nf(p.pnlPct, 2)}%</small> <button class="chip" data-closepos="${esc(p.id)}">Chiudi</button></span></div>`).join('') : '<div class="empty">Nessuna posizione aperta.</div>';
+      const hist = b.history.length ? b.history.map((t) => `<div class="kv"><span>${hhmm(t.closedAt)} <b>$${esc(t.symbol)}</b> <small class="mu">${t.side === 'SHORT' ? '▼' : '▲'}${t.lev > 1 ? ' ' + t.lev + 'x' : ''} · ${esc(t.reason || '')}</small></span><b class="${pnlCls(t.pnl)}">${t.pnl >= 0 ? '+' : ''}${nf(t.pnl, d)}</b></div>`).join('') : '<div class="empty">Ancora nessuna operazione chiusa.</div>';
+      const wr = b.wins + b.losses ? Math.round((b.wins / (b.wins + b.losses)) * 100) + '%' : '—';
+      return `<div class="bs-h"><span class="planet" style="--h:${b.hue}"></span><div><h4>${esc(b.name)}</h4><div class="mu">${esc(b.strategyName)} · ${esc(b.styleLabel)}</div></div>
+        <span class="sp"></span><button class="tgl ${b.paused ? '' : 'on'}" id="bPause" role="switch" aria-checked="${b.paused ? 'false' : 'true'}" aria-label="Bot attivo"><i></i></button></div>
+        <div class="bs-st">${esc(botStatus(b))}</div>
+        ${b.note ? `<div class="bs-note">🔦 ${esc(b.note)}</div>` : ''}
+        <div class="grid3"><div class="cell"><span>PnL</span><b class="${pnlCls(b.pnl)}">${money(b.pnl)}</b></div><div class="cell"><span>Capitale</span><b>${money(b.capital, false)}</b></div><div class="cell"><span>Vincenti</span><b>${wr}</b></div>
+        <div class="cell"><span>Trade</span><b>${b.trades}</b></div><div class="cell"><span>Aperto</span><b class="${pnlCls(b.unrealized)}">${money(b.unrealized)}</b></div><div class="cell"><span>Attività</span><b>${Math.round(b.activity * 100)}%</b></div></div>
+        <div class="grp"><span class="lbl">Strategia</span><div class="glass pad"><b>${esc(b.strategyName)}</b><p class="note">${esc(b.strategyDesc)}${b.strategy ? ` · ${b.strategyActive ? `✅ attiva fuori campione su ${esc((b.strategyOn || []).join(', '))}` : '⏳ in studio: conta solo quando il backtest la promuove'}` : ''}</p><p class="note">Leva e short solo su SOL/BTC/ETH · sulle altre cripto spot 1x solo long · margine ${S.cfg.maxTradePct}% per operazione · una posizione alla volta.</p></div></div>
+        <div class="grp"><span class="lbl">Posizioni aperte</span><div class="glass pad">${posH}</div></div>
+        <div class="grp"><span class="lbl">Storico</span><div class="glass pad">${hist}</div></div>
+        <div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>`;
+    };
+    openSheet(draw, (body) => {
+      const t = $('#bPause', body); if (t) t.addEventListener('click', async () => {
+        const b = botOf(id); const paused = !b.paused; t.disabled = true;
+        try { await api('/api/bot/pause', { id, paused }); b.paused = paused; toast(paused ? `⏸ ${b.name} in pausa (le posizioni aperte restano gestite)` : `▶ ${b.name} di nuovo in orbita`); S.galaxy.bots = S.galaxy.bots.slice(); Sky.setState(S); }
+        catch (er) { toast(er.message); } finally { t.disabled = false; }
+      });
+    }, true);
+  }
+
   // ---------- eventi live
   function onEv(e) {
-    Scene.event(e);
-    if (e.type === 'match' && e.phase === 'start') toast("⚽ Calcio d'inizio! Fulmini Rossi contro Squali Blu");
-    if (e.type === 'goal') toast(`⚽ GOOOL! ${e.name} (${e.team === 'A' ? 'Fulmini' : 'Squali'}) ${money(e.pnl || 0)}${e.symbol ? ' su ' + e.symbol : ''}`);
-    if (e.type === 'match' && e.phase === 'whistle') toast('🏁 Fischio finale: chiudo le posizioni della partita');
-    if (e.type === 'trade' && e.team && S && S.match) { const pf = findPlayer(e.player); if (pf) { e = { ...e, symbol: `${e.symbol} · ${pf.p.name} (${pf.T.short})` }; } }
+    Sky.event(e);
+    const who = e.bot ? botName(e.bot) : null; const tag = who ? ` · ${who}` : '';
     if (e.type === 'log') appendLog(e);
     if (e.type === 'cash') cashFx(e);
-    if (e.type === 'agent' && e.agent === 'CAPO' && e.token && S) {
-      const w = (S.watch || []).find((x) => x.symbol === e.token);
-      if (w) fetch('/api/candles?mint=' + w.mint).then((r) => r.json()).then((c) => Scene.setScreen(e.token, c.slice(-90).map((k) => k.c), e.action === 'pick' ? 'SEGNALE LONG' : 'in analisi')).catch(() => {});
-    }
-    if (e.type === 'trade' && e.side === 'PARTIAL') toast(`💰 Presa parziale ${e.pct}% su $${e.symbol} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, S && S.base === 'SOL' ? 4 : 2)} ${S ? S.base : ''}`);
-    else if (e.type === 'trade' && e.side === 'SHORT') toast(`🐻 SHORT ${e.lev}x su $${e.symbol}${e.mode === 'SIM' ? ' (simulato)' : ''}`);
-    else if (e.type === 'trade' && e.short) toast(`${(e.pnl || 0) >= 0 ? '💰' : '🔻'} Short chiuso su $${e.symbol} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, S && S.base === 'SOL' ? 4 : 2)} ${S ? S.base : ''}`);
-    else if (e.type === 'trade') toast(e.side === 'BUY' ? `🟢 ${e.lev > 1 ? `LONG ${e.lev}x su` : 'Comprato'} $${e.symbol}${e.mode === 'SIM' ? ' (simulato)' : ''}` : `${(e.pnl || 0) >= 0 ? '💰' : '🔻'} Venduto $${e.symbol} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, S && S.base === 'SOL' ? 4 : 2)} ${S ? S.base : ''}`);
+    if (e.type === 'correct') toast(`🔦 ${e.text}`);
+    const d = S && S.base === 'SOL' ? 4 : 2; const u = S ? S.base : '';
+    if (e.type === 'trade' && e.side === 'PARTIAL') toast(`💰 Presa parziale ${e.pct}% su $${e.symbol}${tag} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, d)} ${u}`);
+    else if (e.type === 'trade' && e.side === 'SHORT') toast(`☄️ SHORT ${e.lev}x su $${e.symbol}${tag}${e.mode === 'SIM' ? ' (simulato)' : ''}`);
+    else if (e.type === 'trade' && e.short) toast(`${(e.pnl || 0) >= 0 ? '✨' : '🌑'} Chiuso $${e.symbol}${tag} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, d)} ${u}`);
+    else if (e.type === 'trade') toast(e.side === 'BUY' ? `☄️ ${e.lev > 1 ? `LONG ${e.lev}x su` : 'Comprato'} $${e.symbol}${tag}${e.mode === 'SIM' ? ' (simulato)' : ''}` : `${(e.pnl || 0) >= 0 ? '✨' : '🌑'} Venduto $${e.symbol}${tag} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, d)} ${u}`);
   }
+
   let lastLogT = 0;
   function logLine(l) {
     const cls = l.level === 'warn' ? 'w' : l.level === 'error' ? 'e' : /comprato|venduto/.test(l.text) ? 'tr' : '';
@@ -473,136 +493,47 @@
     if (stick) c.scrollTop = c.scrollHeight;
   }
 
-  // ---------- PARTITA a squadre
   document.addEventListener('error', (e) => { const t = e.target; if (t && t.tagName === 'IMG' && t.closest('.coin')) t.replaceWith(Object.assign(document.createElement('i'), { className: 'cdot' })); }, true); // logo non disponibile
-  const endSeen = {};
   const money = (v, sign = true) => { const d = S && S.base === 'SOL' ? 4 : 2; return (sign ? (v >= 0 ? '+' : '−') : '') + nf(Math.abs(v || 0), d) + (S && S.base === 'SOL' ? ' ◎' : ' $'); };
-  function findPlayer(id) {
-    const m = S && S.match; if (!m || !m.teams) return null;
-    for (const T of m.teams) { if (T.coach.id === id) return { T, p: T.coach, coach: true }; const p = T.players.find((x) => x.id === id); if (p) return { T, p, coach: false }; }
-    return null;
-  }
-  const clockTxt = (ms) => { const s = Math.ceil(Math.max(0, ms) / 1000); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
-  let clockSkew = 0;
-  function tickClock() {
-    const m = S && S.match; const el = $('#mcClock'); if (!m || !el || m.state !== 'live') return;
-    const rem = m.endAt - (Date.now() + clockSkew); el.textContent = clockTxt(rem);
-    el.classList.toggle('tense', rem < 60e3); el.classList.toggle('final10', rem < 10e3);
-    const bar = $('#mcBar'); if (bar) bar.style.width = Math.min(100, (1 - rem / m.durationMs) * 100) + '%';
-  }
-  const LOOK_EMO = { cap: '🧢', beanie: '🧶' };
-  function teamHtml(T, m) {
-    const c = T.coach; const now = Date.now() + clockSkew;
-    const MOOD = { rimonta: '🔥 rimonta', protect: '🛡 difende il vantaggio', derby: '⚔️ derby' };
-    const who = (id) => { if (id === c.id) return c.name; const p = T.players.find((x) => x.id === id); return p ? p.name : ''; };
-    const coachSt = [MOOD[T.mood] || null, `selettività ${c.selectivity}/2`, c.focus ? `focus ${c.focus}` : null, c.timeoutUntil > now ? `time-out ${clockTxt(c.timeoutUntil - now)}` : null].filter(Boolean).join(' · ');
-    return `<div class="team" style="--c:${T.color};--c2:${T.color2}">
-      <div class="tm-hd"><span class="kit" aria-hidden="true"></span><div class="tm-n"><b>${esc(T.name)}</b><small>${esc(T.styleLabel)} · «${esc(T.motto)}»</small></div>
-        <div class="tm-s"><b class="${T.pnl >= 0 ? 'mint' : 'red'}">${money(T.pnl)}</b><small>${nf(T.pct, 2)}% · ${T.trades} trade · ${m.tally ? m.tally[T.id] : 0} vittorie</small></div></div>
-      <div class="tm-coins">${(T.coins || []).map((k) => `<span class="coin" style="--cc:${k.color}" title="${esc(k.name || k.symbol)}">${k.icon ? `<img src="${esc(k.icon)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<i class="cdot"></i>`}<span class="cn"><b title="${esc(k.name || '')}">${esc(k.symbol)}${k.phantom ? ' 👻' : ''}</b><em class="bdg ${k.perp ? 'perp' : k.meme ? 'spot meme' : 'spot'}">${esc(k.label)}</em></span></span>`).join('') || '<span class="mu" style="font-size:12px">l\'allenatore sceglie le cripto al calcio d\'inizio</span>'}</div>
-      <button class="pl coach" data-pl="${c.id}"><span class="av">${LOOK_EMO[c.look] || '📋'}</span><span class="tx"><b>${esc(c.name)} <small>allenatore</small></b><small>${esc(coachSt)}</small>${c.lastTalk ? `<span class="say">«${esc(c.lastTalk.text)}»</span>` : ''}</span></button>
-      ${T.players.map((p) => `<button class="pl${p.holding ? ' hold' : ''}${p.mint ? '' : ' bench'}" data-pl="${p.id}"><span class="av num"${p.coinColor ? ` style="border-color:${p.coinColor}"` : ''}>${p.num}</span><span class="tx"><b>${esc(p.name)}${p.holding ? ' ⚽' : ''}${p.bonus ? ` <i class="bz">⚡+${nf(p.bonus, 2)}</i>` : ''}</b><small>${p.resting > now ? `🪑 riposa in panchina ${clockTxt(p.resting - now)}` : esc(p.role)}</small></span><span class="r"><b class="${p.pnl > 0 ? 'mint' : p.pnl < 0 ? 'red' : ''}">${money(p.pnl)}</b><small>${p.trades} trade${p.trades ? ` · ${p.wins}V/${p.losses}P` : ''}</small></span></button>`).join('')}
-      ${T.actions.length ? `<div class="tm-act">${T.actions.slice(0, 3).map((a) => `<div${a.who ? ' class="bt"' : ''}><span>${hhmm(a.t)}</span> ${a.who ? `<b>${esc(who(a.who))}:</b> ` : ''}${esc(a.text)}</div>`).join('')}</div>` : ''}
-    </div>`;
-  }
-  function renderMatch(s) {
-    const m = s.match; if (!m || !m.teams) return;
-    clockSkew = (m.now || Date.now()) - Date.now();
-    const [A, B] = m.teams; const live = m.state === 'live'; const real = m.mode === 'REAL';
-    const stateTxt = live ? (s.trading ? 'IN CORSO' : 'IN PAUSA · premi Avvia') : m.state === 'closing' ? 'FISCHIO FINALE · chiusura posizioni' : m.state === 'ended' ? 'FINITA' : 'PRONTA';
-    const diff = A.pnl - B.pnl; const span = Math.max(Math.abs(A.pnl) + Math.abs(B.pnl), 0.01); const D = m.derby || {}; const derby = !!D.on;
-    const tug = 50 + Math.max(-48, Math.min(48, (derby ? D.meter || 0 : diff / span) * 48));
-    const moodTag = (T, x) => (x === 'rimonta' ? `<em class="mood r">🔥 RIMONTA</em>` : x === 'protect' ? `<em class="mood p">🛡 DIFESA</em>` : '');
-    const res = m.result; const tl = m.tally || { A: 0, B: 0, draws: 0 };
-    const h = `${derby ? `<div class="mc-derby" aria-label="Derby"><span>🔥</span><b>DERBY</b><span>🔥</span></div>` : ''}<div class="mc-top"><span>${m.number ? 'PARTITA N.' + m.number : 'PARTITA'} · ${real ? 'REALE' : 'SIMULAZIONE'}</span><span class="mc-st${live && s.trading ? ' on' : ''}">${stateTxt}</span></div>
-      <div class="mc-score">
-        <div class="mc-team" style="--c:${A.color}"><b>${esc(A.name)}</b>${derby ? moodTag(A, D.mood && D.mood.A) : ''}<span class="mc-pnl ${A.pnl >= 0 ? 'mint' : 'red'}">${money(A.pnl)}</span><small>${nf(A.pct, 2)}% · ${A.trades} trade · ${A.open} aperte</small></div>
-        <div class="mc-mid"><div class="mc-clock" id="mcClock">${live ? clockTxt(m.remainingMs) : m.state === 'ended' ? 'FINE' : m.state === 'closing' ? '00:00' : '20:00'}</div><small>${live ? 'minuti rimasti' : m.state === 'ended' ? (res && res.winner ? 'vince ' + esc(res.winner === 'A' ? A.short : B.short) : 'pareggio') : '20 minuti'}</small></div>
-        <div class="mc-team r" style="--c:${B.color}"><b>${esc(B.name)}</b>${derby ? moodTag(B, D.mood && D.mood.B) : ''}<span class="mc-pnl ${B.pnl >= 0 ? 'mint' : 'red'}">${money(B.pnl)}</span><small>${nf(B.pct, 2)}% · ${B.trades} trade · ${B.open} aperte</small></div>
-      </div>
-      ${derby ? `<div class="mc-riv"><span>${esc(A.short)}</span><small>Termometro del derby${D.heat > 0.5 ? ' · 🔥 partita accesa' : ''}</small><span>${esc(B.short)}</span></div>` : ''}<div class="mc-tug${derby && D.heat > 0.5 ? ' hot' : ''}" aria-hidden="true" style="--a:${A.color};--b:${B.color}"><i style="left:${tug}%"></i></div>
-      <div class="mc-bar"><i id="mcBar" style="width:${live ? Math.min(100, (1 - m.remainingMs / m.durationMs) * 100) : m.state === 'none' ? 0 : 100}%"></i></div>
-      <div class="mc-cap">${derby ? 'DERBY: squadre agguerrite (ricerca ogni 15 s, 10x solo con segnale forte sui perps, trailing per chi vince, panchina per chi sbaglia), sempre entro i limiti · ' : ''}Cassa per squadra: ${money(A.bankroll, false)} (metà del disponibile ciascuna) · max ${m.maxCoins || 3} cripto per squadra · ${s.cfg.maxTradePct}% per operazione · leva ${s.cfg.leverage || 5}x e short solo su SOL/BTC/ETH (stop prima della liquidazione), spot 1x solo long sulle altre</div>
-      ${m.realWaiting ? `<div class="mc-real">⏳ ${esc(m.realWaiting)}</div>` : ''}${m.realNote ? `<div class="mc-real note2">ℹ️ ${esc(m.realNote)}</div>` : ''}
-      <div class="mc-foot"><span>Vittorie: ${esc(A.short)} ${tl.A} · ${esc(B.short)} ${tl.B} · pareggi ${tl.draws}</span>${live ? '<button class="chip" data-mstop>Termina</button>' : m.state !== 'closing' ? '<button class="chip pri" data-mstart>Nuova partita</button>' : ''}</div>`;
-    const mc = $('#matchCard'); if (mc.dataset.h !== h) { mc.dataset.h = h; mc.innerHTML = h; }
-    const th = m.teams.map((T) => teamHtml(T, m)).join('');
-    const te = $('#teams'); if (te.dataset.h !== th) { te.dataset.h = th; te.innerHTML = th; }
-    // popup di fine partita: "Nuova partita?"
-    const me = $('#matchEnd');
-    if (m.state === 'ended' && m.awaitingNew && res && !endSeen[m.id]) {
-      const W = res.winner ? (res.winner === 'A' ? A : B) : null;
-      const body = `<div class="mend-ic">${W ? '🏆' : '🤝'}</div><h4>${W ? `Vincono i ${esc(W.name)}!` : 'Pareggio!'}</h4>
-        <div class="mend-sc"><div style="--c:${A.color}"><b>${esc(A.name)}</b><span class="${res.score.A.pnl >= 0 ? 'mint' : 'red'}">${money(res.score.A.pnl)}</span><small>${nf(res.score.A.pct, 2)}% · ${res.score.A.trades} trade</small></div><div style="--c:${B.color}"><b>${esc(B.name)}</b><span class="${res.score.B.pnl >= 0 ? 'mint' : 'red'}">${money(res.score.B.pnl)}</span><small>${nf(res.score.B.pct, 2)}% · ${res.score.B.trades} trade</small></div></div>
-        ${res.mvp ? `<p class="note">⭐ Migliore in campo: <b>${esc(res.mvp.name)}</b> (${money(res.mvp.pnl)})</p>` : ''}
-        <p class="note">${esc(res.reason || 'Fine dei 20 minuti')}${res.stillOpen ? ` · ${res.stillOpen} posizioni ancora in chiusura` : ''} · Vittorie: ${esc(A.short)} ${tl.A} · ${esc(B.short)} ${tl.B} · pareggi ${tl.draws}</p>
-        ${m.realWaiting ? `<p class="note red">${esc(m.realWaiting)}</p>` : ''}
-        <h4 style="margin-top:6px">Nuova partita?</h4>
-        <div class="btns"><button class="btn ghost" data-mend="no">No</button><button class="btn pri" data-mend="yes">Sì, si gioca!</button></div>`;
-      if ($('#matchEndBody').dataset.h !== body) { $('#matchEndBody').dataset.h = body; $('#matchEndBody').innerHTML = body; }
-      if (me.classList.contains('hidden')) setTimeout(() => { if (S.match && S.match.id === m.id && S.match.awaitingNew && !endSeen[m.id]) me.classList.remove('hidden'); }, firstRender ? 0 : 3500); // prima la festa in campo, poi la domanda
-    } else me.classList.add('hidden');
-  }
-  function playerSheet(id) {
-    const draw = () => {
-      const pf = findPlayer(id); if (!pf) return '<p class="note">Bot non trovato.</p><div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>';
-      const { T, p, coach } = pf; const m = S.match;
-      if (coach) {
-        return `<div class="row"><span class="pav" style="--c:${T.color};--c2:${T.color2}">${LOOK_EMO[p.look] || '📋'}</span><div><h4>${esc(p.name)}</h4><div class="mu" style="font-size:13px">allenatore dei ${esc(T.name)} · ${esc(T.styleLabel)}</div></div></div>
-          <div class="card" style="margin-top:14px"><div class="lbl">Come potenzia la squadra</div><div style="margin-top:6px;font-size:14px;line-height:1.5">Riceve le lezioni del Mentore e le notizie. Può dare una piccola spinta di punteggio a chi è in forma (max +0,5), mettere il focus su una cripto (+0,2), alzare la selettività dopo 2 perdite di fila (max 2) e chiamare un time-out di 2 minuti dopo 3 perdite. <b>Non cambia mai</b> margine (${S.cfg.maxTradePct}%), leva (${S.cfg.leverage || 5}x), stop o kill switch.</div></div>
-          <div class="card" style="margin-top:12px"><div class="kv"><span>Selettività</span><span>${p.selectivity}/2</span></div><div class="kv"><span>Focus</span><span>${p.focus || '—'}</span></div><div class="kv"><span>Time-out</span><span>${p.timeoutUntil > Date.now() + clockSkew ? 'in corso' : 'no'}</span></div></div>
-          <div class="grp"><span class="lbl">Ultime azioni dell'allenatore</span><div class="console mono" style="height:auto;max-height:260px">${T.actions.map((a) => `<div>${hhmm(a.t)} ${esc(a.text)}</div>`).join('') || '<div>nessuna azione ancora</div>'}</div></div>
-          <div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>`;
-      }
-      const trs = (S.trades || []).filter((t) => t.player === id && m && t.matchId === m.id);
-      const pos = (S.positions || []).find((x) => x.player === id);
-      return `<div class="row"><span class="pav" style="--c:${T.color};--c2:${T.color2}">${p.num}</span><div><h4>${esc(p.name)} <small class="mu">${esc(T.name)}</small></h4><div class="mu" style="font-size:13px">${esc(p.role)} · stile ${esc(T.styleLabel)}</div></div></div>
-        <div class="card" style="margin-top:14px"><div class="kv"><span>Profitto in partita</span><span class="${p.pnl >= 0 ? 'mint' : 'red'}">${money(p.pnl)}</span></div><div class="kv"><span>Operazioni</span><span>${p.trades} (${p.wins} vinte / ${p.losses} perse)</span></div><div class="kv"><span>Spinta dell'allenatore</span><span>${p.bonus ? '⚡ +' + nf(p.bonus, 2) : '—'}</span></div>
-        ${pos ? `<div class="kv"><span>In campo ora</span><span>${pos.side === 'SHORT' ? '▼ SHORT' : '▲ LONG'} ${pos.lev}x · <b class="${pos.pnl >= 0 ? 'mint' : 'red'}">${money(pos.pnl)} (${nf(pos.pnlPct, 2)}%)</b></span></div>` : ''}</div>
-        <div class="card" style="margin-top:12px"><div class="lbl">Cosa fa</div><div style="margin-top:6px;font-size:14px;line-height:1.5">${!p.mint ? 'Ora è in panchina: entra quando l\'allenatore sceglie un\'altra cripto.' : `${esc(p.role)}: per la sua operazione fa tutto il lavoro dei vecchi bot (scansione, verifica, flusso, scelta, dimensione, rischio, esecuzione, sorveglianza) con le regole di sempre. ${p.perp ? `Su ${esc(p.asset)} c'è Jupiter Perps: leva ${S.cfg.leverage || 5}x, stop prima della liquidazione.` : `Su ${esc(p.asset)} non c'è leva: spot 1x, solo long, swap su Jupiter.`} ${p.lineRole === 'scalper' ? 'Da scalper usa il segnale opposto allo stile della squadra, ma solo quando è forte (≥ 75%).' : T.style === 'trend' ? 'Entra quando il trend corre (EMA, ADX, MACD, Donchian…).' : 'Entra in contropiede sugli eccessi (RSI, Bande di Bollinger, funding, paura/avidità…).'}`}</div></div>
-        <div class="grp"><span class="lbl">Operazioni in questa partita</span>${trs.length ? `<table class="h">${trs.map((t) => `<tr><td>${hhmm(t.closedAt)}</td><td>${t.side === 'SHORT' ? '▼' : '▲'} ${t.lev}x<div class="mu" style="font-size:11px">${esc(t.reason)}</div></td><td class="r ${t.pnl >= 0 ? 'mint' : 'red'}">${money(t.pnl)}</td></tr>`).join('')}</table>` : '<div class="empty">ancora nessuna operazione chiusa</div>'}</div>
-        <div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>`;
-    };
-    openSheet(draw, null, true);
-  }
-
-  // ---------- render dashboard
+  // ---------- render
   let firstRender = true;
   function render(s) {
     if (!s) return;
     const real = s.mode === 'REAL';
-    $('#modePill').textContent = real ? 'REALE · SOLDI VERI' : 'SIMULAZIONE · paper su dati live';
-    $('#modePill').classList.toggle('real', real);
+    $('#modePill').textContent = real ? 'REALE · SOLDI VERI' : 'SIMULAZIONE';
+    $('#modePill').className = 'mode ' + (real ? 'real' : 'sim');
+    document.body.classList.toggle('is-real', real);
     $('#demoPill').classList.toggle('hidden', !(s.host && s.host.demo));
-    const lv = $('#live'); lv.classList.toggle('off', !s.live); lv.lastChild.textContent = s.live ? 'LIVE' : 'DATI IN ATTESA';
-    $('#hSol').textContent = real ? `◎ ${nf(s.wallet.balances ? s.wallet.balances.sol : null, 4)}` : `◎ ${nf(s.solReserve, 4)} sim`;
-    $('#hSolPx').textContent = `SOL ${s.solUsd ? nf(s.solUsd, 2) + ' $' : '—'}`;
-    const rate = s.equityEur != null && s.equity ? s.equityEur / s.equity : null;
-    $('#heroLbl').textContent = real ? 'Saldo di trading del bot' : 'Saldo simulato';
-    tween('bal', $('#bal'), s.equityEur, eur);
-    const pe = s.pnlEur; const pct = s.startEquity > 0 ? (s.pnl / s.startEquity) * 100 : 0;
-    tween('pl', $('#pl'), pe, (v) => `${v >= 0 ? '+ ' : '− '}${eur(Math.abs(v))} (${nf(pct, 1)}%)`);
-    $('#pl').className = pe >= 0 ? 'mint' : 'red';
-    $('#roi').textContent = nf(s.roi, 2) + 'x'; $('#roi').classList.toggle('neg', s.roi < 1);
-    $('#heroMeta').textContent = `${nf(s.equity, s.base === 'SOL' ? 4 : 2)} ${s.base} · vincenti ${s.winRate == null ? '—' : nf(s.winRate, 0) + '%'} (${s.wins}/${s.wins + s.losses}) · commissioni ${nf(s.fees, s.base === 'SOL' ? 5 : 3)} ${s.base}`;
+    const lv = $('#live'); lv.classList.toggle('off', !s.live); lv.lastChild.textContent = s.live ? 'LIVE' : 'IN ATTESA';
+    // sole: equity e PnL leggibili sopra il canvas
+    $('#sunLbl').textContent = real ? 'Portafoglio reale' : 'Portafoglio simulato';
+    const pctAll = s.startEquity > 0 ? (s.pnl / s.startEquity) * 100 : 0;
+    if (s.equityEur != null) tween('bal', $('#bal'), s.equityEur, eur); else tween('bal', $('#bal'), s.equity, (v) => nf(v, s.base === 'SOL' ? 4 : 2) + ' ' + s.base);
+    if (s.pnlEur != null) tween('pl', $('#pl'), s.pnlEur, (v) => `${v >= 0 ? '+' : '−'}${eur(Math.abs(v))} · ${pctAll >= 0 ? '+' : '−'}${nf(Math.abs(pctAll), 2)}%`);
+    else tween('pl', $('#pl'), s.pnl, (v) => `${v >= 0 ? '+' : '−'}${nf(Math.abs(v), s.base === 'SOL' ? 4 : 2)} ${s.base} · ${pctAll >= 0 ? '+' : '−'}${nf(Math.abs(pctAll), 2)}%`);
+    $('#pl').className = 'sr-p ' + pnlCls(s.pnl);
+    $('#heroMeta').textContent = `${nf(s.equity, s.base === 'SOL' ? 4 : 2)} ${s.base} · vincenti ${s.winRate == null ? '—' : nf(s.winRate, 0) + '%'} (${s.wins}/${s.wins + s.losses}) · commissioni ${nf(s.fees, s.base === 'SOL' ? 5 : 3)} ${s.base} · ROI ${nf(s.roi, 2)}x`;
     const kb = $('#killBox'); kb.classList.toggle('hidden', !s.killed);
-    if (s.killed) kb.innerHTML = `<b>Kill switch attivo.</b> ${esc(s.killReason || '')}<br>Il bot ha venduto tutto e si è fermato. Per ripartire: Impostazioni → Riarma.`;
+    if (s.killed) kb.innerHTML = `<b>Kill switch attivo.</b> ${esc(s.killReason || '')} · Il bot ha venduto tutto e si è fermato. Per ripartire: Sicurezza → Impostazioni → Riarma.`;
+    const g = s.galaxy || { bots: [], focus: [], corrections: [] };
+    const eb = $('#entryBlock'); const blockTxt = s.entryBlock ? '⏸ ' + (g.realWaiting || s.entryBlock) + ' Le posizioni già aperte restano gestite.' : g.realNote ? 'ℹ️ ' + g.realNote : '';
+    eb.classList.toggle('hidden', !blockTxt); eb.textContent = blockTxt;
     tween('sA', $('#sA'), s.counters.analyzed, (v) => Math.round(v).toLocaleString('it-IT'));
     tween('sR', $('#sR'), s.counters.rejected, (v) => Math.round(v).toLocaleString('it-IT'));
     tween('sO', $('#sO'), s.counters.approved, (v) => Math.round(v).toLocaleString('it-IT'));
-    renderAgents();
-    renderMatch(s);
-    $('#subTag').textContent = `Max 3 cripto per squadra · leva ${s.cfg.leverage || 5}x L/S su SOL/BTC/ETH · spot 1x long sulle altre · ${s.cfg.maxTradePct}% per operazione`;
-    const eb = $('#entryBlock'); if (eb) { eb.classList.toggle('hidden', !s.entryBlock); eb.textContent = s.entryBlock ? '⏸ ' + s.entryBlock + ' Le posizioni già aperte restano gestite.' : ''; }
     renderPnl(s);
     renderKnowledge(s); renderResearch(s); renderMentor(s);
-    if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; requestAnimationFrame(drawSpark); }
+    renderFocus(s); renderBeacon(s); renderBotList(s); renderMentorTab(s);
+    if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; }
+    $('#secSpot').textContent = s.cfg.realSpot ? 'ACCESO (swap veri)' : 'spento'; $('#secSpot').className = s.cfg.realSpot ? 'red' : 'mint';
+    const pb = $('#posBadge'); pb.classList.toggle('hidden', !s.positions.length); pb.textContent = s.positions.length;
     // regole
     const rules = Object.entries(s.counters.rules).sort((a, b) => b[1] - a[1]).slice(0, 10);
     const max = rules.length ? rules[0][1] : 1;
     const rh = rules.map(([k, v]) => `<div class="rule"><div class="rl"><span>${esc(k)}</span><b>${v}</b></div><div class="rb"><i style="width:${(v / max) * 100}%"></i></div></div>`).join('') || '<div class="empty">ancora nessuno scarto</div>';
     if ($('#rules').dataset.h !== rh) { const old = $('#rules').innerHTML; $('#rules').dataset.h = rh; $('#rules').innerHTML = rh.replace(/width:[\d.]+%/g, (m) => (old ? m : 'width:0%')); if (!old) requestAnimationFrame(() => { $('#rules').innerHTML = rh; }); }
     // posizioni
+    const nm = (id) => { const b = botOf(id); return b ? `<span class="who" style="--h:${b.hue}">${esc(b.name)}</span>` : ''; };
     const d = s.base === 'SOL' ? 4 : 2;
     $('#posN').textContent = `${s.positions.length} / ${s.cfg.maxOpen}`;
     $('#pos').innerHTML = s.positions.map((p) => {
@@ -611,7 +542,7 @@
       const sgnP = (x) => (x >= 0 ? '+' : '−') + nf(Math.abs(x), 1) + '%';
       const sh = p.side === 'SHORT'; const pp = sh || p.perp; const px = (x) => (x >= 100 ? nf(x, 0) : x >= 1 ? nf(x, 2) : nf(x, 4));
       const badge = `<span class="side ${sh ? 'short' : 'long'}">${sh ? '▼ SHORT' : '▲ LONG'} ${p.lev || 1}x</span>`;
-      return `<div data-pid="${esc(p.id)}" class="pcard${sh ? ' isShort' : ''}${pp && (p.lev || 1) >= 5 ? ' hiLev' : ''}"><div><div class="sym">$${esc(p.symbol)} ${badge}</div><div class="sub2">${pp ? `margine ${nf(p.costBase, d)} ${s.base} · esposizione $${nf(p.sizeUsd, 2)} · ingresso $${px(p.entryPrice)}` : `ingresso ${nf(p.costBase, d)} ${s.base}`} · ${hhmm(p.openedAt)}${p.sigOpen ? ` · <a href="https://solscan.io/tx/${p.sigOpen}" target="_blank" rel="noopener">tx</a>` : ''}</div></div>
+      return `<div data-pid="${esc(p.id)}" class="pcard${sh ? ' isShort' : ''}${pp && (p.lev || 1) >= 5 ? ' hiLev' : ''}"><div><div class="sym">$${esc(p.symbol)} ${badge} ${nm(p.bot)}</div><div class="sub2">${pp ? `margine ${nf(p.costBase, d)} ${s.base} · esposizione $${nf(p.sizeUsd, 2)} · ingresso $${px(p.entryPrice)}` : `ingresso ${nf(p.costBase, d)} ${s.base}`} · ${hhmm(p.openedAt)}${p.sigOpen ? ` · <a href="https://solscan.io/tx/${p.sigOpen}" target="_blank" rel="noopener">tx</a>` : ''}</div></div>
       <div class="pnl ${p.pnl >= 0 ? 'mint' : 'red'}">${p.pnl >= 0 ? '+' : ''}${nf(p.pnl, d)}<div class="sub2">${nf(p.pnlPct, 2)}%</div></div>
       ${pp ? `<div class="sub2 liq" style="grid-column:1/3">☠️ liquidazione $${px(p.liqPrice)} (${sgnP(((p.liqPrice - p.entryPrice) / p.entryPrice) * 100)}) · ora $${p.price ? px(p.price) : '—'} · commissioni $${nf(p.perpFeesUsd || 0, 3)}</div>` : ''}
       ${p.partialsN ? `<div class="sub2 pp" style="grid-column:1/3">💰 ${p.partialsN} ${p.partialsN === 1 ? 'presa parziale' : 'prese parziali'} (${p.soldPct}% ${sh ? 'ricomprato' : 'venduto'}) · incassato ${p.realizedPart >= 0 ? '+' : ''}${nf(p.realizedPart, d)} ${s.base}</div>` : ''}
@@ -630,12 +561,13 @@
       <div class="kv"><span>Prelievi verso</span><span class="addr">${s.user.withdrawAddress ? short(s.user.withdrawAddress) : '— (impostato al primo deposito)'}</span></div>
       ${s.realTxs.length ? `<div class="lbl" style="margin-top:6px">Transazioni reali</div>${s.realTxs.slice(0, 6).map((x) => `<div class="kv"><span>${hhmm(x.t)} ${esc(x.label)}</span><a href="${x.url}" target="_blank" rel="noopener">${x.err ? '⚠ ' : ''}Solscan</a></div>`).join('')}` : ''}
       ${s.lastErr ? `<div class="mu" style="font-size:11px">Ultimo avviso: ${esc(s.lastErr)}</div>` : ''}`;
-    // nav
-    const run = $('#navRun'); run.classList.toggle('on', s.trading);
+    // pulsante Avvia/Pausa
+    const run = $('#runBtn'); run.classList.toggle('on', s.trading);
     run.innerHTML = s.trading ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg><span>Pausa</span>' : '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>Avvia</span>';
     $('#navPh').textContent = s.user.address ? short(s.user.address).slice(0, 6) : 'Phantom';
-    Scene.setState(s);
+    Sky.setState(s);
   }
+
   document.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-closepos]'); if (!b) return;
     b.disabled = true;
@@ -649,8 +581,9 @@
     paint();
     sheetRefresh = live ? () => { if (!body.contains(document.activeElement) || document.activeElement === document.body) paint(); } : null;
     $('#sheetBg').classList.remove('hidden'); requestAnimationFrame(() => { $('#sheetBg').classList.add('open'); $('#sheet').classList.add('open'); });
+    setTimeout(() => { if ($('#sheet').classList.contains('open') && window.Sky) Sky.setVisible(false); }, 320);
   }
-  function closeSheet() { sheetRefresh = null; $('#sheet').classList.remove('open'); $('#sheetBg').classList.remove('open'); setTimeout(() => $('#sheetBg').classList.add('hidden'), 250); }
+  function closeSheet() { sheetRefresh = null; $('#sheet').classList.remove('open'); $('#sheetBg').classList.remove('open'); setTimeout(() => $('#sheetBg').classList.add('hidden'), 250); if (window.Sky) { Sky.select(null); Sky.setVisible(tab === 'sky' && !$('#dash').classList.contains('hidden')); } }
   $('#sheetBg').addEventListener('click', closeSheet);
 
   // ---------- Phantom
@@ -699,22 +632,27 @@
     toast('Deposito confermato');
   }
 
-  // ---------- azioni della barra
-  $('#nav').addEventListener('click', async (e) => {
-    const b = e.target.closest('button'); if (!b) return;
+
+  // ---------- azioni (barra in alto e scheda Sicurezza)
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-a]'); if (!b || !S) return;
     const a = b.dataset.a;
     try {
-      if (a === 'phantom') { if (S.user.address && provider()) phantomSheet(); else if (S.user.address) phantomSheet(); else await connectPhantom(); }
+      if (a === 'phantom') { if (S.user.address) phantomSheet(); else await connectPhantom(); }
       if (a === 'budget') openSetup(true);
       if (a === 'deposit') depositSheet();
       if (a === 'toggle') {
-        if (S.trading) { await api('/api/trading', { on: false }); toast('Bot in pausa (il cronometro della partita continua)'); }
-        else { const live = S.match && S.match.state === 'live'; await api('/api/match/start', {}); toast(live ? '▶ Si riprende a giocare!' : "⚽ Calcio d'inizio! 20 minuti di partita"); }
+        b.disabled = true;
+        try {
+          if (S.trading) { await api('/api/trading', { on: false }); toast('⏸ Bot in pausa: le posizioni aperte restano protette da stop e target'); }
+          else { await api('/api/trading', { on: true }); toast('🚀 I 14 bot sono in orbita'); }
+        } finally { b.disabled = false; }
       }
       if (a === 'withdraw') withdrawSheet();
       if (a === 'settings') settingsSheet();
     } catch (er) { toast(er.message, 4500); }
   });
+
 
   function phantomSheet() {
     openSheet(() => `<h4>Phantom</h4>
@@ -840,12 +778,9 @@
         ${num('memeMinMcapUsd', 'Capitalizzazione minima $', '1000')}${num('memeMinAgeHours', 'Età minima (ore)', '1')}
         ${num('memeMaxTopHoldersPct', 'Top holder max %', '1')}${num('memeMinOrganic', 'Volume organico min (0-100)', '1')}</div>
         <p class="note">Con i filtri allentati entrano anche i token «community»/«strict» di Jupiter (non solo i verificati) e i Token-2022 senza commissioni di trasferimento, hook, delegati permanenti o blocchi. <b>Anti-truffa sempre attivi</b>: via di vendita su Jupiter (anti-honeypot), niente autorità di mint/freeze, RugCheck senza rischi gravi (punteggio ≤ ${c.maxRugScore}), tetto agli holder, niente pump > ${c.maxPump1hPct}% in 1h né crolli > ${c.maxDump24hPct}% in 24h. Le memecoin si comprano solo <b>spot 1x long</b>, ${c.maxTradePct}% per operazione, con uscite furbe; in REALE serve «Spot REALE». Le memecoin sono molto volatili: nessun guadagno garantito.</p></div>
-      <div class="grp"><span class="lbl">Modalità DERBY (partita)</span>
-        <div class="switch"><span>Derby: bot agguerriti a caccia del massimo guadagno</span><span class="toggle ${c.derby ? 'on' : ''}" data-t="derby"></span></div>
-        <p class="note">Nel derby le squadre cercano occasioni ogni 15 s, entrano anche con segnali quasi pieni, rientrano dopo 30 s da un gol, lasciano correre i guadagni col trailing stop, usano 10x sui perps solo con segnale forte e mandano in panchina chi sbaglia due volte di fila. Chi è sotto va in rimonta, chi è avanti negli ultimi 3 minuti difende. <b>I limiti non cambiano mai</b>: margine ${c.maxTradePct}%, leva 5–10x, stop prima della liquidazione, kill switch, limiti giornalieri, filtri di sicurezza e blocchi REALE. Nessun guadagno è garantito.</p></div>
-      <div class="grp"><span class="lbl">Cripto su cui lavora (partita)</span>
+      <div class="grp"><span class="lbl">Cripto su cui lavorano i bot</span>
         <div class="chips" style="margin-top:4px">${['SOL', 'BTC', 'ETH'].map((x) => `<span class="chip on">${x} · ${c.leverage || 5}x L/S</span>`).join('')}<span class="chip">tutte le altre · spot 1x long</span></div>
-        <p class="note">Ogni squadra gioca su <b>massimo 3 cripto</b> scelte dall'allenatore fra tutte quelle scambiabili su Solana con Phantom/Jupiter (anche quelle nel tuo Phantom) che superano i filtri di sicurezza: verificate su Jupiter, niente autorità di mint/freeze, niente Token-2022, liquidità ≥ ${Math.round(c.uniMinLiqUsd / 1000)}k $, volume 24h ≥ ${Math.round(c.uniMinVol24hUsd / 1000)}k $, capitalizzazione ≥ ${Math.round(c.uniMinMcapUsd / 1e6)}M $, età ≥ ${c.uniMinAgeDays} giorni, RugCheck e via di vendita su Jupiter. <b>Leva e short solo su SOL, BTC, ETH</b> (Jupiter Perps, min 5x); sulle altre cripto <b>spot 1x, solo long</b>, stessa dimensione (${c.maxTradePct}%) e uscite furbe.</p>
+        <p class="note">I 14 bot lavorano su <b>massimo 3 cripto di focus</b> scelte dal Mentore fra tutte quelle scambiabili su Solana con Phantom/Jupiter (anche quelle nel tuo Phantom) che superano i filtri di sicurezza: verificate su Jupiter, niente autorità di mint/freeze, niente Token-2022, liquidità ≥ ${Math.round(c.uniMinLiqUsd / 1000)}k $, volume 24h ≥ ${Math.round(c.uniMinVol24hUsd / 1000)}k $, capitalizzazione ≥ ${Math.round(c.uniMinMcapUsd / 1e6)}M $, età ≥ ${c.uniMinAgeDays} giorni, RugCheck e via di vendita su Jupiter. <b>Leva e short solo su SOL, BTC, ETH</b> (Jupiter Perps, min 5x); sulle altre cripto <b>spot 1x, solo long</b>, stessa dimensione (${c.maxTradePct}%) e uscite furbe.</p>
         <div class="switch"><span>Spot 1x solo long sulle cripto senza leva</span><span class="toggle ${c.spotLongs ? 'on' : ''}" data-t="spotLongs"></span></div>
         <div class="switch"><span>Spot REALE (swap veri su Jupiter, soldi veri)</span><span class="toggle ${c.realSpot ? 'on' : ''}" data-t="realSpot" id="sRealSpot"></span></div>
         <p class="note warnTxt">In REALE lo spot compra cripto vere col wallet del bot (rispetta budget, kill switch e limiti giornalieri). È spento finché non lo accendi tu. Leva e short reali restano bloccati fino al test con 5-10 USDC.</p></div>

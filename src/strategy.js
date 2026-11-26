@@ -189,7 +189,7 @@ function exitPlanCore(pos, price, now, cfg, ctx = {}) {
   // prese di profitto parziali
   const initQty = pos.initQty || pos.qty;
   if (cfg.partialTp) {
-    // DERBY (pos.runner): si incassa solo metà della prima presa e niente seconda: il resto corre col trailing stop
+    // pos.runner (vecchie posizioni del derby): si incassa solo metà della prima presa e niente seconda: il resto corre col trailing stop
     if (!pos.tp1Done && ch >= L.tp1) return { action: 'partial', stage: 1, frac: Math.min(1, (cfg.tp1Pct / 100) * (pos.runner ? 0.5 : 1)), reason: `Presa parziale 1 (${fmt(ch)})`, change: ch, events };
     if (!pos.runner && pos.tp1Done && !pos.tp2Done && cfg.tp2Pct > 0 && ch >= Math.max(L.tp2, L.tp1)) {
       const rem = initQty > 0 ? pos.qty / initQty : 1;
@@ -213,7 +213,7 @@ function exitPlanCore(pos, price, now, cfg, ctx = {}) {
   return { action: 'none', change: ch, events, levels: L };
 }
 
-// Segnale "contropiede" (mean reversion su candele 1m), usato dalla squadra contrarian:
+// Segnale "contropiede" (mean reversion su candele 1m), usato dai bot di contropiede:
 // LONG dopo un eccesso di vendite (RSI ≤ 30, chiusura sotto la banda di Bollinger bassa) con candela di inversione;
 // SHORT specchiato. Stesse regole di rischio di tutti gli altri ingressi.
 function reversion(c1) {

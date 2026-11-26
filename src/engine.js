@@ -17,7 +17,7 @@ const chain = require('./chain');
 const { Market } = require('./market');
 const { Research } = require('./research');
 const { Mentor } = require('./mentor');
-const { MatchManager } = require('./match');
+const { Galaxy } = require('./galaxy');
 const { Universe } = require('./universe');
 const { STRATEGIES } = require('./strategies');
 const { uid, sleep, round } = require('./util');
@@ -82,16 +82,16 @@ class Engine extends EventEmitter {
     // MENTORE · diario post-mortem e correzioni automatiche (limitate, con rollback), salvati su /data/mentor.json
     this.mentor = new Mentor({ dataDir, log: (a, t, l) => this.log(a, t, l) });
     this.research.mentorStatus = () => this.mentor.publicSummary();
-    // PARTITA: 2 squadre da 7 bot (6 giocatori + allenatore), 20 minuti, storico su /data/matches.json
-    this.match = new MatchManager(this, dataDir);
+    // OSSERVATORIO GALATTICO: 14 bot indipendenti (pianeti), focus di max 3 cripto scelto dal MENTORE (faro)
+    this.galaxy = new Galaxy(this);
     // UNIVERSO: tutte le cripto scambiabili su Solana (Jupiter) + i token del tuo Phantom, con filtri di sicurezza
     this.universe = new Universe({ log: (a, t, l) => this.log(a, t, l), getCfg: () => this.cfg,
       phantomMints: () => (this.userBal && this.userBal.tokens ? Object.entries(this.userBal.tokens).filter(([, t]) => t.ui > 0).map(([m]) => m) : []) });
-    this.actx = null; // squadra/giocatore a cui attribuire gli eventi in corso (per le animazioni)
+    this.actx = null; // bot (pianeta) a cui attribuire gli eventi in corso (per le animazioni)
   }
 
-  // ogni evento verso l'interfaccia porta la squadra e il giocatore in azione
-  emit(name, ev) { if (name === 'ev' && ev && typeof ev === 'object' && this.actx && !ev.team) ev = { ...ev, ...this.actx }; return super.emit(name, ev); }
+  // ogni evento verso l'interfaccia porta il bot (pianeta) in azione
+  emit(name, ev) { if (name === 'ev' && ev && typeof ev === 'object' && this.actx && !ev.bot) ev = { ...ev, ...this.actx }; return super.emit(name, ev); }
   get conn() { return chain.connection(this.cfg.rpcUrl); }
   get book() { return this.st.books[this.cfg.mode]; }
   get base() { return BASES[this.cfg.baseCurrency]; }
@@ -161,18 +161,17 @@ class Engine extends EventEmitter {
     every(20000, () => this.refreshBalances());
     every(3600000, () => this.market.refreshEur());
     if (process.env.NO_RESEARCH !== '1') this.research.start();
-    every(1000, () => this.match.tick());
+    every(1000, () => this.galaxy.tick());
     if (process.env.NO_UNIVERSE !== '1') setTimeout(() => every(60000, () => this.universe.refresh().catch((e) => this.log('SCANSIONE', `universo cripto: ${e.message}`, 'warn'))), 4000);
     if (process.env.BOT_WALLET_PASSWORD && this.ks.exists()) {
       try { this.ks.unlock(process.env.BOT_WALLET_PASSWORD); this.log('SISTEMA', 'Portafoglio del bot sbloccato da variabile d\'ambiente'); } catch (e) { this.log('SISTEMA', `Sblocco automatico fallito: ${e.message}`, 'error'); }
     }
-    if (process.env.BOT_AUTOSTART === '1') { this.cfg.trading = true; this.log('SISTEMA', 'Avvio automatico del trading (BOT_AUTOSTART=1)'); if (!this.match.m || this.match.m.state === 'ended') try { this.match.start(); } catch (e) { this.log('PARTITA', e.message, 'warn'); } }
+    if (process.env.BOT_AUTOSTART === '1') { this.cfg.trading = true; this.log('SISTEMA', 'Avvio automatico del trading (BOT_AUTOSTART=1)'); }
   }
-  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); this.research.stop(); this.mentor.flush(); this.match.writer.flush(); }
+  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); this.research.stop(); this.mentor.flush(); }
   async cycleLoop() {
     try { await this.cycle(); } catch (e) { this.log('SISTEMA', `Errore ciclo: ${e.message}`, 'error'); }
-    // DERBY: durante la partita le squadre cercano occasioni più spesso (ogni 15 s al massimo)
-    const sec = this.match && this.match.live() && this.cfg.derby ? Math.min(this.cfg.cycleSec, 15) : this.cfg.cycleSec;
+    const sec = this.cfg.cycleSec;
     this.loopTimer = setTimeout(() => this.cycleLoop(), sec * 1000);
   }
 
@@ -203,11 +202,11 @@ class Engine extends EventEmitter {
     const cfg = this.cfg;
     // sempre con leva: si lavora solo su SOL/BTC/ETH (Jupiter Perps); gli altri token solo se c'è ancora una posizione aperta da gestire
     const held = Object.values(this.st.books).flatMap((bk) => bk.positions.map((p) => p.mint));
-    const matchCoins = new Set(this.match.coinMints()); // cripto scelte dalle squadre (max 3 ciascuna)
+    const matchCoins = new Set(this.galaxy.focusMints()); // cripto di focus scelte dal Mentore (max 3)
     let mints = [...Object.keys(P.SHORT_MARKETS), ...held, ...matchCoins];
     const discovered = 0;
     mints = [...new Set(mints)].filter((m) => m !== this.base.mint && m !== USDC);
-    this.agent('SCANSIONE', `scansione: SOL, BTC, ETH (leva ${this.leverage()}x)${matchCoins.size ? ` + cripto delle squadre` : ''}${held.length ? ` + ${held.length} posizioni da gestire` : ''}`, 'scan');
+    this.agent('SCANSIONE', `scansione: SOL, BTC, ETH (leva ${this.leverage()}x)${matchCoins.size ? ` + cripto di focus` : ''}${held.length ? ` + ${held.length} posizioni da gestire` : ''}`, 'scan');
     await this.market.refreshStats(mints, coreMints);
     const shortMints = cfg.shortsOn || cfg.perpLongs ? Object.keys(P.SHORT_MARKETS).filter((m) => !mints.includes(m)) : [];
     if (shortMints.length) { try { await this.market.refreshStats(shortMints, coreMints); } catch (e) { this.log('SCANSIONE', `dati short: ${e.message}`, 'warn'); } }
@@ -242,7 +241,7 @@ class Engine extends EventEmitter {
         }
       }
       if (reasons.length) { if (this.watch.has(m) && !this.holding(m)) this.watch.delete(m); continue; }
-      if (!P.SHORT_MARKETS[m] && !this.holding(m) && !matchCoins.has(m)) continue; // mercati con leva, cripto delle squadre o posizioni ancora aperte
+      if (!P.SHORT_MARKETS[m] && !this.holding(m) && !matchCoins.has(m)) continue; // mercati con leva, cripto di focus o posizioni ancora aperte
       if (!this.watch.has(m)) this.watch.set(m, { symbol: s.symbol, approvedAt: now, core });
     }
     for (const m of [...this.watch.keys()]) if (!P.SHORT_MARKETS[m] && !this.holding(m) && !matchCoins.has(m)) this.watch.delete(m);
@@ -280,14 +279,12 @@ class Engine extends EventEmitter {
     if (!this.lastPriceOk || Date.now() - this.lastPriceOk > 60000) { this.agent('RISCHIO', 'prezzi non aggiornati: attendo', 'block'); return; }
     this.busy = true;
     try {
-      if (this.match.live()) {
-        // partita in corso: giocano le due squadre (in REALE resta il blocco dei perps finché il test non è approvato)
-        const block = this.entryBlock(); const now = Date.now();
-        if (block) {
-          this.bump('RISCHIO'); this.agent('RISCHIO', `Partita REALE in attesa: ${block}`, 'block');
-          if (now - (this.analysisRejectTs.REALBLOCK || 0) > 30 * 60000) { this.analysisRejectTs.REALBLOCK = now; this.log('RISCHIO', `${block} La partita REALE è in attesa: nessun ordine reale.`, 'warn'); }
-        } else await this.match.turn(now);
-      } else await this.pipeline();
+      // i 14 bot dell'Osservatorio (in REALE resta il blocco dei perps finché il test non è approvato)
+      const block = this.entryBlock(); const now = Date.now();
+      if (block) {
+        this.bump('RISCHIO'); this.agent('RISCHIO', `REALE in attesa: ${block}`, 'block');
+        if (now - (this.analysisRejectTs.REALBLOCK || 0) > 30 * 60000) { this.analysisRejectTs.REALBLOCK = now; this.log('RISCHIO', `${block} Nessun ordine reale; le posizioni già aperte restano gestite.`, 'warn'); }
+      } else await this.galaxy.turn(now);
     } finally { this.busy = false; }
   }
 
@@ -400,9 +397,9 @@ class Engine extends EventEmitter {
     return this.enterTrade(best, { conf, fromLib });
   }
 
-  // RISCHIO → DIMENSIONE → piano → ESECUZIONE per il candidato scelto (comune al banco e alle squadre della partita).
-  // opts.capital/opts.cash: capitale e liquidità della squadra (metà del disponibile a inizio partita).
-  async enterTrade(best, { conf, fromLib = false, capital: capIn = null, cash: cashIn = null, team = null, player = null, perp = null, lev: levReq = null } = {}) {
+  // RISCHIO → DIMENSIONE → piano → ESECUZIONE per il candidato scelto (comune a tutti i bot).
+  // opts.capital/opts.cash: capitale e liquidità da usare (di norma quelli del conto); opts.bot: pianeta che apre l'operazione.
+  async enterTrade(best, { conf, fromLib = false, capital: capIn = null, cash: cashIn = null, bot = null, perp = null, lev: levReq = null } = {}) {
     const cfg = this.cfg; const b = this.book;
     const a = best.a; const sym = best.s.symbol; const isShort = best.side === 'SHORT'; const core = isShort || coreMints.has(best.m);
     // RISCHIO: limiti globali
@@ -425,8 +422,8 @@ class Engine extends EventEmitter {
     // long con leva (perps) solo su SOL/BTC/ETH, solo se attivati, e in REALE solo quando i perps reali saranno verificati
     // ogni nuovo ingresso è con leva (minimo 5x): mai più acquisti spot
     const perpMarket = P.SHORT_MARKETS[best.m];
-    // partita: sulle cripto senza mercato perps si compra SPOT (1x, solo long); leva e short solo su SOL/BTC/ETH
-    if (!perpMarket && team && perp === false) return this.enterSpot(best, size, capital, conf, fromLib, { team, player, sym });
+    // sulle cripto senza mercato perps si compra SPOT (1x, solo long); leva e short solo su SOL/BTC/ETH
+    if (!perpMarket && bot && perp === false) return this.enterSpot(best, size, capital, conf, fromLib, { bot, sym });
     if (!perpMarket) { this.agent('RISCHIO', `$${sym}: niente acquisti spot, solo operazioni con leva su SOL/BTC/ETH`, 'block', { token: sym }); return; }
     const perpLong = !isShort;
     const usePerp = true; const sideTxt = isShort ? 'SHORT' : 'LONG';
@@ -456,11 +453,11 @@ class Engine extends EventEmitter {
     await sleep(400);
 
     // ESECUZIONE
-    return this.openShort({ ...best, s: { ...best.s, symbol: perpMarket }, team, player }, size, plan, sideTxt, lev);
+    return this.openShort({ ...best, s: { ...best.s, symbol: perpMarket }, bot }, size, plan, sideTxt, lev);
   }
 
-  // SPOT della partita: long 1x via swap Jupiter, dimensione 7% della cassa di squadra, uscite intelligenti e stop
-  async enterSpot(best, size, capital, conf, fromLib, { team, player, sym }) {
+  // SPOT: long 1x via swap Jupiter, dimensione 7% del capitale, uscite intelligenti e stop
+  async enterSpot(best, size, capital, conf, fromLib, { bot, sym }) {
     const cfg = this.cfg;
     if (best.side === 'SHORT') { this.bump('RISCHIO'); this.agent('RISCHIO', `$${sym}: short solo su SOL/BTC/ETH (Jupiter Perps)`, 'block', { token: sym }); return; }
     const blk = this.spotBlock(); if (blk) { this.bump('RISCHIO'); this.agent('RISCHIO', blk, 'block', { token: sym }); return; }
@@ -474,9 +471,9 @@ class Engine extends EventEmitter {
     if (px) {
       const raw = BigInt(Math.max(1, Math.floor((size / px) * 10 ** dec)));
       try { const back = await jup.quote(best.m, this.base.mint, raw, cfg.slippageBps); if (!back || !(Number(back.outAmount) > 0)) throw new Error('nessun percorso'); }
-      catch (e) { this.bump('RISCHIO'); this.agent('RISCHIO', `$${sym}: nessuna via di vendita su Jupiter (${e.message}): non compro`, 'block', { token: sym }); this.book.cooldown[`${team}:${best.m}:LONG`] = Date.now() + 30 * 60000; return; }
+      catch (e) { this.bump('RISCHIO'); this.agent('RISCHIO', `$${sym}: nessuna via di vendita su Jupiter (${e.message}): non compro`, 'block', { token: sym }); this.book.cooldown[`${bot}:${best.m}:LONG`] = Date.now() + 30 * 60000; return; }
     }
-    this.agent('DIMENSIONE', `${this.fmtBase(size)} su $${sym} spot 1x (${((size / capital) * 100).toFixed(1)}% della cassa di squadra) · solo long`, 'size', { token: sym, size });
+    this.agent('DIMENSIONE', `${this.fmtBase(size)} su $${sym} spot 1x (${((size / capital) * 100).toFixed(1)}% del capitale) · solo long`, 'size', { token: sym, size });
     await sleep(300);
     const plan = S.riskPlan(best.a.atrPct, cfg, false);
     const tp = this.mentor.params(sym, 'LONG');
@@ -484,7 +481,7 @@ class Engine extends EventEmitter {
     best.ctx = { atrPct: best.a.atrPct, conf, rs: 0, strategies: [], fromLib, tpMult: tp.tpMult, tuneVer: tp.ver, spot: true };
     this.agent('RISCHIO', `spot 1x · stop -${plan.slPct.toFixed(2)}% · target +${plan.tpPct.toFixed(2)}% · trailing ${plan.trailPct.toFixed(2)}%`, 'plan', { token: sym });
     await sleep(300);
-    return this.openPosition({ ...best, team, player }, size, plan);
+    return this.openPosition({ ...best, bot }, size, plan);
   }
 
   cash() {
@@ -530,7 +527,7 @@ class Engine extends EventEmitter {
     const entry = spent / qty;
     const pos = { id: uid(), mint: c.m, symbol: sym, decimals, qtyRaw: qtyRaw.toString(), qty, costBase: spent, entryPrice: entry, highest: entry,
       slPct: plan.slPct, tpPct: plan.tpPct, trailPct: plan.trailPct, openedAt: Date.now(), feesBase: feeBase, sigOpen: sig, impactPct: impact, core: coreMints.has(c.m), feat: c.feat || [], atrPct: plan.atrPct != null ? plan.atrPct : (c.a && c.a.atrPct), initQty: qty, origCost: spent, origFees: feeBase,
-      ctx: c.ctx || null, tpMult: (c.ctx && c.ctx.tpMult) || 1, side: 'LONG', lev: 1, team: c.team || null, player: c.player || null, matchId: c.team && this.st.match ? this.st.match.id : null, runner: !!(c.derby && c.team) };
+      ctx: c.ctx || null, tpMult: (c.ctx && c.ctx.tpMult) || 1, side: 'LONG', lev: 1, bot: c.bot || null };
     b.positions.push(pos); b.feesBase += feeBase;
     this.bump('ESECUZIONE');
     const t = `comprato $${sym} per ${this.fmtBase(spent)}`;
@@ -551,10 +548,10 @@ class Engine extends EventEmitter {
     if (!this.cfg.spotLongs) return 'Spot spento nelle impostazioni.';
     return this.cfg.mode === 'REAL' && !this.cfg.realSpot ? 'Spot reale spento: attivalo in Impostazioni per comprare cripto vere su Jupiter (solo long, 1x).' : null;
   }
-  // nessuna nuova operazione possibile in questa modalità (né perps né spot della partita)
+  // nessuna nuova operazione possibile in questa modalità (né perps né spot)
   entryBlock() {
     const pb = this.perpBlock(); if (!pb) return null;
-    if (this.match && this.match.live() && !this.spotBlock()) return null;
+    if (!this.spotBlock()) return null; // lo spot (solo long, 1x) resta possibile
     return pb;
   }
   leverage() { return Math.min(P.MAX_LEV, snapLeverage(this.cfg.leverage)); } // 2x / 5x / 10x, limite rigido 10x
@@ -577,7 +574,7 @@ class Engine extends EventEmitter {
       costBase: margin, origCost: margin, feesBase: feeBase, origFees: feeBase, entryPrice: px, highest: px, sizeUsd: m.sizeUsd, initSizeUsd: m.sizeUsd, collateralUsd: m.collateralUsd,
       openFeeUsd: m.openFeeUsd, perpFeesUsd: m.openFeeUsd, borrowUsd: 0, lastAccrual: now, slPct: plan.slPct, tpPct: plan.tpPct, trailPct: plan.trailPct, openedAt: now, sigOpen: null,
       core: true, feat: c.feat || [], atrPct: c.a && c.a.atrPct, ctx: c.ctx || null, tpMult: (c.ctx && c.ctx.tpMult) || 1, mfe: 0, mae: 0,
-      team: c.team || null, player: c.player || null, matchId: c.team && this.st.match ? this.st.match.id : null, runner: !!(c.derby && c.team) };
+      bot: c.bot || null };
     pos.liqPrice = P.liquidationPrice(pos);
     pos.slPct = S.shortStopCap(pos.slPct, px, pos.liqPrice);
     b.positions.push(pos); b.feesBase += feeBase;
@@ -592,7 +589,7 @@ class Engine extends EventEmitter {
   }
   // Ricompra (chiude) tutto o una parte dello short. PnL = collaterale + guadagno sul prezzo − prestito − commissione di chiusura.
   async closeShort(p, frac, reason, stage) {
-    const prev = this.actx; if (p.team) this.actx = { team: p.team, player: p.player };
+    const prev = this.actx; if (p.bot) this.actx = { bot: p.bot };
     try { return await this.closeShortInner(p, frac, reason, stage); } finally { this.actx = prev; }
   }
   async closeShortInner(p, frac, reason, stage) {
@@ -638,14 +635,14 @@ class Engine extends EventEmitter {
     b.positions = b.positions.filter((x) => x !== p);
     const totalPnl = pnl + (p.realizedPart || 0); const origCost = p.origCost || p.costBase;
     if (totalPnl >= 0) b.wins++; else b.losses++;
-    b.cooldown[p.team ? `${p.team}:${p.mint}:${p.side}` : p.mint] = now + cfg.cooldownMin * 60000; // in partita: pausa solo per quel giocatore
+    b.cooldown[p.bot ? `${p.bot}:${p.mint}:${p.side}` : p.mint] = now + cfg.cooldownMin * 60000; // pausa solo per quel bot
     const nParts = (p.partials || []).length;
     const tr = { id: p.id, side: p.side, perp: true, lev: p.lev, symbol: p.symbol, mint: p.mint, openedAt: p.openedAt, closedAt: now, costBase: origCost, outBase: valueBase + (p.partOut || 0), pnl: totalPnl, pnlPct: (totalPnl / origCost) * 100,
       fees: (p.origFees != null ? p.origFees : p.feesBase) + (p.partFees || 0) + feeBase + p.perpFeesUsd / bu, perpFeesUsd: p.perpFeesUsd, entryPrice: p.entryPrice, exitPrice: px,
-      reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [], sigOpen: null, sigClose: null, mode: cfg.mode, estimated: false, feat: p.feat || [], ...this.postFields(p), team: p.team || null, player: p.player || null, matchId: p.matchId || null };
+      reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [], sigOpen: null, sigClose: null, mode: cfg.mode, estimated: false, feat: p.feat || [], ...this.postFields(p), bot: p.bot || null };
     b.trades.unshift(tr); if (b.trades.length > 500) b.trades.pop();
     this.mentorLearn(tr);
-    try { this.match.onClose(tr); } catch (e) { this.log('PARTITA', `allenatore: ${e.message}`, 'warn'); }
+    try { this.galaxy.onClose(tr); } catch (e) { this.log('MENTORE', `correzione bot: ${e.message}`, 'warn'); }
     this.bump('SORVEGLIANZA');
     const t = `${dir > 0 ? 'venduto' : 'ricomprato'} $${p.symbol} (chiuso ${p.side} ${p.lev}x) · ${tr.reason} · ${totalPnl >= 0 ? '+' : ''}${this.fmtBase(totalPnl)} (${tr.pnlPct >= 0 ? '+' : ''}${tr.pnlPct.toFixed(2)}% sul margine)`;
     this.agent('SORVEGLIANZA', t, totalPnl >= 0 ? 'win' : 'loss', { token: p.symbol, pnl: totalPnl, side: p.side });
@@ -664,7 +661,7 @@ class Engine extends EventEmitter {
     for (const p of [...b.positions]) {
       const px = this.posPrice(p); if (!px) continue;
       if (p.closing) continue;
-      this.actx = p.team ? { team: p.team, player: p.player } : null;
+      this.actx = p.bot ? { bot: p.bot } : null;
       if (isPerp(p)) {
         // protezione extra: chiude molto prima della liquidazione (80% della distanza), qualunque cosa dicano le altre regole
         const st = P.shortState(p, px, now); p.liqPrice = st.liqPrice;
@@ -693,7 +690,7 @@ class Engine extends EventEmitter {
   // con rendimento complessivo = parziali + ultima vendita.
   async sellPosition(p, frac, reason, toMint, stage) {
     if (isPerp(p)) return this.closeShort(p, frac, reason, stage);
-    const prev = this.actx; if (p.team) this.actx = { team: p.team, player: p.player };
+    const prev = this.actx; if (p.bot) this.actx = { bot: p.bot };
     try { return await this.sellSpot(p, frac, reason, toMint, stage); } finally { this.actx = prev; }
   }
   async sellSpot(p, frac, reason, toMint, stage) {
@@ -770,14 +767,14 @@ class Engine extends EventEmitter {
       const totalPnl = pnl + (p.realizedPart || 0);
       const origCost = p.origCost || p.costBase;
       if (totalPnl >= 0) b.wins++; else b.losses++;
-      b.cooldown[p.team ? `${p.team}:${p.mint}:LONG` : p.mint] = Date.now() + cfg.cooldownMin * 60000;
+      b.cooldown[p.bot ? `${p.bot}:${p.mint}:LONG` : p.mint] = Date.now() + cfg.cooldownMin * 60000;
       const nParts = (p.partials || []).length;
       const tr = { id: p.id, symbol: p.symbol, mint: p.mint, openedAt: p.openedAt, closedAt: Date.now(), costBase: origCost, outBase: valueBase + (p.partOut || 0), pnl: totalPnl, pnlPct: (totalPnl / origCost) * 100,
         fees: (p.origFees != null ? p.origFees : p.feesBase) + (p.partFees || 0) + feeBase, reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [],
-        sigOpen: p.sigOpen, sigClose: sig, mode: cfg.mode, estimated, feat: p.feat || [], side: 'LONG', lev: 1, entryPrice: p.entryPrice, exitPrice: this.priceBase(p.mint) || p.entryPrice, ...this.postFields(p), team: p.team || null, player: p.player || null, matchId: p.matchId || null };
+        sigOpen: p.sigOpen, sigClose: sig, mode: cfg.mode, estimated, feat: p.feat || [], side: 'LONG', lev: 1, entryPrice: p.entryPrice, exitPrice: this.priceBase(p.mint) || p.entryPrice, ...this.postFields(p), bot: p.bot || null };
       b.trades.unshift(tr); if (b.trades.length > 500) b.trades.pop();
       this.mentorLearn(tr);
-      try { this.match.onClose(tr); } catch (e) { this.log('PARTITA', `allenatore: ${e.message}`, 'warn'); }
+      try { this.galaxy.onClose(tr); } catch (e) { this.log('MENTORE', `correzione bot: ${e.message}`, 'warn'); }
       this.bump('SORVEGLIANZA');
       const t = `venduto $${p.symbol} · ${tr.reason} · ${totalPnl >= 0 ? '+' : ''}${this.fmtBase(totalPnl)}${nParts ? ` (${tr.pnlPct >= 0 ? '+' : ''}${tr.pnlPct.toFixed(2)}% complessivo)` : ''}`;
       this.agent('SORVEGLIANZA', t, totalPnl >= 0 ? 'win' : 'loss', { token: p.symbol, pnl: totalPnl });
@@ -801,7 +798,6 @@ class Engine extends EventEmitter {
     this.agent('RISCHIO', `KILL SWITCH: ${reason}. Vendo tutto e mi fermo.`, 'kill');
     this.log('RISCHIO', `KILL SWITCH attivato: ${reason}`, 'error');
     for (const p of [...b.positions]) await this.closePosition(p, 'Kill switch', this.cfg.mode === 'REAL' ? USDC : undefined);
-    if (this.match.live()) await this.match.end('Kill switch');
     if (this.cfg.mode === 'REAL' && this.cfg.baseCurrency === 'SOL' && this.cfg.killConvertUsdc) {
       await this.refreshBalances(true);
       const free = this.bal.sol - this.cfg.feeReserveSol;
@@ -879,16 +875,15 @@ class Engine extends EventEmitter {
   setTrading(on) {
     if (on && this.book.killed) throw new Error('Kill switch attivo: riarma il bot prima di ripartire');
     if (on && this.cfg.mode === 'REAL' && !this.ks.kp) throw new Error('Sblocca il portafoglio del bot con la password');
-    const mm = this.match.m;
-    if (on && !(mm && (mm.state === 'live' || mm.state === 'closing'))) this.match.start(); // "Avvia" = calcio d'inizio di una nuova partita
     this.cfg.trading = !!on; this.saveCfg();
-    this.log('SISTEMA', on ? (this.match.live() ? 'Trading AVVIATO · partita in corso' : 'Trading AVVIATO') : 'Trading in PAUSA (la partita continua a contare il tempo)');
+    if (on && !(this.galaxy.st.focus || []).length) this.galaxy.pickFocus(Date.now(), true);
+    this.log('SISTEMA', on ? 'Trading AVVIATO · i 14 bot dell\'Osservatorio sono in orbita' : 'Trading in PAUSA (le posizioni aperte restano protette da stop e target)');
     this.emit('ev', { type: 'trading', on: !!on });
   }
   resetSim() {
     if (this.cfg.mode === 'SIM') this.cfg.trading = false;
     this.st.books.SIM = newBook(this.cfg.budget, this.cfg);
-    if (this.st.match && this.st.match.mode === 'SIM') this.st.match = null; // la partita simulata riparte da zero
+    if (this.cfg.mode === 'SIM' && this.st.galaxy) { this.st.galaxy.bots = {}; this.st.galaxy.insight = null; } // statistiche dei bot da zero (le pause scelte restano)
     this.st.counters = newCounters(); this.st.agents = {}; this.seen = {}; this.analysisRejectTs = {};
     this.save(); this.saveCfg(); this.log('SISTEMA', `Nuova sessione di SIMULAZIONE con ${this.fmtBase(this.cfg.budget)}`);
   }
@@ -898,7 +893,6 @@ class Engine extends EventEmitter {
   }
   async setMode(mode, confirmText) {
     if (mode === this.cfg.mode) return;
-    if (this.match.m && ['live', 'closing'].includes(this.match.m.state)) throw new Error('Partita in corso: aspetta il fischio finale o terminala prima di cambiare modalità');
     if (this.book.positions.length) throw new Error('Chiudi le posizioni aperte prima di cambiare modalità');
     if (mode === 'REAL') {
       if (confirmText !== 'ATTIVA REALE') throw new Error('Scrivi esattamente: ATTIVA REALE');
@@ -1145,12 +1139,12 @@ class Engine extends EventEmitter {
         return { id: p.id, side: p.side, perp: true, lev: p.lev, symbol: p.symbol, mint: p.mint, costBase: p.costBase, value: val, pnl, pnlPct: (pnl / p.costBase) * 100,
           entryPrice: p.entryPrice, price: px, priceUnit: 'USD', sl: p.entryPrice * (1 + (dn * p.slPct) / 100), tp: p.entryPrice * (1 - (dn * p.tpPct) / 100), slPct: p.slPct, tpPct: p.tpPct, openedAt: p.openedAt, sigOpen: null,
           liqPrice: st ? st.liqPrice : p.liqPrice, sizeUsd: p.sizeUsd, collateralUsd: p.collateralUsd, borrowUsd: st ? st.borrowUsd : p.borrowUsd, perpFeesUsd: (p.perpFeesUsd || 0) + (st ? st.borrowUsd - (p.borrowUsd || 0) : 0),
-          team: p.team || null, player: p.player || null, ...this.exitView(p) };
+          bot: p.bot || null, ...this.exitView(p) };
       }
       const px = this.priceBase(p.mint); const val = px ? p.qty * px : p.costBase;
       return { id: p.id, side: 'LONG', lev: 1, symbol: p.symbol, mint: p.mint, costBase: p.costBase, value: val, pnl: val - p.costBase - p.feesBase, pnlPct: ((val - p.costBase - p.feesBase) / p.costBase) * 100,
         entryPrice: p.entryPrice, price: px, sl: p.entryPrice * (1 - p.slPct / 100), tp: p.entryPrice * (1 + p.tpPct / 100), slPct: p.slPct, tpPct: p.tpPct, openedAt: p.openedAt, sigOpen: p.sigOpen,
-        spot: true, team: p.team || null, player: p.player || null, ...this.exitView(p) };
+        spot: true, bot: p.bot || null, ...this.exitView(p) };
     });
     const hist = b.equityHist; const step = Math.max(1, Math.ceil(hist.length / 240));
     const ws = [...this.watch.entries()].map(([m, w]) => { const s = this.market.stats[m] || {}; return { mint: m, symbol: w.symbol, core: w.core, priceUsd: this.market.usd(m), change1h: s.change1h, liq: s.liquidityUsd, candles: (this.market.candles[m] || []).length }; });
@@ -1173,7 +1167,7 @@ class Engine extends EventEmitter {
       equity: eq, equityEur: toEur(eq), startEquity: b.startEquity, pnl: eq - b.startEquity, pnlEur: toEur(eq - b.startEquity),
       roi: b.startEquity > 0 ? eq / b.startEquity : 1, realizedPnl: b.realizedPnl, fees: b.feesBase, cash: b.cash, solReserve: b.solReserve,
       capital: (({ positions: _ps, ...c }) => c)(this.capital(b)),
-      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(), mentor: this.mentor.summary(), match: this.match.view(), universe: this.universe.status(),
+      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(), mentor: this.mentor.summary(), galaxy: this.galaxy.view(), universe: this.universe.status(),
       positions, trades: b.trades.slice(0, 60), equityHist: hist.filter((_, i) => i % step === 0 || i === hist.length - 1),
       counters: this.st.counters, agents: AGENTS.map((a) => ({ ...a, count: this.st.counters.agents[a.id] || 0, last: this.st.agents[a.id] || null })),
       log: this.st.log.slice(-80), watch: ws,

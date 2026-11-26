@@ -156,7 +156,7 @@ class Research {
     const now = Date.now(); const want = side === 'SHORT' ? -1 : 1;
     for (const sg of live.signals) {
       if (sg.until < now) continue;
-      if (allow && !allow.includes(sg.id)) continue; // ogni squadra ascolta solo le strategie del suo stile
+      if (allow && !allow.includes(sg.id)) continue; // ogni bot ascolta solo la sua strategia
       const r = res[sg.id]; if (!r || !r.active) continue;
       if (live.regime && r.regimeOff.includes(live.regime)) continue; // perdente in questo regime di mercato
       if (sg.dir === want) { out.score += r.weight; out.strategies.push(sg.id); if (out.atrPct == null || r.weight > 1) out.atrPct = sg.atrPct; }

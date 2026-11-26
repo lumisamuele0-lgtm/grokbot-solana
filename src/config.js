@@ -1,6 +1,6 @@
 'use strict';
 const { CORE, OLD_MEMES } = require('./tokens');
-const CFG_VERSION = 10; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
+const CFG_VERSION = 11; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
 const DEFAULTS = {
   cfgVersion: CFG_VERSION,
   mode: 'SIM', // SIM | REAL
@@ -28,12 +28,11 @@ const DEFAULTS = {
   // LONG + SHORT: short su SOL/BTC/ETH tramite Jupiter Perps, collaterale USDC, leva massima 2x (limite rigido)
   // leva perps selezionabile 5x / 10x (minimo 5x, limite rigido 10x); i long con leva sono facoltativi (spenti = long spot)
   shortsOn: true, leverage: 5, perpLongs: true,
-  // PARTITA: ogni squadra su max 3 cripto fra tutte quelle di Solana/Phantom. Leva e short solo dove ci sono i perps (SOL/BTC/ETH);
+  // OSSERVATORIO: max 3 cripto di focus fra tutte quelle di Solana/Phantom. Leva e short solo dove ci sono i perps (SOL/BTC/ETH);
   // sulle altre spot 1x solo long. In REALE lo spot vero (swap Jupiter) parte solo se lo attivi tu (realSpot).
   spotLongs: true, realSpot: false,
   // MEMECOIN: filtri allentati per avere molte più memecoin (anti-truffa sempre attivi: via di vendita, niente mint/freeze, RugCheck, holder, pump/crolli)
   memeLoose: true, memeMinLiqUsd: 50000, memeMinVol24hUsd: 100000, memeMinMcapUsd: 1000000, memeMinAgeHours: 24, memeMinOrganic: 20, memeMaxTopHoldersPct: 60,
-  derby: true, // DERBY: squadre più agguerrite in partita, sempre entro i limiti rigidi (margine 7%, leva 5–10x, stop, kill switch, limiti giornalieri)
   uniMinLiqUsd: 250000, uniMinVol24hUsd: 500000, uniMinMcapUsd: 10000000, uniMinAgeDays: 7, uniMinOrganic: 50, uniMaxTopHoldersPct: 50,
   reversalExit: true, reversalPct: 3, // uscita rapida su crollo del momentum a 5 min o ondata di vendite
   cooldownMin: 20,
@@ -95,6 +94,8 @@ const MIGRATIONS = {
   9: (c) => { c.derby = true; if (!(Number(c.leverage) >= 5)) c.leverage = 5; },
   // v10: «Memecoin: filtri allentati» attivo (scelta di Samuele); soglie memecoin ai valori predefiniti, resto invariato
   10: (c) => { c.memeLoose = true; for (const k of ['memeMinLiqUsd', 'memeMinVol24hUsd', 'memeMinMcapUsd', 'memeMinAgeHours', 'memeMinOrganic', 'memeMaxTopHoldersPct']) c[k] = DEFAULTS[k]; },
+  // v11: Osservatorio Galattico (niente più squadre/derby): tolta solo la chiave «derby»; leva, margine, stop, filtri, PIN e wallet invariati
+  11: (c) => { delete c.derby; },
   4: (c) => { c.scanMemes = false; const extra = (Array.isArray(c.tokens) ? c.tokens : []).filter((m) => !OLD_MEMES.includes(m) && !CORE.some((t) => t.mint === m)); c.tokens = [...CORE.map((t) => t.mint), ...extra]; if ((c.maxWatch || 0) < CORE.length + 1) c.maxWatch = CORE.length + 1; },
 };
 function migrateConfig(saved) {

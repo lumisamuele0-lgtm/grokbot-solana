@@ -13,6 +13,7 @@ const { Engine } = require('./engine');
 const chain = require('./chain');
 const { USDC } = require('./tokens');
 const { writeAtomic } = require('./store');
+const { BOT_IDS } = require('./galaxy');
 const { redact } = require('./redact');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -230,9 +231,13 @@ function createApp({ dataDir, env = process.env, engineOpts = {}, logger = conso
   app.post('/api/mode', wrap(async (req) => { await engine.setMode(req.body.mode === 'REAL' ? 'REAL' : 'SIM', typeof req.body.confirm === 'string' ? req.body.confirm.slice(0, 64) : undefined); }));
   app.post('/api/reset-sim', wrap(async () => { engine.resetSim(); }));
   app.post('/api/rearm', wrap(async () => { engine.rearm(); }));
-  app.post('/api/match/start', wrap(async () => { engine.match.dismiss(); engine.setTrading(true); return engine.match.view(); }));
-  app.post('/api/match/stop', wrap(async () => { if (!engine.match.live()) throw new Bad('Nessuna partita in corso'); await engine.match.end('Terminata da te'); return engine.match.view(); }));
-  app.post('/api/match/dismiss', wrap(async () => { engine.match.dismiss(); }));
+  // Osservatorio: metti in pausa o riattiva un singolo bot (le sue posizioni aperte restano gestite)
+  app.post('/api/bot/pause', wrap(async (req) => {
+    const id = V.str(req.body.id, { min: 2, max: 24, re: /^[a-z]+$/, name: 'Bot' });
+    if (!BOT_IDS.includes(id)) throw new Bad('Bot sconosciuto');
+    if (typeof req.body.paused !== 'boolean') throw new Bad('Valore non valido');
+    return { id, paused: engine.galaxy.setPaused(id, req.body.paused) };
+  }));
   app.post('/api/close', wrap(async (req) => {
     const id = V.str(req.body.id, { min: 1, max: 64, re: /^[A-Za-z0-9_-]+$/, name: 'Posizione' });
     if (id === 'all') return engine.closeAll();

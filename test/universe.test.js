@@ -5,7 +5,7 @@ const { Engine, newBook } = require('../src/engine');
 const { Keystore } = require('../src/keystore');
 const { DEFAULTS, migrateConfig } = require('../src/config');
 const { screen, offer, fromJup } = require('../src/universe');
-const { MAX_COINS } = require('../src/match');
+const { MAX_COINS } = require('../src/galaxy');
 const P = require('../src/perps');
 const jup = require('../src/jupiter');
 const { SOL, USDC } = require('../src/tokens');
@@ -53,51 +53,42 @@ test('leva e long/short solo dove ci sono i perps: SOL/BTC/ETH 5x L/S, il resto 
   assert.deepStrictEqual(offer({ perp: false }, 5), { lev: 1, sides: ['LONG'], label: 'Spot · Long' });
 });
 
-test('massimo 3 cripto per squadra; 2 giocatori per cripto; nessuno short sulle cripto spot', () => {
+test('massimo 3 cripto di focus scelte dal Mentore; nessuno short sulle cripto spot', () => {
   const e = mkEngine();
   const coins = Array.from({ length: 8 }, (_, i) => good({ mint: mkMint(i), symbol: 'C' + i, change1h: i % 3 ? 2 + i : -4 - i, volume24h: 1e6 * (i + 1) }));
   e.universe.setCoins([...coins, fromJup({ id: SOL, symbol: 'SOL', isVerified: true, tokenProgram: TK, liquidity: 1e9, stats24h: { buyVolume: 1e9, sellVolume: 1e9 } })]);
-  const m = e.match.start();
-  for (const id of ['A', 'B']) {
-    const T = m.teams[id];
-    assert.ok(T.coins.length <= MAX_COINS && T.coins.length >= 1, `squadra ${id}: ${T.coins.length} cripto`);
-    const onField = Object.values(T.lineup).filter((L) => L.mint);
-    assert.ok(onField.every((L) => T.coins.some((c) => c.mint === L.mint)), 'giocatori solo sulle cripto scelte');
-    for (const c of T.coins) {
-      const pl = onField.filter((L) => L.mint === c.mint); assert.strictEqual(pl.length, 2);
-      if (c.perp) assert.deepStrictEqual(pl.map((L) => L.side).sort(), ['LONG', 'SHORT']);
-      else { assert.ok(pl.every((L) => L.side === 'LONG'), 'spot: solo long'); assert.strictEqual(c.label, 'Spot · Long'); }
-    }
-    // rivalutazione: sempre al massimo 3
-    e.match.pickCoins(id, Date.now() + 6 * 60e3); assert.ok(m.teams[id].coins.length <= MAX_COINS);
-  }
-  const v = e.match.view(); assert.strictEqual(v.maxCoins, 3); assert.ok(v.teams[0].coins.length <= 3); assert.ok(v.teams[0].players.some((p) => /spot ▲ 1x|5x/.test(p.role)));
+  const f = e.galaxy.pickFocus();
+  assert.ok(f.length <= MAX_COINS && f.length >= 1, `${f.length} cripto`);
+  for (const c of f) if (!c.perp) assert.strictEqual(c.label, 'Spot · Long');
+  // rivalutazione: sempre al massimo 3
+  e.galaxy.pickFocus(Date.now() + 6 * 60e3); assert.ok(e.galaxy.focusMints().length <= MAX_COINS);
+  const v = e.galaxy.view(); assert.strictEqual(v.maxCoins, 3); assert.ok(v.focus.length <= 3);
 });
 
-test('spot della partita: long 1x via Jupiter, 7% della cassa di squadra; short spot rifiutato; honeypot scartato', async () => {
+test('spot: long 1x via Jupiter, 7% del capitale; short spot rifiutato; honeypot scartato', async () => {
   const e = mkEngine(); const M = mkMint(1);
   e.universe.setCoins([good({ mint: M, symbol: 'GOOD', change1h: 3, change6h: 4 })]);
   readySpot(e, M, 'GOOD');
   const real = jup.quote; let calls = 0;
   jup.quote = async (i, o, amt) => { calls++; return i === USDC ? { outAmount: String(Math.floor((Number(amt) / 1e6 / e.market.prices[M].usd) * 1e6)), priceImpactPct: '0.001' } : { outAmount: '1000', priceImpactPct: '0' }; };
   try {
-    const m = e.match.start();
-    assert.ok(m.teams.A.coins.every((c) => !c.perp), 'solo la cripto spot nell\'universo');
-    const pos = await e.match.teamTurn('A');
-    assert.ok(pos, 'acquisto spot'); assert.ok(!pos.perp); assert.strictEqual(pos.lev, 1); assert.strictEqual(pos.side, 'LONG'); assert.strictEqual(pos.team, 'A'); assert.strictEqual(pos.matchId, m.id);
-    assert.ok(Math.abs(pos.costBase - 35) < 0.01, `7% di 500 (${pos.costBase})`); assert.ok(!pos.liqPrice, 'spot: niente liquidazione');
+    const f = e.galaxy.pickFocus();
+    assert.ok(f.every((c) => !c.perp), 'solo la cripto spot nell\'universo');
+    const [pos] = await e.galaxy.turn();
+    assert.ok(pos, 'acquisto spot'); assert.ok(!pos.perp); assert.strictEqual(pos.lev, 1); assert.strictEqual(pos.side, 'LONG'); assert.strictEqual(pos.bot, 'nova');
+    assert.ok(Math.abs(pos.costBase - 70) < 0.01, `7% di 1000 (${pos.costBase})`); assert.ok(!pos.liqPrice, 'spot: niente liquidazione');
     // lo short spot non esiste
-    const r = await e.enterTrade({ m: M, s: { symbol: 'GOOD' }, a: { atrPct: 1, last: 1 }, side: 'SHORT', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, team: 'B', player: 'B1', perp: false });
-    assert.ok(!r); assert.strictEqual(e.book.positions.filter((p) => p.team === 'B').length, 0);
-    // chiusura: entra nel punteggio della squadra e del giocatore
+    const r = await e.enterTrade({ m: M, s: { symbol: 'GOOD' }, a: { atrPct: 1, last: 1 }, side: 'SHORT', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, bot: 'selene', perp: false });
+    assert.ok(!r); assert.strictEqual(e.book.positions.filter((p) => p.bot === 'selene').length, 0);
+    // chiusura: entra nel PnL del pianeta
     e.market.prices[M] = { usd: pos.entryPrice * 1.02, ts: Date.now() };
     jup.quote = async (i, o, amt) => ({ outAmount: String(Math.floor(Number(amt) * pos.entryPrice * 1.02)), priceImpactPct: '0' });
     await e.closePosition(pos, 'Take-profit');
-    const tr = e.book.trades[0]; assert.strictEqual(tr.team, 'A'); assert.strictEqual(tr.lev, 1); assert.ok(e.match.score().A.pnl > 0);
+    const tr = e.book.trades[0]; assert.strictEqual(tr.bot, 'nova'); assert.strictEqual(tr.lev, 1); assert.ok(e.galaxy.view().bots.find((b) => b.id === 'nova').pnl > 0);
     // honeypot: nessuna via di vendita → non compra
     const H = mkMint(7); readySpot(e, H, 'HONEY');
     jup.quote = async (i) => { if (i === H) throw new Error('No routes found'); return { outAmount: '1000000', priceImpactPct: '0' }; };
-    const h = await e.enterTrade({ m: H, s: { symbol: 'HONEY' }, a: { atrPct: 1, last: 1 }, side: 'LONG', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, team: 'B', player: 'B1', perp: false });
+    const h = await e.enterTrade({ m: H, s: { symbol: 'HONEY' }, a: { atrPct: 1, last: 1 }, side: 'LONG', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, bot: 'selene', perp: false });
     assert.ok(!h); assert.ok(!e.book.positions.some((p) => p.mint === H));
   } finally { jup.quote = real; }
   assert.ok(calls > 0);
@@ -112,13 +103,12 @@ test('REALE: perps sempre bloccati; spot reale solo se lo attivi (e allora usa l
   const real = jup.quote; jup.quote = async (i, o, amt) => ({ outAmount: String(Number(amt)), priceImpactPct: '0' });
   let swaps = 0; e.realSwap = async () => { swaps++; return { ok: false, err: 'test: niente invio' }; };
   try {
-    e.setTrading(true); assert.ok(e.match.view().realWaiting, 'spot reale spento: partita in attesa');
+    e.setTrading(true); assert.ok(e.galaxy.view().realWaiting, 'spot reale spento: REALE in attesa');
     await e.cycle(); assert.strictEqual(swaps, 0); assert.strictEqual(e.book.positions.length, 0);
-    e.match.end('test'); e.match.finalize(); e.match.dismiss();
-    e.cfg.realSpot = true; e.setTrading(true);
-    assert.ok(!e.match.view().realWaiting); assert.match(e.match.view().realNote, /solo spot/);
-    assert.ok(e.match.m.teams.A.coins.every((c) => !c.perp), 'in REALE si scelgono solo cripto operabili (spot)');
-    await e.match.turn();
+    e.cfg.realSpot = true;
+    assert.ok(!e.galaxy.view().realWaiting); assert.match(e.galaxy.view().realNote, /solo spot/);
+    assert.ok(e.galaxy.pickFocus().every((c) => !c.perp), 'in REALE si scelgono solo cripto operabili (spot)');
+    await e.galaxy.turn();
     assert.ok(swaps >= 1, 'lo spot reale passa dallo swap Jupiter reale esistente');
     assert.ok(!e.book.positions.some((p) => p.perp), 'nessun perps reale'); assert.strictEqual(P.REAL_SHORTS_ENABLED, false);
   } finally { jup.quote = real; }
