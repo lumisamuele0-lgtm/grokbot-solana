@@ -5,7 +5,7 @@ const fs = require('fs'); const os = require('os'); const path = require('path')
 const C = require('../src/config');
 const { Engine } = require('../src/engine'); const { Keystore } = require('../src/keystore');
 const P = require('../src/perps'); const D = require('../src/desk'); const { Mentor } = require('../src/mentor');
-const SOL = 'So11111111111111111111111111111111111111112'; const USDC = 'EPjFWvd5wSyCdR2onjYDH8x3HFN2c3XXcmHRUdFFMH9a';
+const SOL = 'So11111111111111111111111111111111111111112'; const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const candles = (n, drift, start) => { const out = []; let p = start; for (let i = 0; i < n; i++) { p *= 1 + drift; out.push({ t: Date.now() - (n - i) * 60e3, o: p, h: p * 1.001, l: p * 0.999, c: p, v: 1 }); } return out; };
 function mkEngine(cfg = {}) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sbpace-'));

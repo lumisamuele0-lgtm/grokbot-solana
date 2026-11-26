@@ -52,6 +52,11 @@ const DEFAULTS = {
   // RITMO della sala operativa: prudente | normale | aggressivo (velocità di scansione, soglie di consenso, ingressi per giro,
   // cooldown, radar). NON cambia stop, tetto 20% per operazione, limite di perdita giornaliera, kill switch, anti-truffa, REALE.
   pace: 'aggressivo',
+  // RAZZO · Cacciatore di Razzi (memecoin su Jupiter/Phantom): secchiello separato, puntate alte ma STOP RIGIDO.
+  // In REALE compra solo con «Spot REALE» acceso (spento di base). La maggior parte delle memecoin va a zero.
+  rocketOn: true, rocketBucketPct: 30, rocketTradePct: 10, rocketMaxOpen: 4, rocketMinScore: 70,
+  rocketSlPct: 15, rocketTp1Pct: 100, rocketTp1Sell: 40, rocketTp2Pct: 300, rocketTp2Sell: 30, rocketTrailPct: 35, rocketTimeStopH: 6,
+  rocketMaxRtPct: 8, rocketSlipBps: 300, rocketMinLiqUsd: 25000, rocketMaxTop10Pct: 30, rocketMinAgeH: 0.5, rocketMaxAgeH: 72,
 };
 // preset del Ritmo (cycleSec, cooldownMin e maxWatch vengono copiati nella configurazione quando scegli il Ritmo; il resto è letto al volo)
 const PACE = {
@@ -63,6 +68,9 @@ const paceOf = (c) => PACE[c && c.pace] || PACE.aggressivo;
 function applyPace(c, pace) { const P = PACE[pace]; if (!P) return c; c.pace = pace; c.cycleSec = P.cycleSec; c.cooldownMin = P.cooldownMin; c.maxWatch = P.maxWatch; return c; }
 // limiti di validazione [min, max]
 const LIMITS = {
+  rocketBucketPct: [5, 50], rocketTradePct: [1, 20], rocketMaxOpen: [1, 10], rocketMinScore: [50, 95], rocketSlPct: [5, 30], rocketTp1Pct: [20, 1000], rocketTp1Sell: [0, 90],
+  rocketTp2Pct: [50, 5000], rocketTp2Sell: [0, 90], rocketTrailPct: [10, 60], rocketTimeStopH: [1, 48], rocketMaxRtPct: [2, 15], rocketSlipBps: [50, 1500], rocketMinLiqUsd: [10000, 1e7],
+  rocketMaxTop10Pct: [10, 60], rocketMinAgeH: [0, 24], rocketMaxAgeH: [6, 720],
   budget: [0, 1e9], feeReserveSol: [0.01, 1], maxLossPct: [1, 90], maxLossAbs: [0, 1e9], dailyLossPct: [1, 50], maxTradePct: [1, 20], maxExposurePct: [50, 1000],
   memeSizeMult: [0, 1], maxOpen: [1, 15], slippageBps: [10, 1000], maxPriceImpactPct: [0.1, 10], slAtrMult: [0.5, 6], slMinPct: [0.5, 20],
   slMaxPct: [1, 40], rewardRisk: [0.8, 6], maxHoldMin: [5, 10080], tp1R: [0.3, 10], tp1Pct: [5, 90], tp2R: [0.5, 20], tp2Pct: [0, 90], beBufferPct: [0, 5], trailActR: [0.2, 10], trailAtrMult: [0.3, 6], memeExitMult: [0.3, 1.5], timeStopMin: [5, 10080], timeStopMinGainPct: [-20, 50], reversalPct: [0.5, 50], leverage: [1, 10], cooldownMin: [0, 1440], cycleSec: [3, 600], minLiquidityUsd: [0, 1e9],

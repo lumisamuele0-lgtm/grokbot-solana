@@ -361,7 +361,7 @@
 
 
   // ---------- SALA OPERATIVA: schede, trader, analisti, segnali
-  const TABS = { home: '#vHome', trader: '#vTrader', anal: '#vAnal', pos: '#vPos', wallet: '#vWallet', set: '#vSet' };
+  const TABS = { home: '#vHome', trader: '#vTrader', razzi: '#vRazzi', anal: '#vAnal', pos: '#vPos', wallet: '#vWallet', set: '#vSet' };
   function setTab(t) {
     if (!TABS[t]) t = 'home'; tab = t;
     for (const [k, sel] of Object.entries(TABS)) $(sel).classList.toggle('hidden', k !== t);
@@ -370,6 +370,7 @@
     try { sessionStorage.setItem('sb_tab', t); } catch {}
     if (t !== 'set' && repShown) { repShown = null; const rk = $('#repKey'); if (rk) rk.innerHTML = ''; }
     if (t === 'set' && S) { renderRiskForm(S, true); renderPace(S); renderRepKey(); }
+    if (t === 'razzi') loadRockets(); else stopRockets();
   }
   $('#nav').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
   document.addEventListener('click', (e) => { const g = e.target.closest('[data-go]'); if (g) setTab(g.dataset.go); });
@@ -531,6 +532,92 @@
   $('#research').addEventListener('click', () => agentSheet('MENTORE'));
   $('#mentorDiary').addEventListener('click', () => agentSheet('MENTORE'));
   $('#mCard').addEventListener('click', () => setTab('anal'));
+  // ---------- RAZZI · Cacciatore di Razzi
+  let RK = null; let rkTimer = null;
+  async function loadRockets() { try { RK = await api('/api/rockets'); renderRockets(); } catch {} clearTimeout(rkTimer); rkTimer = setTimeout(() => { if (tab === 'razzi') loadRockets(); }, 10000); }
+  function stopRockets() { clearTimeout(rkTimer); rkTimer = null; }
+  const rkPct = (x, d = 0) => (x == null ? '—' : `${x >= 0 ? '+' : ''}${nf(x, d)}%`);
+  const scoreCol = (s) => (s >= 80 ? '#3dffb5' : s >= 70 ? '#38e8d6' : s >= 55 ? '#ffb02e' : '#ff5d7a');
+  function sparkSvg(pts, cls = 'rk-sp') {
+    if (!pts || pts.length < 2) return `<svg class="${cls}" viewBox="0 0 76 34" preserveAspectRatio="none"><path d="M2 17H74" stroke="#ffffff22" stroke-dasharray="3 3"/></svg>`;
+    const lo = Math.min(...pts), hi = Math.max(...pts), k = hi > lo ? 30 / (hi - lo) : 0; const up = pts[pts.length - 1] >= pts[0];
+    const d = pts.map((v, i) => `${i ? 'L' : 'M'}${(2 + (i * 72) / (pts.length - 1)).toFixed(1)} ${(32 - (v - lo) * k).toFixed(1)}`).join('');
+    return `<svg class="${cls}" viewBox="0 0 76 34" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="${up ? '#3dffb5' : '#ff5d7a'}" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+  }
+  const ageTxt = (h) => (h == null ? '' : h < 1 ? `${Math.round(h * 60)} min` : h < 48 ? `${nf(h, 1)} h` : `${nf(h / 24, 1)} g`);
+  const BADGE = { 'età': '⏱ giovane', volume: '📈 volume', acquisti: '🟢 acquisti', holder: '👥 holder', organico: '🌱 organico', 'liquidità': '💧 liquidità', 'non tirata': '🧊 non tirata', social: '🔗 social', tendenza: '🔥 trending' };
+  function rkLinks(l) { return `<div class="rk-links"><a class="btn pri" href="${esc(l.phantom)}" target="_blank" rel="noopener noreferrer">👻 Phantom</a><a class="btn ghost" href="${esc(l.dexscreener)}" target="_blank" rel="noopener noreferrer">DexScreener</a><a class="btn ghost" href="${esc(l.solscan)}" target="_blank" rel="noopener noreferrer">Solscan</a>${l.jupiter ? `<a class="btn ghost" href="${esc(l.jupiter)}" target="_blank" rel="noopener noreferrer">Jupiter</a>` : ''}</div>`; }
+  function renderRockets() {
+    const v = RK; if (!v) return; const b = v.bucket; const ls = v.lastScan;
+    const used = b.cap > 0 ? Math.min(100, (b.used / b.cap) * 100) : 0;
+    $('#rkHero').innerHTML = `<h2>🚀 Cacciatore di Razzi</h2><div class="rk-sub">Razzo caccia memecoin di Solana scambiabili su Jupiter (lo stesso motore di swap di Phantom): volume, holder e acquisti che crescono più in fretta del prezzo, con filtri anti-rug rigidi.</div>
+      <div class="rk-kpis"><div><b>${b.open}/${b.max}</b><span>memecoin aperte</span></div><div><b>${money(b.used, false)}</b><span>su ${money(b.cap, false)} (${b.pct}%)</span></div><div><b>${b.tradePct}% · −${v.cfg.rocketSlPct}%</b><span>puntata · stop rigido</span></div></div>
+      <div class="rk-bar"><i style="width:${used.toFixed(0)}%"></i></div>
+      <div class="rk-state ${v.on && !v.blocked ? 'ok' : ''}">${!v.on ? '⏸ Razzo è spento (Impostazioni Razzo)' : v.blocked ? `⏳ ${esc(v.blocked)}` : '✅ A caccia: entra solo con punteggio ≥ ' + v.cfg.rocketMinScore + ' e tutti i controlli superati'}</div>`;
+    $('#rkThink').innerHTML = `<span class="lbl">🧠 PENSIERO DI RAZZO${v.thought ? ' · ' + hhmm(v.thought.t) : ''}</span>${esc(v.thought ? v.thought.text : 'Primo giro di caccia in corso (ogni 90 secondi)…')}`;
+    $('#rkScanInfo').textContent = ls ? `${ls.scored} esaminate · ${ls.rejected} scartate · ${ls.ready} pronte · ${hhmm(ls.t)}` : 'primo giro in corso…';
+    const bd = $('#rkBadge'); if (bd) { const n = ls ? ls.ready : 0; bd.textContent = n; bd.classList.toggle('hidden', !n); }
+    $('#rkPos').innerHTML = v.positions.length ? v.positions.map((p) => {
+      const lo = -p.sl, hi = Math.max(p.tp2 * 1.15, p.peak + 10); const X = (x) => Math.max(0, Math.min(100, ((x - lo) / (hi - lo)) * 100));
+      return `<div class="glass rk-pos" data-rkpos="${esc(p.id)}"><div class="row"><b>🚀 $${esc(p.symbol)}</b><span class="pill ${p.change < 0 ? 'neg' : ''}">${rkPct(p.change, 1)}</span><span class="mu small" style="margin-left:auto">${money(p.pnl)} · venduto ${p.soldPct}%</span></div>
+        <div class="rk-lad" style="--z:${X(0).toFixed(1)}%"><i class="st" style="left:0"><small>stop −${p.sl}%</small></i><i class="z" style="left:${X(0)}%"><small>entrata</small></i><i class="${p.r1 ? 'done' : ''}" style="left:${X(p.tp1)}%"><small>+${p.tp1}% · ${p.s1}%</small></i><i class="${p.r2 ? 'done' : ''}" style="left:${X(p.tp2)}%"><small>+${p.tp2}% · ${p.s2}%</small></i>${p.trailStop != null ? `<i class="done" style="left:${X(p.trailStop)}%;background:var(--amber)"><small>trailing</small></i>` : ''}<em style="left:${X(p.change)}%"></em></div>
+        <div class="mu small">Punteggio ${p.score}/100 · massimo ${rkPct(p.peak)} · ${p.r1 ? `trailing ${p.trail}% dal massimo (mai sotto pareggio)` : `stop rigido −${p.sl}% controllato ogni 4 s`}${p.rt != null ? ` · andata e ritorno ${nf(p.rt, 1)}%` : ''}</div>
+        ${rkLinks(p.links)}<div class="btns"><button class="btn dan" data-closepos="${esc(p.id)}" type="button">Vendi ora</button></div></div>`; }).join('')
+      : `<div class="glass rk-empty">Nessuna memecoin aperta. Razzo compra solo quando un candidato supera ${v.cfg.rocketMinScore}/100 e tutti i controlli anti-rug.</div>`;
+    $('#rkRadar').innerHTML = v.radar.length ? v.radar.slice(0, 20).map((c, i) => `<button class="glass rk-row" type="button" data-rk="${i}"><span class="rk-sc" style="--p:${c.score};--c:${scoreCol(c.score)}"><b>${c.score}</b></span>
+      <span class="rk-nm"><b>$${esc(c.symbol)}</b> <span class="mu small" style="display:inline">${ageTxt(c.ageH)}${c.p1 != null ? ' · ' + rkPct(c.p1) + ' 1h' : ''}</span><span class="mu">${c.status === 'scartato' ? '⛔ ' + esc(c.fails[0] || '') : c.status === 'pronto' ? '✅ pronta: tutti i controlli superati' : '👀 in osservazione'}</span>
+      <span class="rk-bd">${c.badges.slice(0, 4).map((k) => `<span>${esc(BADGE[k] || k)}</span>`).join('')}${c.status === 'scartato' ? '<span class="no">anti-rug</span>' : c.status === 'osserva' ? '<span class="wt">osserva</span>' : ''}</span></span>${sparkSvg(c.spark)}</button>`).join('')
+      : `<div class="glass rk-empty">${v.on ? 'Primo giro di caccia in corso…' : 'Razzo è spento.'}</div>`;
+    const st = v.stats; const br = v.brain;
+    $('#rkStats').innerHTML = `<table class="rk-tbl"><tr><th>Punteggio</th><th>Visti</th><th>≥ +50%</th><th>≥ +100%</th><th>≤ −50%</th><th>Max medio</th></tr>
+      ${st.buckets.map((x) => `<tr><td>${x.lo}–${x.hi}</td><td>${x.n}</td><td>${x.x15 == null ? '—' : x.x15 + '%'}</td><td>${x.x2 == null ? '—' : x.x2 + '%'}</td><td>${x.dump == null ? '—' : x.dump + '%'}</td><td>${x.avgMax == null ? '—' : rkPct(x.avgMax)}</td></tr>`).join('')}</table>
+      <p class="note">Ogni memecoin esaminata (anche non comprata) viene seguita per 24 ore: così si misura quanto il punteggio anticipa davvero un razzo. In osservazione ora: ${st.tracked} · esiti completati: ${st.done}.</p>
+      <div class="kv"><span>Miglior razzo visto</span><b>${st.best ? `$${esc(st.best.sym)} ${rkPct(st.best.max)} (punteggio ${st.best.score})` : '—'}</b></div>
+      <div class="kv"><span>${st.bestTrade && st.bestTrade.pnlPct < 0 ? 'Trade meno peggiore' : 'Miglior trade di Razzo'}</span><b>${st.bestTrade ? `$${esc(st.bestTrade.symbol)} ${rkPct(st.bestTrade.pnlPct, 1)}` : '—'}</b></div>
+      <div class="kv"><span>Trade di Razzo</span><b>${st.trades}${st.winRate != null ? ` · ${st.winRate}% in guadagno · ${money(st.pnl)}` : ''}</b></div>
+      <div class="kv"><span>Rete neurale di Razzo</span><b>${br.ready ? `attiva · ${Math.round(br.valAcc * 100)}% vs ${Math.round(br.baseline * 100)}% di base` : `impara (${br.samples}/${br.minReady} esiti)`}</b></div>`;
+  }
+  function rkCandSheet(c) {
+    openSheet(`<div class="bs-h"><span class="rk-sc" style="--p:${c.score};--c:${scoreCol(c.score)}"><b>${c.score}</b></span><div><h4>$${esc(c.symbol)} <span class="mu small">${esc(c.name || '')}</span></h4><div class="mu">${ageTxt(c.ageH)} · liquidità $${nf(c.liq / 1000, 0)}k${c.mcap ? ` · mcap $${nf(c.mcap / 1000, 0)}k` : ''} · ${c.holders} holder${c.launchpad ? ' · ' + esc(c.launchpad) : ''}${c.graduated ? ' (graduato)' : ''}</div></div></div>
+      ${sparkSvg(c.spark, 'rk-sp lg')}
+      <span class="lbl">Perché questo punteggio${c.brain ? ` (rete neurale ${c.brain > 0 ? '+' : ''}${c.brain})` : ''}</span>
+      <div class="rk-parts">${c.parts.filter((p) => p.max).map((p) => `<div><span>${esc(p.k)}</span><span class="pb"><i style="width:${Math.round((p.pts / p.max) * 100)}%"></i></span><b>${nf(p.pts, 0)}/${p.max}</b></div><div class="mu small" style="display:block;margin:-4px 0 2px">${esc(p.txt)}</div>`).join('')}</div>
+      <span class="lbl">Controlli anti-rug</span>
+      <ul class="rk-ck">${c.checks.map((k) => `<li>${k.ok === true ? '✅' : k.ok === false ? '⛔' : '⏳'} <span>${esc(k.k)}</span></li>`).join('')}</ul>
+      ${c.fails.length ? `<p class="note red">Scartata: ${c.fails.map(esc).join(' · ')}</p>` : ''}
+      ${rkLinks(c.links)}
+      <p class="note">⏳ = controllo fatto solo per i candidati migliori (RugCheck, autorità on-chain) o al momento di comprare (andata e ritorno su Jupiter). Nessun punteggio garantisce un guadagno.</p>
+      <div class="btns"><button class="btn ghost" data-close type="button">Chiudi</button></div>`);
+  }
+  $('#rkRadar').addEventListener('click', (e) => { const b = e.target.closest('[data-rk]'); if (b && RK) rkCandSheet(RK.radar[+b.dataset.rk]); });
+  const RKF = [
+    ['rocketTradePct', 'Puntata per memecoin (% del capitale)', 1, 20, 1, 'Tetto rigido 20%. Razzo usa dal 60% al 100% della puntata in base al punteggio.'],
+    ['rocketBucketPct', 'Secchiello memecoin (% del capitale)', 5, 50, 1, 'Massimo investito in memecoin tutte insieme.'],
+    ['rocketMaxOpen', 'Memecoin aperte insieme', 1, 10, 1, ''],
+    ['rocketSlPct', 'Stop rigido (−%)', 5, 30, 1, 'Controllato ogni 4 s: vende subito via Jupiter con slittamento ammesso. Sulle memecoin lo stop può scivolare oltre.'],
+    ['rocketMinScore', 'Punteggio minimo per entrare', 50, 95, 1, ''],
+    ['rocketTp1Pct', 'Scaglione 1: guadagno (+%)', 20, 1000, 10, ''], ['rocketTp1Sell', 'Scaglione 1: quanto vendere (%)', 0, 90, 5, ''],
+    ['rocketTp2Pct', 'Scaglione 2: guadagno (+%)', 50, 5000, 10, ''], ['rocketTp2Sell', 'Scaglione 2: quanto vendere (%)', 0, 90, 5, ''],
+    ['rocketTrailPct', 'Trailing sul resto (−% dal massimo)', 10, 60, 1, 'Attivo dopo lo scaglione 1, mai sotto il pareggio.'],
+    ['rocketTimeStopH', 'Uscita se nessuno slancio dopo (ore)', 1, 48, 1, 'Se non arriva almeno +20% entro questo tempo.'],
+    ['rocketMaxRtPct', 'Andata e ritorno massimo su Jupiter (%)', 2, 15, 0.5, 'Tasse + impatto comprando e rivendendo subito: oltre questo valore non compra (anti-honeypot).'],
+    ['rocketSlipBps', 'Slittamento ammesso in vendita (bps)', 50, 1500, 25, '300 = 3%. Più alto = lo stop esce più facilmente ma a un prezzo peggiore.'],
+    ['rocketMinLiqUsd', 'Liquidità minima ($)', 10000, 1000000, 1000, ''], ['rocketMaxTop10Pct', 'Top 10 holder massimo (%)', 10, 60, 1, ''],
+  ];
+  function rkSettings() {
+    const c = S.cfg;
+    openSheet(`<h4>🚀 Impostazioni Razzo</h4>
+      <div class="card"><div class="row"><b>Cacciatore di Razzi</b><span class="sp"></span><button class="chip ${c.rocketOn !== false ? 'on' : ''}" id="rkOn" type="button">${c.rocketOn !== false ? 'Acceso' : 'Spento'}</button></div><p class="note">In REALE compra solo se «Spot REALE» è acceso (spento di base). Kill switch, limite di perdita giornaliera e PIN valgono anche per Razzo.</p></div>
+      <div class="grid2">${RKF.map(([k, l, mn, mx, st, n]) => `<label class="field"><span>${esc(l)}</span><input class="in" data-rkk="${k}" type="number" inputmode="decimal" min="${mn}" max="${mx}" step="${st}" value="${c[k]}">${n ? `<small class="mu">${esc(n)}</small>` : ''}</label>`).join('')}</div>
+      <p class="note amber">⚠️ Stop rigido ≠ prezzo garantito: con poca liquidità o un rug il prezzo di uscita può essere molto peggiore dello stop.</p>
+      <div class="btns"><button class="btn pri" id="rkSave" type="button">Salva</button><button class="btn ghost" data-close type="button">Chiudi</button></div><div class="err" id="rkErr"></div>`, (body) => {
+      $('#rkOn', body).addEventListener('click', async (e) => { const on = !(S.cfg.rocketOn !== false); try { await api('/api/config', { rocketOn: on }); S.cfg.rocketOn = on; e.target.classList.toggle('on', on); e.target.textContent = on ? 'Acceso' : 'Spento'; loadRockets(); } catch (er) { toast(er.message); } });
+      $('#rkSave', body).addEventListener('click', async () => { const patch = {}; $$('[data-rkk]', body).forEach((i) => { patch[i.dataset.rkk] = Number(i.value); });
+        try { await api('/api/config', patch); S = await api('/api/state'); toast('✅ Impostazioni Razzo salvate'); closeSheet(); loadRockets(); } catch (er) { $('#rkErr').textContent = er.message; } });
+    });
+  }
+  $('#rkSetBtn').addEventListener('click', rkSettings);
+
   // ---------- Ritmo (Prudente / Normale / Aggressivo)
   const PACES = [
     ['prudente', 'Prudente', 'Giro ogni 15 s · max 3 ingressi per giro (2 per trader) · soglie Alpha 26%/3, Omega 34%/3 · pausa 10 min sulla stessa cripto'],
@@ -698,7 +785,7 @@
       ${last ? `<div class="mu small">Ultimo punto: precisione ${pcs(last.acc)} aspettativa ${nf(last.exp, 2)}% per operazione, profit factor ${nf(last.pf, 2)} · senza cervello ${nf(last.base, 2)}%</div>` : ''}
       ${pr.runs.slice(0, 4).map((r) => `<div class="prow"><b>${esc(bName(r.bot))} <small class="mu">v${r.ver} · ${hhmm(r.t)}</small></b><span class="${r.promoted ? 'mint' : 'mu'}">${r.promoted ? '🏆 sfidante promosso' : 'campione confermato'}</span><small class="mu">aspettativa campione ${nf(r.champ.exp, 2)}%${r.best ? ' · miglior sfidante ' + nf(r.best.exp, 2) + '%' : ''}</small></div>`).join('')}`);
   }
-  const bName = (id) => botName(id) || id;
+  const bName = (id) => (id === 'razzo' ? 'Razzo' : botName(id) || id);
   function progressSheet() {
     openSheet(() => { const pr = S.mind.progress; const ids = Object.keys(pr.bots);
       return `<div class="bs-h"><span class="an-ic lg">📈</span><div><h4>Progresso dell'apprendimento</h4><div class="mu">campione contro sfidanti, misurato su dati mai visti</div></div></div>
@@ -760,7 +847,7 @@
     tween('sO', $('#sO'), s.counters.approved, (v) => Math.round(v).toLocaleString('it-IT'));
     renderPnl(s);
     renderKnowledge(s); renderResearch(s); renderMentor(s);
-    renderRisk(s); renderHomeExecs(s); renderExecs(s); renderAnalysts(s); renderFeed(s); renderMentorBox(s); renderRiskForm(s); renderPace(s);
+    renderRisk(s); renderHomeExecs(s); renderExecs(s); renderAnalysts(s); renderFeed(s); renderMentorBox(s); renderRiskForm(s); renderPace(s); { const rb = $("#rkBadge"); if (rb && s.rockets) { rb.textContent = s.rockets.ready || ""; rb.classList.toggle("hidden", !s.rockets.ready); } }
     if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; }
     $('#secSpot').textContent = s.cfg.realSpot ? 'ACCESO (swap veri)' : 'spento'; $('#secSpot').className = s.cfg.realSpot ? 'red' : 'mint';
     renderWallet(s);

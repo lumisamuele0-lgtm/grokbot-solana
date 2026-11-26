@@ -185,6 +185,18 @@ In Aggressivo le pause del Mentore dopo le perdite durano la metà e un trader i
 
 **Chiave resoconto** (Impostazioni → Chiave resoconto → «Genera chiave resoconto»): un token `sbr_…` mostrato una sola volta; sul server resta solo un'impronta HMAC cifrata. Serve solo a leggere `GET /api/report` con l'header `Authorization: Bearer sbr_…` (30 letture ogni 10 minuti; 10 chiavi sbagliate bloccano quell'IP per 10 minuti). Non può comprare, vendere, prelevare o cambiare impostazioni e non contiene wallet né chiavi. «Revoca» la disattiva subito; generarne una nuova sostituisce la vecchia.
 
+## 9c. Razzo — Cacciatore di Razzi (memecoin)
+
+Terzo trader dedicato solo alle memecoin di Solana scambiabili su Jupiter (lo stesso motore di swap usato da Phantom). Scheda **Razzi** nella barra in basso.
+
+- **Fonti gratuite**: classifiche Jupiter (trending, organic score, più scambiate, appena nate), DexScreener (boost e profili), GeckoTerminal (trending pool), RugCheck. Phantom non offre un'API pubblica delle sue classifiche: Razzo usa le stesse fonti di mercato su cui si basano.
+- **Punteggio 0–100**: età, accelerazione del volume, pressione d'acquisto, crescita holder, organic score, liquidità, «non ancora tirata», social, presenza nelle classifiche. Compra solo da 70 in su.
+- **Controlli anti-rug obbligatori**: mint e freeze revocati, LP ≥ 90% bloccata/bruciata o pool pump.fun graduato, top 10 holder ≤ 30%, dev che non vende, RugCheck senza pericoli, andata e ritorno su Jupiter ≤ 8%, liquidità ≥ 25.000 $.
+- **Rischio (valori iniziali)**: puntata 10% del capitale (max 20%), secchiello memecoin 30% (max 50%), massimo 4 memecoin insieme, **stop rigido −15%** controllato ogni 4 secondi, scaglioni: vende il 40% a +100%, il 30% a +300%, il resto in trailing al 35%. Stop a tempo dopo 6 h senza slancio. Uscita d'emergenza se la liquidità crolla, il dev vende, RugCheck segnala pericolo o la vendita su Jupiter non ha rotta.
+- **Impara**: ogni candidata (comprata o no) viene seguita per 24 h; le statistiche mostrano quante per fascia di punteggio hanno fatto +100% prima di −50%.
+- In REALE compra solo se «Spot REALE» è acceso (spento di base). Kill switch e limite di perdita giornaliera valgono anche per Razzo.
+- **Onestà**: la maggior parte delle memecoin va a zero. Lo stop rigido può scivolare oltre il −15% se la liquidità è sottile o c'è un rug. Nessun guadagno è garantito.
+
 ## 10. Limiti e rischi (onesti)
 
 - **Nessun profitto garantito.** Le strategie con indicatori tecnici perdono spesso, soprattutto nei mercati laterali. Commissioni e slippage pesano sulle operazioni piccole. In simulazione le prime operazioni di prova sono state sia in guadagno sia in perdita.

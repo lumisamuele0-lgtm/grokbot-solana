@@ -225,6 +225,8 @@ function createApp({ dataDir, env = process.env, engineOpts = {}, logger = conso
   app.get('/api/report-key', (req, res) => res.json(auth.reportStatus()));
   app.post('/api/report-key', wrap(async (req, res) => { res.setHeader('Cache-Control', 'no-store'); const token = auth.createReportKey(); return { ok: true, token, ...auth.reportStatus() }; }));
   app.post('/api/report-key/revoke', wrap(async () => { auth.revokeReport(); return { ok: true, ...auth.reportStatus() }; }));
+  // RAZZO · Cacciatore di Razzi: radar, posizioni a scaglioni, statistiche (solo con la sessione del PIN)
+  app.get('/api/rockets', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json(engine.rocket.view()); });
   app.get('/api/state', (req, res) => res.json({ ...engine.snapshot(), host: hostInfo() }));
   let sse = 0;
   app.get('/api/events', (req, res) => {
