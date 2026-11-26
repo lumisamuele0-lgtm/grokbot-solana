@@ -456,6 +456,7 @@
         <div class="grid3"><div class="cell"><span>PnL</span><b class="${pnlCls(x.pnl)}">${money(x.pnl)}</b></div><div class="cell"><span>Vincenti</span><b>${x.winRate == null ? '—' : nf(x.winRate, 0) + '%'}</b></div><div class="cell"><span>Trade</span><b>${x.trades}</b></div>
           <div class="cell"><span>Aperte</span><b>${x.open}</b></div><div class="cell"><span>Esposizione</span><b>${money(x.exposure, false)}</b></div><div class="cell"><span>Soglia</span><b>${nf(x.thr * 100, 0)}%</b></div></div>
         <div class="grp"><span class="lbl">Ultima decisione</span><div class="dec">${decisionHtml(x.decision)}</div></div>
+        ${mindHtml(x.id, true)}
         <div class="grp"><span class="lbl">Posizioni di ${esc(x.name)}</span><div class="hpos">${ps.map((p) => posCard(p, s, true)).join('') || '<div class="empty">Nessuna posizione aperta.</div>'}</div></div>
         ${x.history.length ? `<div class="grp"><span class="lbl">Ultime chiuse</span>${x.history.slice(0, 5).map((t) => `<div class="kv"><span>${hhmm(t.closedAt)} <b>$${esc(t.symbol)}</b> <small class="mu">${t.side === 'SHORT' ? '▼' : '▲'}${t.lev > 1 ? ' ' + t.lev + 'x' : ''} · ${esc(t.reason || '')}</small></span><b class="${pnlCls(t.pnl)}">${t.pnl >= 0 ? '+' : ''}${nf(t.pnl, d)}</b></div>`).join('')}</div>` : ''}
         <p class="note">${esc(x.desc)} Entra con almeno ${x.minAgree} analisti d'accordo e consenso ≥ ${nf(x.thr * 100, 0)}%. Margine = fino al ${s.cfg.maxTradePct}% del capitale × forza del consenso (40–100%).</p>
@@ -468,7 +469,8 @@
         <div class="an-h"><span class="an-ic">${esc(a.icon)}</span><b>${esc(a.name)}</b></div>
         <div class="an-s">${a.paused ? '<span class="mu">in pausa</span>' : g ? `${g.side === 'SHORT' ? '▼' : '▲'} <b>$${esc(g.symbol)}</b> <span>${nf(g.conf * 100, 0)}%</span>` : '<span class="mu">nessun segnale</span>'}</div>
         <div class="cbar sm"><i style="width:${g && !a.paused ? g.conf * 100 : 0}%"></i></div>
-        <div class="an-f"><span>successo ${a.hitRate == null ? '—' : nf(a.hitRate, 0) + '%'}</span><span class="${w > 1.02 ? 'mint' : w < 0.98 ? 'red' : ''}">peso ${nf(w, 2)}</span></div></button>`; }).join('');
+        <div class="an-f"><span>successo ${a.hitRate == null ? '—' : nf(a.hitRate, 0) + '%'}</span><span class="${w > 1.02 ? 'mint' : w < 0.98 ? 'red' : ''}">peso ${nf(w, 2)}</span></div>
+        <div class="an-br">${esc(brainLine(a.mind))}</div></button>`; }).join('');
     setH($('#anGrid'), h);
   }
   function renderMentorBox(s) {
@@ -541,6 +543,7 @@
         <div class="grid3"><div class="cell"><span>Successo</span><b>${a.hitRate == null ? '—' : nf(a.hitRate, 0) + '%'}</b></div><div class="cell"><span>Voti valutati</span><b>${a.n}</b></div><div class="cell"><span>Peso</span><b>${nf(a.weight, 2)}</b></div></div>
         <div class="grp"><span class="lbl">Segnale attuale</span><div class="glass pad">${g ? `${sideTag(g.side)} <b>$${esc(g.symbol)}</b> · fiducia ${nf(g.conf * 100, 0)}%<div class="mu small">${esc(g.why)} · ${hhmm(g.t)}</div>` : '<span class="mu">nessun segnale forte ora</span>'}</div></div>
         <div class="grp"><span class="lbl">Ultimi segnali</span><div class="glass feed">${items.map(feedItem).join('') || '<div class="empty">nessuno</div>'}</div></div>
+        ${mindHtml(id, true)}
         <p class="note">Il peso parte da 1 e va da 0,4 a 1,6: sale quando il voto dell'analista era giusto sul trade chiuso, scende quando era sbagliato. Un analista in pausa non vota.</p>
         <div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>`;
     };
@@ -621,6 +624,66 @@
   const money = (v, sign = true) => { const d = S && S.base === 'SOL' ? 4 : 2; return (sign ? (v >= 0 ? '+' : '−') : '') + nf(Math.abs(v || 0), d) + (S && S.base === 'SOL' ? ' ◎' : ' $'); };
   // ---------- render
   let firstRender = true;
+
+  // ---------- MENTE: cervello neurale, pensiero, memoria, ricerca web, progresso
+  const mindOf = (id) => (S && S.mind && S.mind.bots && S.mind.bots[id]) || null;
+  const pcs = (x) => (x == null ? '—' : nf(x * 100, 0) + '%');
+  const ago = (t) => { if (!t) return 'mai'; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'ora' : m < 60 ? m + ' min fa' : m < 1440 ? Math.round(m / 60) + ' h fa' : Math.round(m / 1440) + ' g fa'; };
+  function brainLine(m) { const b = m && m.brain; if (!b) return ''; return b.ready ? `🧠 v${b.ver} attivo · ${pcs(b.valAcc)} · ${b.samples} es.` : b.samples >= b.minReady && b.lastTrain ? `🧠 v${b.ver} in prova · ${b.samples} es.` : `🧠 in formazione · ${b.samples}/${b.minReady} es.`; }
+  function mindHtml(id, full) {
+    const m = mindOf(id); if (!m) return '';
+    const b = m.brain; const th = m.thought;
+    const brain = `<div class="grp"><span class="lbl">🧠 Cervello</span><div class="glass pad mind-b">
+      <div class="grid3"><div class="cell"><span>Versione</span><b>v${b.ver}</b></div><div class="cell"><span>Precisione fuori campione</span><b>${pcs(b.valAcc)}</b></div><div class="cell"><span>Esempi</span><b>${b.samples}</b></div>
+      <div class="cell"><span>Da trade veri</span><b>${b.trades}</b></div><div class="cell"><span>Da storico</span><b>${b.replay}</b></div><div class="cell"><span>Allenamenti</span><b>${b.trainings}</b></div></div>
+      <div class="mu small">${b.ready ? `Influenza attiva: ${nf(b.edge * 100, 0)}% del massimo (${id === 'alpha' || id === 'omega' ? '±5 punti di consenso' : '±20% di fiducia'}). Livello da battere: ${pcs(b.valMaj)} (la risposta più frequente).` : (b.samples >= b.minReady && b.lastTrain ? `Influenza spenta: in validazione non batte ancora la risposta più frequente (${pcs(b.valMaj)}). Continua ad allenarsi.` : `Influenza spenta finché non ha ${b.minReady} esempi e non batte in validazione la risposta più frequente.`)} Ultimo allenamento: ${ago(b.lastTrain)}${b.rollbacks ? ` · ${b.rollbacks} ripristini automatici` : ''}.</div>
+      ${full ? `<div class="btns two"><button class="btn ghost" data-blab="${esc(id)}" type="button">🧪 Prova sfidanti ora</button><button class="btn ghost" data-broll="${esc(id)}" type="button">↩ Versione precedente</button></div>` : ''}</div></div>`;
+    const think = `<div class="grp"><span class="lbl">💭 Pensiero</span><div class="glass pad think">${th ? `<div>${esc(th.text)}</div><div class="mu small">${esc(th.symbol || '')} · ${hhmm(th.t)}</div>` : '<span class="mu">Ancora nessun ragionamento: premi Avvia.</span>'}</div></div>`;
+    const mem = `<div class="grp"><span class="lbl">📚 Memoria (${m.memN} lezioni)</span><div class="glass pad">${m.memory.length ? m.memory.map((l) => `<div class="les ${l.sign > 0 ? 'up' : l.sign < 0 ? 'dn' : ''}"><span>${l.sign > 0 ? '✔' : l.sign < 0 ? '✖' : '•'}</span><span>${esc(l.text)}<small class="mu"> · ${esc(l.src)} · importanza ${nf(l.imp * 100, 0)}%${l.n > 1 ? ' · confermata ' + l.n + '×' : ''}</small></span></div>`).join('') : '<span class="mu">Nessuna lezione ancora: si riempie con i trade chiusi, i segnali verificati e la ricerca web.</span>'}</div></div>`;
+    const web = `<div class="grp"><span class="lbl">🌐 Ricerca web</span><div class="switch"><span>Ricerca web per ${esc(id === 'alpha' ? 'Alpha' : id === 'omega' ? 'Omega' : (anOf(id) || { name: id }).name)}${S.mind.webResearch ? '' : ' (spenta in Impostazioni)'}</span><span class="toggle ${m.webOff ? '' : 'on'}" data-bweb="${esc(id)}" role="switch" aria-checked="${m.webOff ? 'false' : 'true'}"></span></div>
+      <div class="glass pad">${m.web.length ? m.web.map((f) => `<div class="les ${f.sentiment > 0.15 ? 'up' : f.sentiment < -0.15 || f.risk >= 0.5 ? 'dn' : ''}"><span>${f.risk >= 0.5 ? '⚠️' : f.sentiment > 0.15 ? '▲' : f.sentiment < -0.15 ? '▼' : '•'}</span><span>${esc(f.title)}<small class="mu"> · ${esc(f.source)} · ${hhmm(f.t)}</small></span></div>`).join('') : `<span class="mu">${m.webOn ? 'Prima ricerca entro qualche minuto (un bot ogni 90 s).' : 'Ricerca web spenta per questo bot.'}</span>`}</div></div>`;
+    return think + brain + mem + web;
+  }
+  function chartSvg(curve) {
+    if (!curve || curve.length < 2) return '<div class="empty">La curva di apprendimento compare dopo i primi 2 cicli del laboratorio (ogni bot viene valutato almeno una volta al giorno o ogni 120 nuovi esempi).</div>';
+    const W = 340, H = 120, P = 6; const xs = curve.map((c) => c.t); const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0 + 1;
+    const X = (t) => P + ((t - x0) / Math.max(1, x1 - x0)) * (W - 2 * P);
+    const line = (k, lo, hi) => curve.map((c, i) => `${i ? 'L' : 'M'}${X(c.t).toFixed(1)},${(H - P - ((Math.max(lo, Math.min(hi, c[k])) - lo) / (hi - lo)) * (H - 2 * P)).toFixed(1)}`).join(' ');
+    return `<svg viewBox="0 0 ${W} ${H}" class="pchart" role="img" aria-label="Curva di apprendimento"><path d="${line('acc', 0.4, 1)}" class="l1"/><path d="${line('exp', -1, 1)}" class="l2"/><line x1="${P}" x2="${W - P}" y1="${H / 2}" y2="${H / 2}" class="l0"/></svg><div class="legend"><span class="k1">● precisione fuori campione</span><span class="k2">● aspettativa per operazione (−1…+1%)</span></div>`;
+  }
+  function renderBrain(s) {
+    const M = s.mind; if (!M || !$('#brainSum')) return; const sm = M.summary; const pr = M.progress; const last = pr.curve[pr.curve.length - 1];
+    $('#brainT').textContent = M.on ? (M.webResearch ? 'attivo · ricerca web accesa' : 'attivo · ricerca web spenta') : 'spento';
+    setH($('#brainSum'), `<div class="grid3"><div class="cell"><span>Cervelli pronti</span><b>${sm.ready}/${sm.total}</b></div><div class="cell"><span>Precisione media</span><b>${pcs(sm.avgAcc)}</b></div><div class="cell"><span>Esempi</span><b>${sm.samples}</b></div>
+      <div class="cell"><span>Lezioni in memoria</span><b>${sm.lessons}</b></div><div class="cell"><span>Segnali in verifica</span><b>${sm.journal}</b></div><div class="cell"><span>Ultimo allenamento</span><b>${ago(sm.lastTrain)}</b></div></div>
+      <p class="note">Ogni bot ha una piccola rete neurale che impara dai suoi risultati (segnali verificati dopo 30 min, trade chiusi, storico a 1 minuto di SOL/BTC/ETH), una memoria delle lezioni più utili e una ricerca web su fonti gratuite. Il cervello può solo correggere un po' fiducia e consenso: stop, limiti di rischio, anti-truffa e blocchi REALE restano sempre gli stessi. Nessun guadagno garantito.</p>`);
+    const T = pr.totals;
+    setH($('#progress'), `${chartSvg(pr.curve)}<div class="grid3"><div class="cell"><span>Cicli del laboratorio</span><b>${T.runs}</b></div><div class="cell"><span>Promossi</span><b class="mint">${T.promotions}</b></div><div class="cell"><span>Scartati</span><b>${T.rejections}</b></div></div>
+      ${last ? `<div class="mu small">Ultimo punto: precisione ${pcs(last.acc)} aspettativa ${nf(last.exp, 2)}% per operazione, profit factor ${nf(last.pf, 2)} · senza cervello ${nf(last.base, 2)}%</div>` : ''}
+      ${pr.runs.slice(0, 4).map((r) => `<div class="prow"><b>${esc(bName(r.bot))} <small class="mu">v${r.ver} · ${hhmm(r.t)}</small></b><span class="${r.promoted ? 'mint' : 'mu'}">${r.promoted ? '🏆 sfidante promosso' : 'campione confermato'}</span><small class="mu">aspettativa campione ${nf(r.champ.exp, 2)}%${r.best ? ' · miglior sfidante ' + nf(r.best.exp, 2) + '%' : ''}</small></div>`).join('')}`);
+  }
+  const bName = (id) => botName(id) || id;
+  function progressSheet() {
+    openSheet(() => { const pr = S.mind.progress; const ids = Object.keys(pr.bots);
+      return `<div class="bs-h"><span class="an-ic lg">📈</span><div><h4>Progresso dell'apprendimento</h4><div class="mu">campione contro sfidanti, misurato su dati mai visti</div></div></div>
+        <p class="note">Ogni giorno (o ogni ${pr.rules.newMin} nuovi esempi) il laboratorio allena 3 <b>sfidanti</b> per ogni bot (neuroni, passo di apprendimento, regolarizzazione, caratteristiche usate) e li confronta con il <b>campione</b> sugli stessi dati: si allena sul ${nf(pr.rules.split * 100, 0)}% più vecchio e si misura sul ${nf(100 - pr.rules.split * 100, 0)}% più recente, con commissioni e slippage. Uno sfidante viene promosso solo se ha aspettativa positiva e guadagna almeno ${nf(pr.rules.margin, 2)} punti di aspettativa per operazione su almeno ${pr.rules.minTaken} operazioni simulate senza perdere precisione; altrimenti viene scartato. Le ultime 3 versioni restano salvate per il ripristino.</p>
+        ${chartSvg(pr.curve)}
+        ${ids.map((id) => { const b = pr.bots[id]; return `<div class="grp"><span class="lbl">${esc(bName(id))} · v${b.ver} · ${b.newSince} nuovi esempi</span>${b.versions.length ? b.versions.slice(0, 4).map((v) => `<div class="kv"><span>v${v.ver} <small class="mu">${hhmm(v.t)} · ${esc(v.status)}</small></span><span class="small">${v.oos ? `${pcs(v.oos.acc)} · asp. ${nf(v.oos.exp, 2)}% · PF ${nf(v.oos.pf, 2)} · PnL sim ${nf(v.oos.pnl, 1)}% (${v.oos.taken} op.)` : '—'}${v.live ? ` · reale/sim ${v.live.n} trade ${nf(v.live.pnl, 2)}` : ''}</span></div>`).join('') : '<div class="mu small">Nessuna valutazione ancora.</div>'}</div>`; }).join('')}
+        <p class="note">PnL sim = somma delle rese % delle operazioni che il cervello avrebbe preso nei dati di prova (non è denaro). «reale/sim» = trade veri della sala operativa aperti con quella versione del trader.</p>
+        <div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>`; }, null, true);
+  }
+  document.addEventListener('click', async (e) => {
+    const w = e.target.closest('[data-bweb]'), r = e.target.closest('[data-broll]'), l = e.target.closest('[data-blab]'); if (!w && !r && !l) return;
+    try {
+      if (w) { const id = w.dataset.bweb; const on = !w.classList.contains('on'); await api('/api/brain/web', { id, on }); w.classList.toggle('on', on); toast(on ? `🌐 Ricerca web attiva per ${bName(id)}` : `Ricerca web spenta per ${bName(id)}`); }
+      if (r) { if (!window.confirm('Ripristinare la versione precedente del cervello di questo bot?')) return; const x = await api('/api/brain/rollback', { id: r.dataset.broll }); toast(`↩ ${bName(x.id)}: versione ${x.ver} ripristinata`); }
+      if (l) { l.disabled = true; const x = await api('/api/brain/lab', { id: l.dataset.blab }); toast(x.promoted ? `🧪 ${bName(x.id)}: sfidante promosso` : `🧪 ${bName(x.id)}: il campione resta il migliore`); }
+      S = await api('/api/state'); render(S);
+    } catch (er) { toast(er.message, 4500); } finally { if (l) l.disabled = false; }
+  });
+  $('#progBtn').addEventListener('click', progressSheet);
+  $('#progress').addEventListener('click', progressSheet);
+
   // pannello «Perché non entra»: il blocco principale spiegato in italiano + i migliori candidati dell'ultimo giro
   function renderWhy(s) {
     const w = s.why; const box = $('#whyBox'); if (!box) return;
@@ -666,6 +729,7 @@
     $('#secSpot').textContent = s.cfg.realSpot ? 'ACCESO (swap veri)' : 'spento'; $('#secSpot').className = s.cfg.realSpot ? 'red' : 'mint';
     renderWallet(s);
     renderWhy(s);
+    try { renderBrain(s); } catch { /* sezione cervello non critica */ }
     const ob = $('#otherBook'); ob.classList.toggle('hidden', !s.otherBook);
     if (s.otherBook) ob.textContent = `⚠️ ${s.otherBook.open} ${s.otherBook.open === 1 ? 'posizione aperta' : 'posizioni aperte'} nel conto ${s.otherBook.mode === 'REAL' ? 'REALE' : 'SIMULAZIONE'} (${s.otherBook.symbols.map((x) => '$' + x).join(', ')}): non sono nel capitale mostrato qui. Passa a quella modalità per vederle.`;
     const pb = $('#posBadge'); pb.classList.toggle('hidden', !s.positions.length); pb.textContent = s.positions.length;
@@ -902,6 +966,10 @@
         <div class="switch"><span>Uscita rapida su inversione / ondata di vendite</span><span class="toggle ${c.reversalExit ? 'on' : ''}" data-t="reversalExit"></span></div>
         <div class="grid2">${num('reversalPct', 'Crollo 5 min oltre %')}</div>
         <p class="note">R = distanza dello stop-loss iniziale (dipende dalla volatilità). Esempio: stop −4% → presa 1 a +4% vende il 40%, lo stop sale a pareggio; presa 2 a +8% vende un altro 30%; il resto segue il trailing (distanza 1,5 × ATR, mai più larga dello stop iniziale). Sui meme le distanze sono ×0,75.</p></div>
+      <div class="grp"><span class="lbl">🧠 Mente dei bot</span>
+        <div class="switch"><span>Cervello neurale (corregge fiducia e consenso entro limiti stretti)</span><span class="toggle ${c.brainOn !== false ? 'on' : ''}" data-t="brainOn"></span></div>
+        <div class="switch"><span>Ricerca web (fonti pubbliche gratuite: Google News, DexScreener, CoinGecko, OKX)</span><span class="toggle ${c.webResearch !== false ? 'on' : ''}" data-t="webResearch"></span></div>
+        <p class="note">Il cervello impara sempre; spento, non influisce sulle decisioni. La ricerca web legge solo titoli e dati pubblici da un elenco chiuso di siti (mai eseguiti come istruzioni) e si può spegnere anche per singolo bot nelle schede Analisti e Trader.</p></div>
       <div class="grp"><span class="lbl">🐸 Memecoin: filtri allentati</span>
         <div class="switch"><span>Memecoin: filtri allentati (molte più memecoin di Solana/Phantom)</span><span class="toggle ${c.memeLoose ? 'on' : ''}" data-t="memeLoose"></span></div>
         <div class="grid2">${num('memeMinLiqUsd', 'Liquidità minima $', '1000')}${num('memeMinVol24hUsd', 'Volume 24h minimo $', '1000')}

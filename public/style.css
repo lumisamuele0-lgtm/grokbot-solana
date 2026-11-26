@@ -407,3 +407,17 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 .why-b{margin-top:6px}.why-r{display:grid;grid-template-columns:1fr;gap:2px;margin-top:6px;font-size:12px}
 .why-r .cbar{margin:0}
 #whyAct:not(:empty){margin-top:10px}
+
+/* Mente dei bot */
+.brain-sum,.prog{padding:12px 14px}
+.an-br{margin-top:4px;font-size:11px;color:#9fb3c8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.think{font-size:13px;line-height:1.45}
+.les{display:grid;grid-template-columns:18px 1fr;gap:6px;font-size:12.5px;line-height:1.4;padding:4px 0;border-bottom:1px solid #ffffff0d}
+.les:last-child{border-bottom:0}.les.up>span:first-child{color:#2fe0a0}.les.dn>span:first-child{color:#ff5c72}
+.pchart{width:100%;height:auto;display:block;margin:4px 0}
+.pchart path{fill:none;stroke-width:2;stroke-linejoin:round}.pchart .l1{stroke:#4cc9ff}.pchart .l2{stroke:#2fe0a0}.pchart .l0{stroke:#ffffff22;stroke-dasharray:3 3}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:#9fb3c8;margin-bottom:6px}.legend .k1{color:#4cc9ff}.legend .k2{color:#2fe0a0}
+.btns.two{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.btns.two .btn{min-height:40px;font-size:13px;padding:0 8px}
+.mind-b .grid3{margin-bottom:6px}
+.prow{display:grid;grid-template-columns:1fr auto;gap:2px 8px;font-size:13px;padding:6px 0;border-top:1px solid #ffffff0d}.prow small{grid-column:1/-1;font-size:11.5px}
+.agrid>*{min-width:0}

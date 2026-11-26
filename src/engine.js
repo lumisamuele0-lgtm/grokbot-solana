@@ -17,7 +17,8 @@ const chain = require('./chain');
 const { Market } = require('./market');
 const { Research } = require('./research');
 const { Mentor } = require('./mentor');
-const { Desk } = require('./desk');
+const { Desk, BOT_IDS } = require('./desk');
+const { Mind } = require('./mind');
 const { Universe } = require('./universe');
 const { STRATEGIES } = require('./strategies');
 const { uid, sleep, round } = require('./util');
@@ -84,6 +85,8 @@ class Engine extends EventEmitter {
     this.research.mentorStatus = () => this.mentor.publicSummary();
     // SALA OPERATIVA: 12 analisti emettono segnali, 2 trader (Alpha, Omega) li sommano con un consenso pesato e sono gli unici che operano
     this.desk = new Desk(this);
+    // MENTE: cervello neurale, memoria di formazione, ricerca web e laboratorio campione/sfidanti per ognuno dei 14 bot
+    this.mind = new Mind(this, BOT_IDS, { dataDir });
     // UNIVERSO: tutte le cripto scambiabili su Solana (Jupiter) + i token del tuo Phantom, con filtri di sicurezza
     this.universe = new Universe({ log: (a, t, l) => this.log(a, t, l), getCfg: () => this.cfg,
       phantomMints: () => (this.userBal && this.userBal.tokens ? Object.entries(this.userBal.tokens).filter(([, t]) => t.ui > 0).map(([m]) => m) : []) });
@@ -164,13 +167,14 @@ class Engine extends EventEmitter {
     every(3600000, () => this.market.refreshEur());
     if (process.env.NO_RESEARCH !== '1') this.research.start();
     every(1000, () => this.desk.tick());
+    if (process.env.NO_MIND !== '1') { setTimeout(() => every(30000, () => this.mind.tick()), 25000); if (process.env.NO_RESEARCH !== '1') setTimeout(() => every(90000, () => this.mind.webTick().catch((e) => this.log('MENTORE', `ricerca web: ${e.message}`, 'warn'))), 45000); }
     if (process.env.NO_UNIVERSE !== '1') setTimeout(() => every(60000, () => this.universe.refresh().catch((e) => this.log('SCANSIONE', `universo cripto: ${e.message}`, 'warn'))), 4000);
     if (process.env.BOT_WALLET_PASSWORD && this.ks.exists()) {
       try { this.ks.unlock(process.env.BOT_WALLET_PASSWORD); this.log('SISTEMA', 'Portafoglio del bot sbloccato da variabile d\'ambiente'); } catch (e) { this.log('SISTEMA', `Sblocco automatico fallito: ${e.message}`, 'error'); }
     }
     if (process.env.BOT_AUTOSTART === '1') { this.cfg.trading = true; this.log('SISTEMA', 'Avvio automatico del trading (BOT_AUTOSTART=1)'); }
   }
-  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); this.research.stop(); this.mentor.flush(); }
+  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); this.research.stop(); this.mentor.flush(); this.mind.flush(); }
   async cycleLoop() {
     try { await this.cycle(); } catch (e) { this.log('SISTEMA', `Errore ciclo: ${e.message}`, 'error'); }
     const sec = this.cfg.cycleSec;
@@ -684,7 +688,7 @@ class Engine extends EventEmitter {
     const nParts = (p.partials || []).length;
     const tr = { id: p.id, side: p.side, perp: true, lev: p.lev, symbol: p.symbol, mint: p.mint, openedAt: p.openedAt, closedAt: now, costBase: origCost, outBase: valueBase + (p.partOut || 0), pnl: totalPnl, pnlPct: (totalPnl / origCost) * 100,
       fees: (p.origFees != null ? p.origFees : p.feesBase) + (p.partFees || 0) + feeBase + p.perpFeesUsd / bu, perpFeesUsd: p.perpFeesUsd, entryPrice: p.entryPrice, exitPrice: px,
-      reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [], sigOpen: null, sigClose: null, mode: cfg.mode, estimated: false, feat: p.feat || [], ...this.postFields(p), votes: p.votes || null, consensus: p.consensus != null ? p.consensus : null, bot: p.bot || null };
+      reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [], sigOpen: null, sigClose: null, mode: cfg.mode, estimated: false, feat: p.feat || [], ...this.postFields(p), votes: p.votes || null, consensus: p.consensus != null ? p.consensus : null, bot: p.bot || null, brainVer: p.brainVer != null ? p.brainVer : null };
     b.trades.unshift(tr); if (b.trades.length > 500) b.trades.pop();
     this.mentorLearn(tr);
     try { this.desk.onClose(tr); } catch (e) { this.log('MENTORE', `pesi analisti: ${e.message}`, 'warn'); }
@@ -816,7 +820,7 @@ class Engine extends EventEmitter {
       const nParts = (p.partials || []).length;
       const tr = { id: p.id, symbol: p.symbol, mint: p.mint, openedAt: p.openedAt, closedAt: Date.now(), costBase: origCost, outBase: valueBase + (p.partOut || 0), pnl: totalPnl, pnlPct: (totalPnl / origCost) * 100,
         fees: (p.origFees != null ? p.origFees : p.feesBase) + (p.partFees || 0) + feeBase, reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [],
-        sigOpen: p.sigOpen, sigClose: sig, mode: cfg.mode, estimated, feat: p.feat || [], side: 'LONG', lev: 1, entryPrice: p.entryPrice, exitPrice: this.priceBase(p.mint) || p.entryPrice, ...this.postFields(p), votes: p.votes || null, consensus: p.consensus != null ? p.consensus : null, bot: p.bot || null };
+        sigOpen: p.sigOpen, sigClose: sig, mode: cfg.mode, estimated, feat: p.feat || [], side: 'LONG', lev: 1, entryPrice: p.entryPrice, exitPrice: this.priceBase(p.mint) || p.entryPrice, ...this.postFields(p), votes: p.votes || null, consensus: p.consensus != null ? p.consensus : null, bot: p.bot || null, brainVer: p.brainVer != null ? p.brainVer : null };
       b.trades.unshift(tr); if (b.trades.length > 500) b.trades.pop();
       this.mentorLearn(tr);
       try { this.desk.onClose(tr); } catch (e) { this.log('MENTORE', `pesi analisti: ${e.message}`, 'warn'); }
@@ -1217,7 +1221,7 @@ class Engine extends EventEmitter {
       solHeld: (() => { const sol = cfg.mode === 'REAL' ? (this.bal ? this.bal.sol : null) : b.solReserve; const su = this.market.usd(SOL); return { sol, usd: sol != null && su ? sol * su : null, eur: sol != null && su ? sol * su * eur : null, inCapital: cfg.baseCurrency === 'SOL', real: cfg.mode === 'REAL' }; })(),
       // posizioni aperte nell'altro conto (SIM/REALE): non sono nel capitale mostrato, ma non devono restare nascoste
       otherBook: (() => { const om = cfg.mode === 'REAL' ? 'SIM' : 'REAL'; const ob = this.st.books[om]; return ob && ob.positions && ob.positions.length ? { mode: om, open: ob.positions.length, symbols: ob.positions.map((p) => p.symbol).slice(0, 8) } : null; })(),
-      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(), mentor: this.mentor.summary(), desk: this.desk.view(), why: this.whyIdle(), universe: this.universe.status(),
+      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(), mentor: this.mentor.summary(), desk: this.desk.view(), why: this.whyIdle(), mind: this.mind.view(this.book.trades), universe: this.universe.status(),
       positions, trades: b.trades.slice(0, 60), equityHist: hist.filter((_, i) => i % step === 0 || i === hist.length - 1),
       counters: this.st.counters, agents: AGENTS.map((a) => ({ ...a, count: this.st.counters.agents[a.id] || 0, last: this.st.agents[a.id] || null })),
       log: this.st.log.slice(-80), watch: ws,

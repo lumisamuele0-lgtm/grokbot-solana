@@ -238,6 +238,11 @@ function createApp({ dataDir, env = process.env, engineOpts = {}, logger = conso
     if (typeof req.body.paused !== 'boolean') throw new Bad('Valore non valido');
     return { id, paused: engine.desk.setPaused(id, req.body.paused) };
   }));
+  // MENTE: ricerca web per bot, ripristino della versione precedente del cervello, laboratorio su richiesta (un bot, pochi ms)
+  const botId = (req) => { const id = V.str(req.body.id, { min: 2, max: 24, re: /^[a-z]+$/, name: 'Bot' }); if (!BOT_IDS.includes(id)) throw new Bad('Bot sconosciuto'); return id; };
+  app.post('/api/brain/web', wrap(async (req) => { const id = botId(req); if (typeof req.body.on !== 'boolean') throw new Bad('Valore non valido'); return engine.mind.setWeb(id, req.body.on); }));
+  app.post('/api/brain/rollback', wrap(async (req) => { const id = botId(req); try { const r = engine.mind.lab.rollback(id); engine.mind.save(); return r; } catch (e) { throw new Bad(e.message); } }));
+  app.post('/api/brain/lab', wrap(async (req) => { const id = botId(req); const r = engine.mind.lab.run(id); if (!r) throw new Bad('Servono almeno 30 esempi per il laboratorio'); engine.mind.save(); return { id, promoted: r.promoted, champ: r.champ, best: r.best }; }));
   app.post('/api/close', wrap(async (req) => {
     const id = V.str(req.body.id, { min: 1, max: 64, re: /^[A-Za-z0-9_-]+$/, name: 'Posizione' });
     if (id === 'all') return engine.closeAll();

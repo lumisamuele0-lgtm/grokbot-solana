@@ -1,6 +1,6 @@
 'use strict';
 const { CORE, OLD_MEMES } = require('./tokens');
-const CFG_VERSION = 12; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
+const CFG_VERSION = 13; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
 const DEFAULTS = {
   cfgVersion: CFG_VERSION,
   mode: 'SIM', // SIM | REAL
@@ -47,6 +47,8 @@ const DEFAULTS = {
   priorityFeeMaxLamports: 300000,
   simPriorityLamports: 30000,
   killConvertUsdc: true,
+  // MENTE dei bot: cervello neurale (aggiusta fiducia/consenso entro limiti stretti) e ricerca web su fonti pubbliche gratuite
+  brainOn: true, webResearch: true,
 };
 // limiti di validazione [min, max]
 const LIMITS = {
@@ -100,6 +102,8 @@ const MIGRATIONS = {
   // v12: sala operativa (12 analisti → 2 trader), scelta di Samuele: fino al 20% del capitale per operazione, fino a 8 posizioni,
   // giro ogni 10 s, limite di perdita giornaliera 15%, esposizione totale max 400%. Stop, leva, kill switch, REALE, PIN e wallet invariati.
   12: (c) => { c.maxTradePct = 20; c.maxOpen = 8; c.cycleSec = 10; c.dailyLossPct = 15; c.maxExposurePct = 400; c.cooldownMin = 5; c.maxWatch = Math.max(Number(c.maxWatch) || 0, 16); },
+  // v13: cervello neurale e ricerca web dei bot accesi (scelta di Samuele); rischio, leva, stop, REALE, PIN e wallet invariati
+  13: (c) => { c.brainOn = true; c.webResearch = true; },
   4: (c) => { c.scanMemes = false; const extra = (Array.isArray(c.tokens) ? c.tokens : []).filter((m) => !OLD_MEMES.includes(m) && !CORE.some((t) => t.mint === m)); c.tokens = [...CORE.map((t) => t.mint), ...extra]; if ((c.maxWatch || 0) < CORE.length + 1) c.maxWatch = CORE.length + 1; },
 };
 function migrateConfig(saved) {

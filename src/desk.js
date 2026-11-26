@@ -212,13 +212,15 @@ class Desk {
     return { btc60, mcap24: num(mc.mcap24h), fng: num(mc.fng) };
   }
   // tutti gli analisti votano su una cripto
-  analyze(ctx) {
-    const out = [];
+  analyze(ctx, { raw = false } = {}) {
+    const out = []; const mind = !raw && this.e.mind;
     for (const A of ANALYSTS) {
       if (this.isPaused(A.id)) continue;
       if (A.perpOnly && !ctx.perp) continue; if (A.spotOnly && ctx.perp) continue;
       let v; try { v = A.fn(ctx); } catch (err) { v = NONE('errore: ' + err.message); }
-      out.push({ id: A.id, dir: v.dir, conf: v.dir ? v.conf : 0, why: v.why });
+      let o = { id: A.id, dir: v.dir, conf: v.dir ? v.conf : 0, why: v.why };
+      if (mind && o.dir) { try { o = mind.vote(A, ctx, o); } catch { /* il cervello non blocca mai il voto */ } }
+      out.push(o);
     }
     return out;
   }
@@ -244,6 +246,7 @@ class Desk {
       const key = `${v.id}:${ctx.mint}`; const prev = this.lastSig[key];
       if (v.dir && v.conf >= 0.5 && prev !== v.dir) this.feed({ t: now, kind: 'signal', who: v.id, symbol: ctx.coin.symbol, side: v.dir > 0 ? 'LONG' : 'SHORT', conf: +v.conf.toFixed(2), text: v.why });
       this.lastSig[key] = v.dir && v.conf >= 0.5 ? v.dir : 0;
+      if (v.dir && v.x && this.e.mind) this.e.mind.journal(v.id, ctx.mint, ctx.coin.symbol, v.dir, v.x, ctx.perp, now, v.why);
       a.last = now;
     }
   }
@@ -255,7 +258,7 @@ class Desk {
     if (b.killed) return [];
     if (this.checkBreaker(now)) { e.agent('RISCHIO', `limite di perdita giornaliera (${cfg.dailyLossPct}%): nessun nuovo ingresso fino a domani`, 'block'); return []; }
     if (!s.coins || !s.coins.length) this.pickCoins(now, false);
-    const coins = s.coins || []; const cache = { __macro: this.macro() };
+    const coins = s.coins || []; const cache = { __macro: this.macro() }; const mind = this.e.mind; if (mind) mind.beginTurn();
     const perpBlk = e.perpBlock(), spotBlk = e.spotBlock();
     e.agent('SCANSIONE', `12 analisti su ${coins.length} cripto (${coins.filter((c) => c.perp).length} con leva, ${coins.filter((c) => !c.perp).length} spot)`, 'scan');
     const cands = [];
@@ -281,7 +284,8 @@ class Desk {
           const sym = ctx.symbol; const st = { ...ctx.st, symbol: coin.perp ? sym : coin.symbol };
           const feat = [...K.featuresOf({ s: st, a: ctx.a, f: ctx.f, core: !!coin.perp, solMom60: e.solMom60(), side: side === 'SHORT' ? 'short' : 'long' }), coin.perp ? `${side === 'SHORT' ? 'short.' : ''}leva:${e.leverage()}x` : 'spot:1x', ...cs.yes.map((id) => (side === 'SHORT' ? 'short.' : '') + 'analista:' + id)];
           const kn = K.assess(e.kb, feat);
-          const x = { m: coin.mint, s: st, a: ctx.a, f: ctx.f, feat, kn, rs: { score: 0, against: 0, strategies: [], opposite: [], atrPct: null }, side, coin, X, cs, thr, conf: clamp(cs.score, 0, 1), total: cs.score + kn.adj * 0.1, votes };
+          const x = { m: coin.mint, s: st, a: ctx.a, f: ctx.f, feat, kn, rs: { score: 0, against: 0, strategies: [], opposite: [], atrPct: null }, side, coin, X, cs, thr, conf: clamp(cs.score, 0, 1), total: cs.score + kn.adj * 0.1, votes, news: ctx.news, macro: ctx.macro, mc: ctx.mc };
+          if (mind) { try { mind.trader(X, x, now); x.conf = clamp(x.cs.score, 0, 1); } catch { /* */ } } // cervello del trader: consenso ±5 punti al massimo
           e.mentorGate(x); if (x.raise) x.thr = +(x.thr + x.raise).toFixed(2);
           cands.push(x);
         }
@@ -295,6 +299,9 @@ class Desk {
     if (!cands.length) { e.agent('CAPO', 'nessun mercato libero per i trader (pausa, cooldown, posizioni o candele in caricamento)', 'idle'); return []; }
     const ok = cands.filter((x) => !why(x));
     const top = cands[0];
+    if (mind) for (const X of EXECUTORS) { const c = cands.find((y) => y.X.id === X.id); if (!c) continue;
+      if (c.brain && c.cs.score >= c.thr * 0.6) mind.journal(X.id, c.m, c.coin.symbol, c.side === 'SHORT' ? -1 : 1, c.brain.x, !!c.coin.perp, now, 'candidato');
+      if (!ok.includes(c)) mind.thinkTrader(X, c, `aspetto (${c.block || (why(c) === 'consenso' ? `consenso sotto la soglia` : why(c) === 'analisti' ? `servono ${X.minAgree} analisti d'accordo` : why(c) === 'memoria' ? 'la memoria dei trade sconsiglia' : 'troppi analisti contrari')})`, now); }
     if (!ok.length) {
       const blocked = cands.find((x) => x.block && x.cs.score >= x.thr);
       const t = blocked ? `${blocked.X.name} su $${blocked.coin.symbol}: ${blocked.block}` : `${top.X.name}: miglior consenso $${top.coin.symbol} ${top.side} ${(top.cs.score * 100).toFixed(0)}% (serve ${(top.thr * 100).toFixed(0)}% e ${top.X.minAgree} analisti d'accordo, ora ${top.cs.yes.length})`;
@@ -319,6 +326,7 @@ class Desk {
         const p = (ret && ret.mint ? ret : null) || b.positions.find((q) => !before.has(q.id) && q.bot === best.X.id);
         if (p) {
           p.votes = best.votes.filter((v) => v.dir).map((v) => ({ id: v.id, dir: v.dir, conf: +v.conf.toFixed(2) })); p.consensus = +best.cs.score.toFixed(3);
+          if (mind) { try { mind.onOpen(p, best); mind.thinkTrader(best.X, best, `entro ${p.side || 'LONG'}${p.lev > 1 ? ' ' + p.lev + 'x' : ' spot'} con ${e.fmtBase(p.costBase)}`, now); } catch { /* */ } }
           opened.push(p); per[best.X.id] = (per[best.X.id] || 0) + 1;
           const d = { t: now, kind: 'open', symbol: p.symbol, side: p.side || 'LONG', lev: p.lev || 1, score: p.consensus, yes: best.cs.yes, no: best.cs.no, size: p.costBase, text: `aperto ${p.side || 'LONG'} su $${p.symbol}` };
           this.st.decisions[best.X.id] = d; this.feed({ ...d, who: best.X.id });
@@ -336,6 +344,7 @@ class Desk {
   // ---------- trade chiuso: il MENTORE aggiorna i pesi degli analisti (chi aveva ragione pesa di più) e corregge il trader
   onClose(tr, now = Date.now()) {
     if (!tr) return;
+    if (this.e.mind) { try { this.e.mind.onClose(tr, now); } catch (err) { this.e.log('MENTORE', `cervello: ${err.message}`, 'warn'); } }
     const win = (tr.pnl || 0) >= 0; const want = tr.side === 'SHORT' ? -1 : 1;
     for (const v of tr.votes || []) {
       if (!this.analyst(v.id) || !v.dir) continue; const a = this.aState(v.id);
@@ -368,11 +377,11 @@ class Desk {
       const wins = tr.filter((t) => t.pnl >= 0).length; const x = this.xState(X.id);
       return { id: X.id, name: X.name, role: X.role, desc: X.desc, hue: X.hue, domain: X.domain, thr: +(X.thr + x.selectivity).toFixed(2), baseThr: X.thr, minAgree: X.minAgree, paused: this.isPaused(X.id), resting: x.restUntil > now ? x.restUntil : 0, note: x.note,
         pnl: realized + unreal, realized, unrealized: unreal, trades: tr.length, wins, losses: tr.length - wins, winRate: tr.length ? (wins / tr.length) * 100 : null, open: op.length, exposure: op.reduce((a, p) => a + p.costBase * (p.lev || 1), 0),
-        positions: op.map((p) => p.id), decision: s.decisions[X.id] || null, history: tr.slice(0, 10).map((t) => ({ symbol: t.symbol, side: t.side || 'LONG', lev: t.lev || 1, pnl: t.pnl, pnlPct: t.pnlPct, closedAt: t.closedAt, reason: t.reason })) };
+        positions: op.map((p) => p.id), decision: s.decisions[X.id] || null, mind: e.mind ? e.mind.botView(X.id) : null, history: tr.slice(0, 10).map((t) => ({ symbol: t.symbol, side: t.side || 'LONG', lev: t.lev || 1, pnl: t.pnl, pnlPct: t.pnlPct, closedAt: t.closedAt, reason: t.reason })) };
     });
     const analysts = ANALYSTS.map((A) => {
       const a = this.aState(A.id); const sig = s.signals[A.id] && now - s.signals[A.id].t < 5 * 60e3 ? s.signals[A.id] : null;
-      return { id: A.id, name: A.name, icon: A.icon, desc: A.desc, scope: A.perpOnly ? 'SOL/BTC/ETH' : A.spotOnly ? 'memecoin' : 'tutte', paused: this.isPaused(A.id), weight: a.weight || 1, hits: a.hits, n: a.n, hitRate: a.n ? (a.hits / a.n) * 100 : null, signal: sig };
+      return { id: A.id, name: A.name, icon: A.icon, desc: A.desc, scope: A.perpOnly ? 'SOL/BTC/ETH' : A.spotOnly ? 'memecoin' : 'tutte', paused: this.isPaused(A.id), weight: a.weight || 1, hits: a.hits, n: a.n, hitRate: a.n ? (a.hits / a.n) * 100 : null, signal: sig, mind: e.mind ? e.mind.botView(A.id) : null };
     });
     const block = e.entryBlock(); const pb = e.perpBlock(); const sb = e.spotBlock(); const br = this.checkBreaker(now);
     const notional = b.positions.reduce((a, p) => a + p.costBase * (p.lev || 1), 0); const eq = e.equity();
