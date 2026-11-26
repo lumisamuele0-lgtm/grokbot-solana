@@ -24,6 +24,7 @@ class Auth {
     this.file = file;
     this.pepper = crypto.createHmac('sha256', tokenKey(path.dirname(file))).update('pin-pepper-v1').digest();
     this.csrfKey = crypto.createHmac('sha256', tokenKey(path.dirname(file))).update('csrf-v1').digest();
+    this.reportPep = crypto.createHmac('sha256', tokenKey(path.dirname(file))).update('report-key-v1').digest();
     this.data = readJson(file, null);
     this.fails = new Map(); // ip -> { n, until, level, last }
     this.globalFails = [];
@@ -111,6 +112,22 @@ class Auth {
     const want = this.csrf(token, now); if (!want || typeof value !== 'string' || value.length !== want.length) return false;
     return crypto.timingSafeEqual(Buffer.from(value), Buffer.from(want));
   }
+  // Chiave «resoconto» in sola lettura: il token è mostrato una volta sola; sul server resta solo l'HMAC (con pepe derivato dalla chiave dati)
+  reportHash(tok) { return crypto.createHmac('sha256', this.reportPep).update(String(tok)).digest('hex'); }
+  createReportKey(now = Date.now()) {
+    const token = 'sbr_' + crypto.randomBytes(32).toString('base64url');
+    this.data.report = { hash: this.reportHash(token), created: now, lastUsed: null, uses: 0 }; this.save();
+    return token;
+  }
+  verifyReport(token, now = Date.now()) {
+    const r = this.data && this.data.report; if (!r || !r.hash || typeof token !== 'string' || !/^sbr_[A-Za-z0-9_-]{43}$/.test(token)) return false;
+    const a = Buffer.from(this.reportHash(token), 'hex'); const b = Buffer.from(r.hash, 'hex');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false;
+    r.uses = (r.uses || 0) + 1; const save = !r.lastUsed || now - r.lastUsed > 60e3; r.lastUsed = now; if (save) this.save();
+    return true;
+  }
+  revokeReport() { if (this.data && this.data.report) { delete this.data.report; this.save(); } }
+  reportStatus() { const r = this.data && this.data.report; return r ? { active: true, created: r.created, lastUsed: r.lastUsed || null, uses: r.uses || 0 } : { active: false }; }
   logout(token) {
     if (!isTok(token) || !this.data || !this.data.sessions) return;
     const s = this.data.sessions[sha(token)]; if (!s) return;

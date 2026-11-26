@@ -83,6 +83,7 @@ class Engine extends EventEmitter {
     // MENTORE · diario post-mortem e correzioni automatiche (limitate, con rollback), salvati su /data/mentor.json
     this.mentor = new Mentor({ dataDir, log: (a, t, l) => this.log(a, t, l) });
     this.research.mentorStatus = () => this.mentor.publicSummary();
+    Object.defineProperty(this.mentor, 'blockScale', { get: () => require('./config').paceOf(this.cfg).mentorScale, configurable: true });
     // SALA OPERATIVA: 12 analisti emettono segnali, 2 trader (Alpha, Omega) li sommano con un consenso pesato e sono gli unici che operano
     this.desk = new Desk(this);
     // MENTE: cervello neurale, memoria di formazione, ricerca web e laboratorio campione/sfidanti per ognuno dei 14 bot
@@ -159,7 +160,9 @@ class Engine extends EventEmitter {
     this.log('SISTEMA', `Avvio motore · modalità ${this.cfg.mode === 'SIM' ? 'SIMULAZIONE' : 'REALE'} · base ${this.cfg.baseCurrency}`);
     const every = (ms, fn) => { const run = async () => { try { await fn(); } catch (e) { this.lastErr = e.message; this.log('SISTEMA', `Errore: ${e.message}`, 'error'); } }; run(); this.timers.push(setInterval(run, ms)); };
     every(10000, () => this.priceTick());
-    setTimeout(() => every(60000, () => this.scan()), 1500);
+    // scansione/VERIFICA: ogni 60 s (Aggressivo: 30 s, così le cripto nuove del radar a rotazione diventano operative prima)
+    const scanLoop = async () => { try { await this.scan(); } catch (e) { this.lastErr = e.message; this.log('SISTEMA', `Errore: ${e.message}`, 'error'); } this.scanTimer = setTimeout(scanLoop, (require('./config').paceOf(this.cfg).scanSec || 60) * 1000); };
+    this.scanTimer = setTimeout(scanLoop, 1500);
     this.loopTimer = setTimeout(() => this.cycleLoop(), 8000);
     every(30000, () => this.recordEquity());
     setTimeout(() => every(5 * 60000, () => this.mentorReview()), 20000);
@@ -168,13 +171,15 @@ class Engine extends EventEmitter {
     if (process.env.NO_RESEARCH !== '1') this.research.start();
     every(1000, () => this.desk.tick());
     if (process.env.NO_MIND !== '1') { setTimeout(() => every(30000, () => this.mind.tick()), 25000); if (process.env.NO_RESEARCH !== '1') setTimeout(() => every(90000, () => this.mind.webTick().catch((e) => this.log('MENTORE', `ricerca web: ${e.message}`, 'warn'))), 45000); }
-    if (process.env.NO_UNIVERSE !== '1') setTimeout(() => every(60000, () => this.universe.refresh().catch((e) => this.log('SCANSIONE', `universo cripto: ${e.message}`, 'warn'))), 4000);
+    // universo: al primo elenco pronto si sceglie subito il radar e si fa una VERIFICA immediata (senza aspettare il giro da 60 s)
+    let uniFirst = true;
+    if (process.env.NO_UNIVERSE !== '1') setTimeout(() => every(60000, () => this.universe.refresh().then(() => { if (uniFirst && this.universe.list().length) { uniFirst = false; try { this.desk.pickCoins(); } catch {} return this.scan(); } }).catch((e) => this.log('SCANSIONE', `universo cripto: ${e.message}`, 'warn'))), 4000);
     if (process.env.BOT_WALLET_PASSWORD && this.ks.exists()) {
       try { this.ks.unlock(process.env.BOT_WALLET_PASSWORD); this.log('SISTEMA', 'Portafoglio del bot sbloccato da variabile d\'ambiente'); } catch (e) { this.log('SISTEMA', `Sblocco automatico fallito: ${e.message}`, 'error'); }
     }
     if (process.env.BOT_AUTOSTART === '1') { this.cfg.trading = true; this.log('SISTEMA', 'Avvio automatico del trading (BOT_AUTOSTART=1)'); }
   }
-  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); this.research.stop(); this.mentor.flush(); this.mind.flush(); }
+  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); clearTimeout(this.scanTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); this.research.stop(); this.mentor.flush(); this.mind.flush(); }
   async cycleLoop() {
     try { await this.cycle(); } catch (e) { this.log('SISTEMA', `Errore ciclo: ${e.message}`, 'error'); }
     const sec = this.cfg.cycleSec;
@@ -204,7 +209,8 @@ class Engine extends EventEmitter {
   }
 
   // ---------- SCANSIONE + VERIFICA: scoperta e filtri
-  async scan() {
+  async scan() { if (this.scanBusy) return; this.scanBusy = true; try { await this.scanOnce(); } finally { this.scanBusy = false; } }
+  async scanOnce() {
     const cfg = this.cfg;
     // sempre con leva: si lavora solo su SOL/BTC/ETH (Jupiter Perps); gli altri token solo se c'è ancora una posizione aperta da gestire
     const held = Object.values(this.st.books).flatMap((bk) => bk.positions.map((p) => p.mint));
@@ -1175,6 +1181,29 @@ class Engine extends EventEmitter {
   }
 
   // ---------- istantanea per l'interfaccia
+  // Resoconto in sola lettura per la chiave «resoconto» (GET /api/report): niente indirizzi, chiavi, mint o configurazione sensibile
+  report(now = Date.now()) {
+    const b = this.book; const cfg = this.cfg; const eq = this.equity(); const today = dayKey(); const r2 = (x, d = 2) => (x == null || !Number.isFinite(x) ? null : +x.toFixed(d));
+    const isToday = (t) => t && new Date(t).toISOString().slice(0, 10) === today;
+    const tr = b.trades.filter((x) => isToday(x.closedAt)); const w = tr.filter((x) => (x.pnl || 0) >= 0).length;
+    const pos = b.positions.map((p) => { let val = p.costBase; try { val = isPerp(p) ? this.shortValueBase(p) : (this.priceBase(p.mint) ? p.qty * this.priceBase(p.mint) : p.costBase); } catch {} const pnl = val - p.costBase - (p.feesBase || 0);
+      return { symbol: p.symbol, side: p.side || 'LONG', lev: p.lev || 1, perp: isPerp(p), bot: p.bot || null, costBase: r2(p.costBase), pnl: r2(pnl), pnlPct: r2(p.costBase ? (pnl / p.costBase) * 100 : 0), openedAt: p.openedAt || null }; });
+    const bots = {}; for (const id of BOT_IDS) { const s = this.mind.brains.status(id); if (!s) continue; bots[id] = { ver: s.ver, ready: !!s.ready, samples: s.samples, valAcc: r2(s.valAcc, 3), baseline: r2(s.valMaj, 3), edge: r2(s.edge, 2), trainings: s.trainings }; }
+    const lab = this.mind.lab.st; const runsToday = (lab.runs || []).filter((x) => isToday(x.t));
+    const why = this.whyIdle(now); const P = require('./config').paceOf(cfg);
+    return {
+      t: now, mode: cfg.mode, running: !!cfg.trading && !b.killed, paused: !cfg.trading, killed: !!b.killed, killReason: b.killed ? b.killReason || null : null,
+      pace: { id: cfg.pace || 'aggressivo', label: P.label, cycleSec: cfg.cycleSec },
+      base: cfg.baseCurrency, equity: r2(eq), startEquity: r2(b.startEquity),
+      pnl: { today: r2(b.dayKey === today ? eq - b.dayStartEquity : null), total: r2(eq - b.startEquity), realized: r2(b.realizedPnl) },
+      tradesToday: { count: tr.length, wins: w, losses: tr.length - w, winRate: tr.length ? r2((w / tr.length) * 100, 1) : null, pnl: r2(tr.reduce((a, x) => a + (x.pnl || 0), 0)) },
+      tradesTotal: { count: b.wins + b.losses, winRate: b.wins + b.losses ? r2((b.wins / (b.wins + b.losses)) * 100, 1) : null },
+      open: { count: pos.length, exposureBase: r2(pos.reduce((a, p) => a + (p.costBase || 0) * (p.lev || 1), 0)), pnl: r2(pos.reduce((a, p) => a + (p.pnl || 0), 0)), positions: pos },
+      brains: { on: this.mind.on(), bots },
+      lab: { today: { runs: runsToday.length, promotions: runsToday.filter((x) => x.promoted).length, rejections: runsToday.filter((x) => !x.promoted).length }, totals: { ...lab.totals } },
+      why: { code: why.code, level: why.level, text: why.text },
+    };
+  }
   snapshot() {
     const b = this.book; const cfg = this.cfg; const eq = this.equity();
     const baseUsd = this.baseUsd();

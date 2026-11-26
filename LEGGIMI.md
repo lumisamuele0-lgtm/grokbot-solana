@@ -171,6 +171,20 @@ Ogni trade chiuso (simulato o reale) riceve un **post-mortem**: subito una prima
 Dal post-mortem il Mentore fa **correzioni piccole e limitate** per cripto e direzione (es. "SOL LONG"): stop ×0,8–1,3, target ×1–1,4, selettività degli ingressi 0–3, pause di 2–6 ore per i setup perdenti (es. niente LONG in mercato in ribasso), soglia del rischio notizie. Ogni correzione è graduale (5% alla volta) e dopo 6 trade viene giudicata: se i risultati sono peggiorati, viene **annullata** (rollback). Non cambia mai la leva (minimo 5x), il margine del 7%, lo stop prima della liquidazione, il kill switch, le chiavi o il PIN.
 Ogni ~90 secondi legge anche le **notizie** da 6 feed RSS gratuiti (CoinDesk, Cointelegraph, Decrypt, The Block, CryptoSlate, Bitcoin Magazine), con richieste condizionali (se il feed non è cambiato il server risponde 304 senza dati), timeout di 8 s per feed e pausa crescente per un feed che dà errori o limita le richieste; solo i titoli nuovi vengono valutati: un conteggio di parole nei titoli dà sentiment e rischio per SOL/BTC/ETH; con rischio alto non apre nuove operazioni su quella cripto. Ogni ora legge il contesto (CoinGecko: mercato totale; DefiLlama: TVL di Solana ed Ethereum; OKX: rapporto long/short). Tutto è nella scheda "Diario del Mentore". Il sentiment è un indizio semplice, non una previsione.
 
+## 9b. Ritmo e chiave resoconto
+
+**Ritmo** (Impostazioni → Ritmo): quanto in fretta i trader entrano. Stop, tetto 20% per operazione, limite di perdita giornaliera, kill switch, controlli anti-truffa e blocchi REALE sono identici in tutti e tre.
+
+| Ritmo | Giro | Ingressi per giro (per trader) | Soglie Alpha / Omega | Pausa sulla stessa cripto | Radar spot |
+|---|---|---|---|---|---|
+| Prudente | 15 s | 3 (2) | 26%·3 / 34%·3 | 10 min | 12 |
+| Normale | 10 s | 4 (3) | 22%·2 / 30%·3 | 5 min | 16 |
+| Aggressivo (predefinito) | 5 s | 6 (4) | 18%·2 / 25%·2 | 2 min | 24, a rotazione |
+
+In Aggressivo le pause del Mentore dopo le perdite durano la metà e un trader in pausa dopo 3 perdite riparte dopo 1 minuto. Più operazioni non vuol dire più guadagni.
+
+**Chiave resoconto** (Impostazioni → Chiave resoconto → «Genera chiave resoconto»): un token `sbr_…` mostrato una sola volta; sul server resta solo un'impronta HMAC cifrata. Serve solo a leggere `GET /api/report` con l'header `Authorization: Bearer sbr_…` (30 letture ogni 10 minuti; 10 chiavi sbagliate bloccano quell'IP per 10 minuti). Non può comprare, vendere, prelevare o cambiare impostazioni e non contiene wallet né chiavi. «Revoca» la disattiva subito; generarne una nuova sostituisce la vecchia.
+
 ## 10. Limiti e rischi (onesti)
 
 - **Nessun profitto garantito.** Le strategie con indicatori tecnici perdono spesso, soprattutto nei mercati laterali. Commissioni e slippage pesano sulle operazioni piccole. In simulazione le prime operazioni di prova sono state sia in guadagno sia in perdita.

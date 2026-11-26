@@ -185,6 +185,22 @@ function createApp({ dataDir, env = process.env, engineOpts = {}, logger = conso
   }));
   app.post('/api/auth/logout', wrap(async (req, res) => { auth.logout(cookieOf(req)); clearCookie(req, res); }));
 
+  // Resoconto in SOLA LETTURA con la chiave «resoconto» (Authorization: Bearer sbr_…): nessuna sessione, nessuna scrittura, limiti per IP
+  const REP = { WINDOW: 10 * 60e3, OK: 30, BAD: 10, GLOBAL_BAD: 100 }; const repHits = new Map(); let repGlobalBad = [];
+  const repDeny = (res, code, msg, wait) => { res.setHeader('Cache-Control', 'no-store'); if (wait) res.setHeader('Retry-After', String(Math.ceil(wait / 1000))); return res.status(code).json({ error: msg }); };
+  app.get('/api/report', (req, res) => {
+    const now = Date.now(); const ip = req.ip || 'unknown';
+    const h = repHits.get(ip) || { ok: [], bad: [] }; h.ok = h.ok.filter((t) => now - t < REP.WINDOW); h.bad = h.bad.filter((t) => now - t < REP.WINDOW); repGlobalBad = repGlobalBad.filter((t) => now - t < REP.WINDOW);
+    repHits.set(ip, h); if (repHits.size > 5000) repHits.clear();
+    if (h.bad.length >= REP.BAD || repGlobalBad.length >= REP.GLOBAL_BAD) return repDeny(res, 429, 'Troppi tentativi con una chiave errata: riprova più tardi', REP.WINDOW - (now - (h.bad[0] || now)));
+    if (h.ok.length >= REP.OK) return repDeny(res, 429, 'Troppe richieste: massimo 30 ogni 10 minuti', REP.WINDOW - (now - h.ok[0]));
+    const m = /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization || ''));
+    if (!m || !auth.verifyReport(m[1], now)) { if (m) { h.bad.push(now); repGlobalBad.push(now); } res.setHeader('WWW-Authenticate', 'Bearer'); return repDeny(res, 401, 'Chiave resoconto mancante o non valida'); }
+    h.ok.push(now);
+    try { res.setHeader('Cache-Control', 'no-store'); return res.json({ ok: true, ...engine.report(now) }); }
+    catch { return repDeny(res, 500, 'Resoconto non disponibile'); }
+  });
+
   // da qui in poi: sessione valida (con rotazione del token) e, per i POST, token CSRF legato alla sessione
   app.use('/api', (req, res, next) => {
     const tok = cookieOf(req);
@@ -205,6 +221,10 @@ function createApp({ dataDir, env = process.env, engineOpts = {}, logger = conso
   const RAILWAY_VOL = env.RAILWAY_VOLUME_MOUNT_PATH ? path.resolve(env.RAILWAY_VOLUME_MOUNT_PATH) : null;
   const PERSISTENT = env.DATA_PERSISTENT === '1' || !IN_CONTAINER || (RAILWAY_VOL !== null && RAILWAY_VOL === path.resolve(dataDir));
   const hostInfo = () => ({ demo: DEMO, persistent: PERSISTENT, container: IN_CONTAINER });
+  // gestione della chiave resoconto (solo con la sessione del PIN): stato, nuova chiave (mostrata UNA volta), revoca
+  app.get('/api/report-key', (req, res) => res.json(auth.reportStatus()));
+  app.post('/api/report-key', wrap(async (req, res) => { res.setHeader('Cache-Control', 'no-store'); const token = auth.createReportKey(); return { ok: true, token, ...auth.reportStatus() }; }));
+  app.post('/api/report-key/revoke', wrap(async () => { auth.revokeReport(); return { ok: true, ...auth.reportStatus() }; }));
   app.get('/api/state', (req, res) => res.json({ ...engine.snapshot(), host: hostInfo() }));
   let sse = 0;
   app.get('/api/events', (req, res) => {

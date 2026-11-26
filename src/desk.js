@@ -13,6 +13,7 @@ const S = require('./strategy');
 const K = require('./knowledge');
 const U = require('./universe');
 const { atrPct, momentum, resample } = require('./indicators');
+const { paceOf } = require('./config');
 
 const MAX_COINS = 12; // cripto spot sul radar (oltre a SOL/BTC/ETH con leva)
 const MAX_ENTRIES_PER_TURN = 4; // ingressi totali per giro (ogni ~10 s)
@@ -37,6 +38,10 @@ const ANALYSTS = [
     fn(c) { const a = c.a; if (!a.ok) return NONE('dati insufficienti'); const m15 = a.m15 || 0, m60 = a.m60 || 0; const k = c.perp ? 1 : 2.5;
       if (m15 > 0.35 * k && m60 > 0.7 * k) return V(1, 0.4 + m15 / (3 * k) + m60 / (8 * k) + lib(c, ['macd', 'roc'], 1), `+${m15.toFixed(1)}% in 15 min`);
       if (m15 < -0.35 * k && m60 < -0.7 * k) return V(-1, 0.4 - m15 / (3 * k) - m60 / (8 * k) + lib(c, ['macd', 'roc'], -1), `${m15.toFixed(1)}% in 15 min`);
+      // innesco rapido a 1–5 minuti: accelerazione fresca nella stessa direzione dei 15 minuti (fiducia più bassa)
+      const m5 = a.m5 || 0;
+      if (m5 > 0.25 * k && m15 > 0 && a.trend1) return V(1, Math.min(0.6, 0.32 + m5 / (2 * k)), `accelerazione +${m5.toFixed(2)}% in 5 min`);
+      if (m5 < -0.25 * k && m15 < 0 && a.short && a.short.checks && a.short.checks['EMA9<EMA21 (1m)']) return V(-1, Math.min(0.6, 0.32 - m5 / (2 * k)), `accelerazione ${m5.toFixed(2)}% in 5 min`);
       return NONE('momentum piatto'); } },
   { id: 'breakout', name: 'Breakout', icon: '💥', desc: 'Rottura del massimo/minimo delle ultime 20 candele a 5 minuti (canale di Donchian).',
     fn(c) { const k5 = resample(c.c1, 5); if (k5.length < 22) return NONE('dati insufficienti'); const prev = k5.slice(-21, -1); const last = k5[k5.length - 1].c;
@@ -130,6 +135,9 @@ class Desk {
     if (ch && e.save) e.save();
   }
   analyst(id) { return ANALYSTS.find((a) => a.id === id) || null; }
+  // parametri del Ritmo per un trader: soglia di consenso, analisti d'accordo, ingressi per giro
+  pace() { return paceOf(this.e.cfg); }
+  params(X) { const P = this.pace(); const [thr, minAgree] = P[X.id] || [X.thr, X.minAgree]; return { thr, minAgree, maxPerTurn: P.perTrader || X.maxPerTurn }; }
   exec(id) { return EXECUTORS.find((x) => x.id === id) || null; }
   aState(id) { const s = this.st; if (!s.analysts[id]) s.analysts[id] = { hits: 0, n: 0, weight: 1, last: null }; return s.analysts[id]; }
   xState(id) { const s = this.st; if (!s.execs[id]) s.execs[id] = { wins: 0, losses: 0, streak: 0, selectivity: 0, restUntil: 0, note: null }; return s.execs[id]; }
@@ -160,7 +168,10 @@ class Desk {
     const e = this.e; const s = this.st; const lev = e.leverage(); const held = new Set(e.book.positions.map((p) => p.mint));
     const pool = this.candidates(); const perps = pool.filter((c) => c.perp); const spot = pool.filter((c) => !c.perp).map((c) => ({ c, s: this.coinScore(c) })).sort((a, b) => b.s - a.s).map((x) => x.c);
     const keep = (s.coins || []).filter((c) => !c.perp && held.has(c.mint));
-    const chosen = [...keep]; for (const c of spot) { if (chosen.length >= MAX_COINS) break; if (!chosen.some((x) => x.mint === c.mint)) chosen.push(c); }
+    // radar: metà posti alle migliori per punteggio, l'altra metà a rotazione fra le altre idonee (così si guardano più cripto nel tempo)
+    const maxC = this.pace().coins; const chosen = [...keep]; const topN = Math.ceil(maxC / 2);
+    for (const c of spot.slice(0, topN)) { if (chosen.length >= maxC) break; if (!chosen.some((x) => x.mint === c.mint)) chosen.push(c); }
+    const rest = spot.slice(topN); if (rest.length) { s.rot = ((s.rot || 0) + Math.max(1, Math.floor(maxC / 2))) % rest.length; for (let i = 0; i < rest.length && chosen.length < maxC; i++) { const c = rest[(s.rot + i) % rest.length]; if (!chosen.some((x) => x.mint === c.mint)) chosen.push(c); } }
     const before = (s.coins || []).map((c) => c.mint).join(',');
     s.coins = [...perps, ...chosen].map((c) => (c.label ? c : coinView(c, lev))); s.coinsAt = now;
     if (announce && s.coins.map((c) => c.mint).join(',') !== before && s.coins.length) e.log('SALA', `📡 radar: ${s.coins.map((c) => c.symbol).join(', ')}`);
@@ -174,7 +185,7 @@ class Desk {
     const s = this.st; const uts = this.e.universe ? this.e.universe.ts : 0;
     const held = (mint) => this.e.book.positions.some((p) => p.mint === mint);
     const f = s.coins || [];
-    if (!f.length || now - (s.coinsAt || 0) >= RULES.PICK_EVERY_MS || (f.some((x) => this.unsafe(x) && !held(x.mint)) && now - (s.coinsAt || 0) > 10e3) || (uts > (s.coinsAt || 0) && now - (s.coinsAt || 0) > 30e3)) this.pickCoins(now, true);
+    if (!f.length || now - (s.coinsAt || 0) >= this.pace().pickMs || (f.some((x) => this.unsafe(x) && !held(x.mint)) && now - (s.coinsAt || 0) > 10e3) || (uts > (s.coinsAt || 0) && now - (s.coinsAt || 0) > 30e3)) this.pickCoins(now, true);
     for (const id of EXEC_IDS) { const x = this.xState(id); if (x.restUntil && x.restUntil <= now) { x.restUntil = 0; x.note = null; } }
     this.checkBreaker(now);
   }
@@ -280,39 +291,39 @@ class Desk {
           if (coin.perp && side === 'SHORT' && !cfg.shortsOn) { R.lato++; continue; }
           if (!coin.perp && !cfg.spotLongs) { R.lato++; continue; }
           const cdKey = `${X.id}:${coin.mint}:${side}`; if ((b.cooldown[cdKey] && b.cooldown[cdKey] > now) || (b.cooldown[coin.mint] && b.cooldown[coin.mint] > now)) { R.cooldown++; continue; }
-          const cs = this.consensus(votes, side, X); const thr = X.thr + xs.selectivity;
+          const cs = this.consensus(votes, side, X); const XP = this.params(X); const thr = +(XP.thr + xs.selectivity).toFixed(2);
           const sym = ctx.symbol; const st = { ...ctx.st, symbol: coin.perp ? sym : coin.symbol };
           const feat = [...K.featuresOf({ s: st, a: ctx.a, f: ctx.f, core: !!coin.perp, solMom60: e.solMom60(), side: side === 'SHORT' ? 'short' : 'long' }), coin.perp ? `${side === 'SHORT' ? 'short.' : ''}leva:${e.leverage()}x` : 'spot:1x', ...cs.yes.map((id) => (side === 'SHORT' ? 'short.' : '') + 'analista:' + id)];
           const kn = K.assess(e.kb, feat);
-          const x = { m: coin.mint, s: st, a: ctx.a, f: ctx.f, feat, kn, rs: { score: 0, against: 0, strategies: [], opposite: [], atrPct: null }, side, coin, X, cs, thr, conf: clamp(cs.score, 0, 1), total: cs.score + kn.adj * 0.1, votes, news: ctx.news, macro: ctx.macro, mc: ctx.mc };
+          const x = { m: coin.mint, s: st, a: ctx.a, f: ctx.f, feat, kn, rs: { score: 0, against: 0, strategies: [], opposite: [], atrPct: null }, side, coin, X, XP, cs, thr, conf: clamp(cs.score, 0, 1), total: cs.score + kn.adj * 0.1, votes, news: ctx.news, macro: ctx.macro, mc: ctx.mc };
           if (mind) { try { mind.trader(X, x, now); x.conf = clamp(x.cs.score, 0, 1); } catch { /* */ } } // cervello del trader: consenso ±5 punti al massimo
           e.mentorGate(x); if (x.raise) x.thr = +(x.thr + x.raise).toFixed(2);
           cands.push(x);
         }
       }
     }
-    const why = (x) => (x.block ? 'mentore' : x.kn.skip ? 'memoria' : x.cs.score < x.thr ? 'consenso' : x.cs.yes.length < x.X.minAgree ? 'analisti' : x.cs.yes.length <= x.cs.no.length ? 'contrari' : null);
+    const why = (x) => (x.block ? 'mentore' : x.kn.skip ? 'memoria' : x.cs.score < x.thr ? 'consenso' : x.cs.yes.length < x.XP.minAgree ? 'analisti' : x.cs.yes.length <= x.cs.no.length ? 'contrari' : null);
     for (const x of cands) { const k = why(x); if (k) R[k] = (R[k] || 0) + 1; }
     cands.sort((p, q) => q.cs.score - p.cs.score);
     this.scan = { t: now, coins: coins.length, evaluated: cands.length, reasons: R, loading: loading.slice(0, 6),
-      best: cands.slice(0, 5).map((x) => ({ bot: x.X.id, name: x.X.name, symbol: x.coin.symbol, side: x.side, score: +x.cs.score.toFixed(3), thr: x.thr, yes: x.cs.yes.length, need: x.X.minAgree, no: x.cs.no.length, block: x.block || (x.kn.skip ? 'la memoria dei trade sconsiglia questo setup' : null), why: why(x) })) };
+      best: cands.slice(0, 5).map((x) => ({ bot: x.X.id, name: x.X.name, symbol: x.coin.symbol, side: x.side, score: +x.cs.score.toFixed(3), thr: x.thr, yes: x.cs.yes.length, need: x.XP.minAgree, no: x.cs.no.length, block: x.block || (x.kn.skip ? 'la memoria dei trade sconsiglia questo setup' : null), why: why(x) })) };
     if (!cands.length) { e.agent('CAPO', 'nessun mercato libero per i trader (pausa, cooldown, posizioni o candele in caricamento)', 'idle'); return []; }
     const ok = cands.filter((x) => !why(x));
     const top = cands[0];
     if (mind) for (const X of EXECUTORS) { const c = cands.find((y) => y.X.id === X.id); if (!c) continue;
       if (c.brain && c.cs.score >= c.thr * 0.6) mind.journal(X.id, c.m, c.coin.symbol, c.side === 'SHORT' ? -1 : 1, c.brain.x, !!c.coin.perp, now, 'candidato');
-      if (!ok.includes(c)) mind.thinkTrader(X, c, `aspetto (${c.block || (why(c) === 'consenso' ? `consenso sotto la soglia` : why(c) === 'analisti' ? `servono ${X.minAgree} analisti d'accordo` : why(c) === 'memoria' ? 'la memoria dei trade sconsiglia' : 'troppi analisti contrari')})`, now); }
+      if (!ok.includes(c)) mind.thinkTrader(X, c, `aspetto (${c.block || (why(c) === 'consenso' ? `consenso sotto la soglia` : why(c) === 'analisti' ? `servono ${c.XP.minAgree} analisti d'accordo` : why(c) === 'memoria' ? 'la memoria dei trade sconsiglia' : 'troppi analisti contrari')})`, now); }
     if (!ok.length) {
       const blocked = cands.find((x) => x.block && x.cs.score >= x.thr);
-      const t = blocked ? `${blocked.X.name} su $${blocked.coin.symbol}: ${blocked.block}` : `${top.X.name}: miglior consenso $${top.coin.symbol} ${top.side} ${(top.cs.score * 100).toFixed(0)}% (serve ${(top.thr * 100).toFixed(0)}% e ${top.X.minAgree} analisti d'accordo, ora ${top.cs.yes.length})`;
+      const t = blocked ? `${blocked.X.name} su $${blocked.coin.symbol}: ${blocked.block}` : `${top.X.name}: miglior consenso $${top.coin.symbol} ${top.side} ${(top.cs.score * 100).toFixed(0)}% (serve ${(top.thr * 100).toFixed(0)}% e ${top.XP.minAgree} analisti d'accordo, ora ${top.cs.yes.length})`;
       e.agent('CAPO', t, 'idle', { token: top.coin.symbol }); this.st.decisions[top.X.id] = { t: now, kind: 'wait', symbol: top.coin.symbol, side: top.side, score: +top.cs.score.toFixed(3), thr: top.thr, yes: top.cs.yes, no: top.cs.no, text: t };
       return [];
     }
     const opened = []; const per = {};
     for (const best of ok) {
-      if (opened.length >= MAX_ENTRIES_PER_TURN) break;
+      if (opened.length >= this.pace().maxEntries) break;
       if (b.positions.length >= cfg.maxOpen) break;
-      if ((per[best.X.id] || 0) >= best.X.maxPerTurn) continue;
+      if ((per[best.X.id] || 0) >= best.XP.maxPerTurn) continue;
       if (b.positions.some((p) => p.mint === best.m)) continue;
       const prev = e.actx; e.actx = { bot: best.X.id };
       try {
@@ -357,7 +368,7 @@ class Desk {
     if (win) { x.wins++; x.streak = Math.max(0, x.streak) + 1; if (x.selectivity > 0) x.selectivity = +Math.max(0, x.selectivity - RULES.SEL_STEP).toFixed(2); if (!x.selectivity) x.note = null; }
     else {
       x.losses++; x.streak = Math.min(0, x.streak) - 1;
-      if (x.streak <= -3) { x.restUntil = now + RULES.REST_MS; x.streak = 0; x.note = `${X.name}: 3 perdite di fila, 2 minuti di pausa per ricalibrare`; }
+      if (x.streak <= -3) { const rm = this.pace().restMs; x.restUntil = now + rm; x.streak = 0; x.note = `${X.name}: 3 perdite di fila, ${Math.round(rm / 60e3)} ${rm >= 120e3 ? 'minuti' : 'minuto'} di pausa per ricalibrare`; }
       else if (x.streak <= -2) { x.selectivity = +Math.min(RULES.SEL_MAX, x.selectivity + RULES.SEL_STEP).toFixed(2); x.note = `${X.name}: 2 perdite di fila, chiede un consenso più alto (+${Math.round(x.selectivity * 100)} punti)`; }
       if (x.note) { this.insight(x.note, now); this.e.log('MENTORE', `🔧 ${x.note}`); this.e.emit('ev', { type: 'correct', bot: X.id, text: x.note }); }
     }
@@ -375,7 +386,7 @@ class Desk {
       const tr = b.trades.filter((t) => t.bot === X.id); const op = b.positions.filter((p) => p.bot === X.id);
       const realized = tr.reduce((a, t) => a + (t.pnl || 0), 0); const unreal = op.reduce((a, p) => a + (e.posValue(p) - p.costBase - p.feesBase + (p.realizedPart || 0)), 0);
       const wins = tr.filter((t) => t.pnl >= 0).length; const x = this.xState(X.id);
-      return { id: X.id, name: X.name, role: X.role, desc: X.desc, hue: X.hue, domain: X.domain, thr: +(X.thr + x.selectivity).toFixed(2), baseThr: X.thr, minAgree: X.minAgree, paused: this.isPaused(X.id), resting: x.restUntil > now ? x.restUntil : 0, note: x.note,
+      return { id: X.id, name: X.name, role: X.role, desc: X.desc, hue: X.hue, domain: X.domain, thr: +(this.params(X).thr + x.selectivity).toFixed(2), baseThr: this.params(X).thr, minAgree: this.params(X).minAgree, maxPerTurn: this.params(X).maxPerTurn, paused: this.isPaused(X.id), resting: x.restUntil > now ? x.restUntil : 0, note: x.note,
         pnl: realized + unreal, realized, unrealized: unreal, trades: tr.length, wins, losses: tr.length - wins, winRate: tr.length ? (wins / tr.length) * 100 : null, open: op.length, exposure: op.reduce((a, p) => a + p.costBase * (p.lev || 1), 0),
         positions: op.map((p) => p.id), decision: s.decisions[X.id] || null, mind: e.mind ? e.mind.botView(X.id) : null, history: tr.slice(0, 10).map((t) => ({ symbol: t.symbol, side: t.side || 'LONG', lev: t.lev || 1, pnl: t.pnl, pnlPct: t.pnlPct, closedAt: t.closedAt, reason: t.reason })) };
     });
@@ -385,7 +396,7 @@ class Desk {
     });
     const block = e.entryBlock(); const pb = e.perpBlock(); const sb = e.spotBlock(); const br = this.checkBreaker(now);
     const notional = b.positions.reduce((a, p) => a + p.costBase * (p.lev || 1), 0); const eq = e.equity();
-    return { execs, analysts, coins: s.coins || [], coinsAt: s.coinsAt || null, maxCoins: MAX_COINS, feed: s.feed.slice(0, 40), insight: s.insight || null, corrections: this.corrections(now), breaker: br,
+    return { execs, analysts, coins: s.coins || [], coinsAt: s.coinsAt || null, maxCoins: this.pace().coins, pace: { id: this.e.cfg.pace || 'aggressivo', label: this.pace().label, cycleSec: this.e.cfg.cycleSec, maxEntries: this.pace().maxEntries }, feed: s.feed.slice(0, 40), insight: s.insight || null, corrections: this.corrections(now), breaker: br,
       risk: { maxTradePct: e.cfg.maxTradePct, maxOpen: e.cfg.maxOpen, dailyLossPct: e.cfg.dailyLossPct, maxExposurePct: e.cfg.maxExposurePct, open: b.positions.length, exposure: notional, exposurePct: eq > 0 ? (notional / eq) * 100 : 0, margin: b.positions.reduce((a, p) => a + p.costBase, 0),
         dayPnl: eq - (b.dayStartEquity || eq), dayPnlPct: b.dayStartEquity > 0 ? ((eq - b.dayStartEquity) / b.dayStartEquity) * 100 : 0 },
       realWaiting: block && e.cfg.mode === 'REAL' ? `REALE in attesa del test con 5-10 USDC: nessun ordine reale finché non approvi il test.${e.cfg.spotLongs ? ' Lo spot reale (solo long, 1x) è spento: si può attivare in Impostazioni.' : ''}` : null,

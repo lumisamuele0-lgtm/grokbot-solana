@@ -55,7 +55,7 @@ test('leva e long/short solo dove ci sono i perps: SOL/BTC/ETH 5x L/S, il resto 
 });
 
 test('radar: SOL/BTC/ETH con leva + fino a 12 cripto spot; nessuno short sulle cripto spot', () => {
-  const e = mkEngine();
+  const e = mkEngine(); e.cfg.pace = 'prudente'; // Ritmo prudente: 12 cripto spot (aggressivo: 24, vedi pace.test.js)
   const coins = Array.from({ length: 20 }, (_, i) => good({ mint: mkMint(i), symbol: 'C' + i, change1h: i % 3 ? 2 + i : -4 - i, volume24h: 1e6 * (i + 1) }));
   e.universe.setCoins([...coins, fromJup({ id: SOL, symbol: 'SOL', isVerified: true, tokenProgram: TK, liquidity: 1e9, stats24h: { buyVolume: 1e9, sellVolume: 1e9 } })]);
   const f = e.desk.pickCoins();

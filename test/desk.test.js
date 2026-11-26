@@ -98,7 +98,7 @@ test('tanti ingressi in poco tempo: più di 5 posizioni insieme, max 4 per giro,
 });
 
 test('consenso debole o pochi analisti d\'accordo: nessun ingresso, decisione «attesa» visibile', async () => {
-  const e = mkEngine(); const M = mkMint(1); e.universe.setCoins([good({ mint: M, symbol: 'WEAK' })]); readySpot(e, M, 'WEAK');
+  const e = mkEngine(); e.cfg.pace = 'prudente'; const M = mkMint(1); e.universe.setCoins([good({ mint: M, symbol: 'WEAK' })]); readySpot(e, M, 'WEAK'); // Ritmo prudente: Omega vuole 34% e 3 analisti
   e.desk.analyze = () => [vote('flow', 1, 0.9), vote('meme', 1, 0.9), vote('whale', -1, 0.5)];
   const real = jup.quote; jup.quote = stubQuote(e);
   try { e.desk.pickCoins(); assert.strictEqual((await e.desk.turn()).length, 0); assert.strictEqual(e.desk.view().execs.find((x) => x.id === 'omega').decision.kind, 'wait'); }
@@ -165,7 +165,7 @@ test('migrazione dall\'Osservatorio: posizioni e storico passano ai trader, null
   assert.deepStrictEqual(b.positions.map((p) => [p.bot, p.origBot]), [['alpha', 'nova'], ['omega', 'selene']]);
   assert.strictEqual(b.trades[0].bot, 'alpha'); assert.ok(!('team' in b.trades[1]));
   assert.ok(!('nova:x:LONG' in b.cooldown)); assert.ok(SOL in b.cooldown);
-  assert.strictEqual(e.cfg.maxTradePct, 20); assert.strictEqual(e.cfg.maxOpen, 8); assert.strictEqual(e.cfg.cycleSec, 10);
+  assert.strictEqual(e.cfg.maxTradePct, 20); assert.strictEqual(e.cfg.maxOpen, 8); assert.strictEqual(e.cfg.cycleSec, 5); assert.strictEqual(e.cfg.pace, 'aggressivo');
   assert.strictEqual(e.desk.view().execs.find((x) => x.id === 'alpha').trades, 1);
 });
 

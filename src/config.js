@@ -1,6 +1,6 @@
 'use strict';
 const { CORE, OLD_MEMES } = require('./tokens');
-const CFG_VERSION = 13; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
+const CFG_VERSION = 14; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
 const DEFAULTS = {
   cfgVersion: CFG_VERSION,
   mode: 'SIM', // SIM | REAL
@@ -49,12 +49,23 @@ const DEFAULTS = {
   killConvertUsdc: true,
   // MENTE dei bot: cervello neurale (aggiusta fiducia/consenso entro limiti stretti) e ricerca web su fonti pubbliche gratuite
   brainOn: true, webResearch: true,
+  // RITMO della sala operativa: prudente | normale | aggressivo (velocità di scansione, soglie di consenso, ingressi per giro,
+  // cooldown, radar). NON cambia stop, tetto 20% per operazione, limite di perdita giornaliera, kill switch, anti-truffa, REALE.
+  pace: 'aggressivo',
 };
+// preset del Ritmo (cycleSec, cooldownMin e maxWatch vengono copiati nella configurazione quando scegli il Ritmo; il resto è letto al volo)
+const PACE = {
+  prudente: { label: 'Prudente', cycleSec: 15, cooldownMin: 10, maxWatch: 16, maxEntries: 3, perTrader: 2, alpha: [0.26, 3], omega: [0.34, 3], coins: 12, restMs: 5 * 60e3, pickMs: 3 * 60e3, mentorScale: 1, scanSec: 60 },
+  normale: { label: 'Normale', cycleSec: 10, cooldownMin: 5, maxWatch: 20, maxEntries: 4, perTrader: 3, alpha: [0.22, 2], omega: [0.3, 3], coins: 16, restMs: 2 * 60e3, pickMs: 2 * 60e3, mentorScale: 1, scanSec: 60 },
+  aggressivo: { label: 'Aggressivo', cycleSec: 5, cooldownMin: 2, maxWatch: 30, maxEntries: 6, perTrader: 4, alpha: [0.18, 2], omega: [0.25, 2], coins: 24, restMs: 60e3, pickMs: 60e3, mentorScale: 0.5, scanSec: 30 },
+};
+const paceOf = (c) => PACE[c && c.pace] || PACE.aggressivo;
+function applyPace(c, pace) { const P = PACE[pace]; if (!P) return c; c.pace = pace; c.cycleSec = P.cycleSec; c.cooldownMin = P.cooldownMin; c.maxWatch = P.maxWatch; return c; }
 // limiti di validazione [min, max]
 const LIMITS = {
   budget: [0, 1e9], feeReserveSol: [0.01, 1], maxLossPct: [1, 90], maxLossAbs: [0, 1e9], dailyLossPct: [1, 50], maxTradePct: [1, 20], maxExposurePct: [50, 1000],
   memeSizeMult: [0, 1], maxOpen: [1, 15], slippageBps: [10, 1000], maxPriceImpactPct: [0.1, 10], slAtrMult: [0.5, 6], slMinPct: [0.5, 20],
-  slMaxPct: [1, 40], rewardRisk: [0.8, 6], maxHoldMin: [5, 10080], tp1R: [0.3, 10], tp1Pct: [5, 90], tp2R: [0.5, 20], tp2Pct: [0, 90], beBufferPct: [0, 5], trailActR: [0.2, 10], trailAtrMult: [0.3, 6], memeExitMult: [0.3, 1.5], timeStopMin: [5, 10080], timeStopMinGainPct: [-20, 50], reversalPct: [0.5, 50], leverage: [1, 10], cooldownMin: [0, 1440], cycleSec: [5, 600], minLiquidityUsd: [0, 1e9],
+  slMaxPct: [1, 40], rewardRisk: [0.8, 6], maxHoldMin: [5, 10080], tp1R: [0.3, 10], tp1Pct: [5, 90], tp2R: [0.5, 20], tp2Pct: [0, 90], beBufferPct: [0, 5], trailActR: [0.2, 10], trailAtrMult: [0.3, 6], memeExitMult: [0.3, 1.5], timeStopMin: [5, 10080], timeStopMinGainPct: [-20, 50], reversalPct: [0.5, 50], leverage: [1, 10], cooldownMin: [0, 1440], cycleSec: [3, 600], minLiquidityUsd: [0, 1e9],
   minVolume24hUsd: [0, 1e10], minPairAgeMin: [0, 600000], minMcapUsd: [0, 1e12], maxPump1hPct: [1, 1000], maxDump24hPct: [1, 100],
   maxRugScore: [0, 100], uniMinLiqUsd: [50000, 1e10], uniMinVol24hUsd: [50000, 1e11], uniMinMcapUsd: [1e6, 1e13], uniMinAgeDays: [1, 3650], uniMinOrganic: [0, 100], uniMaxTopHoldersPct: [5, 100], memeMinLiqUsd: [20000, 1e10], memeMinVol24hUsd: [20000, 1e11], memeMinMcapUsd: [250000, 1e13], memeMinAgeHours: [6, 87600], memeMinOrganic: [0, 100], memeMaxTopHoldersPct: [5, 80], maxWatch: [1, 30], priorityFeeMaxLamports: [0, 5000000], simPriorityLamports: [0, 5000000],
 };
@@ -67,10 +78,12 @@ function sanitize(patch, current) {
     if (!(k in DEFAULTS) || ['mode', 'trading', 'cfgVersion'].includes(k)) continue;
     if (LIMITS[k]) { const n = Number(v); if (!Number.isFinite(n)) continue; out[k] = Math.min(LIMITS[k][1], Math.max(LIMITS[k][0], n)); if (k === 'leverage') out[k] = snapLeverage(out[k]); }
     else if (k === 'baseCurrency') { if (v === 'USDC' || v === 'SOL') out[k] = v; }
+    else if (k === 'pace') continue; // applicato dopo, così il preset vince sui singoli valori dello stesso salvataggio
     else if (k === 'tokens') { if (Array.isArray(v)) out[k] = [...new Set(v.filter((m) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(m)))].slice(0, 40); }
     else if (k === 'rpcUrl') { if (/^https:\/\/[^\s]+$/.test(v)) out[k] = v; }
     else if (typeof DEFAULTS[k] === 'boolean') out[k] = !!v;
   }
+  if (patch && PACE[patch.pace] && patch.pace !== (current && current.pace)) applyPace(out, patch.pace);
   return out;
 }
 // Migrazione una tantum della configurazione salvata (config.json sul volume /data).
@@ -104,6 +117,9 @@ const MIGRATIONS = {
   12: (c) => { c.maxTradePct = 20; c.maxOpen = 8; c.cycleSec = 10; c.dailyLossPct = 15; c.maxExposurePct = 400; c.cooldownMin = 5; c.maxWatch = Math.max(Number(c.maxWatch) || 0, 16); },
   // v13: cervello neurale e ricerca web dei bot accesi (scelta di Samuele); rischio, leva, stop, REALE, PIN e wallet invariati
   13: (c) => { c.brainOn = true; c.webResearch = true; },
+  // v14: Ritmo «Aggressivo» (scelta di Samuele: ingressi più veloci): giro ogni 5 s, cooldown 2 min, radar fino a 30 cripto verificate.
+  // Stop, tetto 20%, perdita giornaliera, kill switch, anti-truffa, leva, REALE, PIN e wallet invariati.
+  14: (c) => { applyPace(c, 'aggressivo'); },
   4: (c) => { c.scanMemes = false; const extra = (Array.isArray(c.tokens) ? c.tokens : []).filter((m) => !OLD_MEMES.includes(m) && !CORE.some((t) => t.mint === m)); c.tokens = [...CORE.map((t) => t.mint), ...extra]; if ((c.maxWatch || 0) < CORE.length + 1) c.maxWatch = CORE.length + 1; },
 };
 function migrateConfig(saved) {
@@ -114,4 +130,4 @@ function migrateConfig(saved) {
   c.cfgVersion = Math.max(from, CFG_VERSION);
   return { cfg: c, changed: from < CFG_VERSION, from };
 }
-module.exports = { DEFAULTS, LIMITS, LEVERAGES, snapLeverage, sanitize, migrateConfig, CFG_VERSION };
+module.exports = { DEFAULTS, LIMITS, LEVERAGES, snapLeverage, sanitize, migrateConfig, CFG_VERSION, PACE, paceOf, applyPace };

@@ -368,7 +368,8 @@
     $$('#nav [data-tab]').forEach((b) => { const on = b.dataset.tab === t; b.classList.toggle('on', on); b.setAttribute('aria-current', on ? 'page' : 'false'); });
     window.scrollTo(0, 0);
     try { sessionStorage.setItem('sb_tab', t); } catch {}
-    if (t === 'set' && S) renderRiskForm(S, true);
+    if (t !== 'set' && repShown) { repShown = null; const rk = $('#repKey'); if (rk) rk.innerHTML = ''; }
+    if (t === 'set' && S) { renderRiskForm(S, true); renderPace(S); renderRepKey(); }
   }
   $('#nav').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
   document.addEventListener('click', (e) => { const g = e.target.closest('[data-go]'); if (g) setTab(g.dataset.go); });
@@ -530,6 +531,41 @@
   $('#research').addEventListener('click', () => agentSheet('MENTORE'));
   $('#mentorDiary').addEventListener('click', () => agentSheet('MENTORE'));
   $('#mCard').addEventListener('click', () => setTab('anal'));
+  // ---------- Ritmo (Prudente / Normale / Aggressivo)
+  const PACES = [
+    ['prudente', 'Prudente', 'Giro ogni 15 s · max 3 ingressi per giro (2 per trader) · soglie Alpha 26%/3, Omega 34%/3 · pausa 10 min sulla stessa cripto'],
+    ['normale', 'Normale', 'Giro ogni 10 s · max 4 ingressi per giro (3 per trader) · soglie Alpha 22%/2, Omega 30%/3 · pausa 5 min sulla stessa cripto'],
+    ['aggressivo', 'Aggressivo', 'Giro ogni 5 s · max 6 ingressi per giro (4 per trader) · soglie Alpha 18%/2, Omega 25%/2 · pausa 2 min sulla stessa cripto · radar più largo e a rotazione · pause del Mentore dimezzate'],
+  ];
+  function renderPace(s) {
+    const box = $('#paceBox'); if (!box || !s) return; const cur = s.cfg.pace || 'aggressivo'; const P = PACES.find((x) => x[0] === cur) || PACES[2];
+    const h = `<div class="chips" role="radiogroup" aria-label="Ritmo">${PACES.map(([k, l]) => `<button type="button" class="chip ${k === cur ? 'on' : ''}" data-pace="${k}" role="radio" aria-checked="${k === cur}">${l}</button>`).join('')}</div>
+      <p class="note">${esc(P[2])}.</p><p class="note">Più veloce = più operazioni, non più sicure: stop, tetto 20% per operazione, limite di perdita giornaliera, kill switch e controlli anti-truffa restano identici in ogni Ritmo.</p>`;
+    if (box.dataset.h !== h) { box.dataset.h = h; box.innerHTML = h; }
+  }
+  $('#paceBox').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-pace]'); if (!b || b.classList.contains('on')) return; b.disabled = true;
+    try { await api('/api/config', { pace: b.dataset.pace }); S = await api('/api/state'); render(S); renderPace(S); renderRiskForm(S, true); toast(`⚡ Ritmo: ${b.textContent}`); }
+    catch (er) { toast(er.message); b.disabled = false; }
+  });
+  // ---------- chiave resoconto (sola lettura)
+  let repShown = null;
+  const when = (t) => (t ? new Date(t).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'mai');
+  async function renderRepKey() {
+    const box = $('#repKey'); if (!box) return; let st = { active: false };
+    try { st = await api('/api/report-key'); } catch { return; }
+    box.innerHTML = `<p class="note">Una chiave che permette <b>solo di leggere</b> un resoconto (capitale, guadagni, operazioni di oggi, posizioni aperte, cervelli, perché non entra). Non può comprare, vendere, prelevare né cambiare nulla, e non vede wallet né chiavi.</p>
+      ${repShown ? `<div class="card"><span class="lbl">La tua chiave (mostrata UNA sola volta)</span><code class="tok" id="repTok">${esc(repShown)}</code><div class="btns"><button class="btn pri" id="repCopy" type="button">Copia chiave</button></div><p class="note amber">Copiala ora: dopo aver chiuso questa pagina non si potrà più rivedere (sul server resta solo un'impronta cifrata).</p></div>` : ''}
+      <div class="kv"><span>Stato</span><b class="${st.active ? 'mint' : ''}">${st.active ? 'attiva' : 'nessuna chiave'}</b></div>
+      ${st.active ? `<div class="kv"><span>Creata</span><b>${when(st.created)}</b></div><div class="kv"><span>Ultimo uso</span><b>${when(st.lastUsed)}</b></div>` : ''}
+      <div class="btns"><button class="btn ${st.active ? 'ghost' : 'pri'}" id="repGen" type="button">${st.active ? 'Nuova chiave (sostituisce la vecchia)' : 'Genera chiave resoconto'}</button>${st.active ? '<button class="btn dan" id="repRevoke" type="button">Revoca</button>' : ''}</div><div class="err" id="repErr"></div>`;
+  }
+  $('#repKey').addEventListener('click', async (e) => {
+    const t = e.target.closest('button'); if (!t) return;
+    if (t.id === 'repCopy') { try { await navigator.clipboard.writeText(repShown); toast('📋 Chiave copiata'); } catch { const r = document.createRange(); r.selectNodeContents($('#repTok')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast('Tieni premuto per copiare'); } return; }
+    if (t.id === 'repGen') { t.disabled = true; try { const r = await api('/api/report-key', {}); repShown = r.token; await renderRepKey(); toast('🔑 Chiave creata: copiala adesso'); } catch (er) { $('#repErr').textContent = er.message; t.disabled = false; } return; }
+    if (t.id === 'repRevoke') { if (!confirm('Revocare la chiave resoconto? Chi la usa non potrà più leggere il resoconto.')) return; t.disabled = true; try { await api('/api/report-key/revoke', {}); repShown = null; await renderRepKey(); toast('Chiave revocata'); } catch (er) { $('#repErr').textContent = er.message; t.disabled = false; } }
+  });
   $('#logoutBtn').addEventListener('click', async () => { try { await api('/api/auth/logout', {}); } catch {} location.reload(); });
 
   // scheda di un analista
@@ -724,7 +760,7 @@
     tween('sO', $('#sO'), s.counters.approved, (v) => Math.round(v).toLocaleString('it-IT'));
     renderPnl(s);
     renderKnowledge(s); renderResearch(s); renderMentor(s);
-    renderRisk(s); renderHomeExecs(s); renderExecs(s); renderAnalysts(s); renderFeed(s); renderMentorBox(s); renderRiskForm(s);
+    renderRisk(s); renderHomeExecs(s); renderExecs(s); renderAnalysts(s); renderFeed(s); renderMentorBox(s); renderRiskForm(s); renderPace(s);
     if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; }
     $('#secSpot').textContent = s.cfg.realSpot ? 'ACCESO (swap veri)' : 'spento'; $('#secSpot').className = s.cfg.realSpot ? 'red' : 'mint';
     renderWallet(s);

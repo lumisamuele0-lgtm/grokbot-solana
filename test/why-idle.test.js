@@ -43,7 +43,7 @@ test('limite di perdita giornaliera e posizioni massime spiegati', () => {
 });
 
 test('consenso sotto soglia → «Consenso X% < Y% su SOL» con i migliori candidati del giro', async () => {
-  const e = mkEngine(); e.cfg.trading = true;
+  const e = mkEngine({ cfgVersion: 14, pace: 'normale' }); e.cfg.trading = true;
   e.desk.analyze = () => [vote('trend', 1, 0.3), vote('macro', -1, 0.3), vote('news', 0, 0), vote('funding', 0, 0)];
   e.desk.pickCoins(); assert.strictEqual((await e.desk.turn()).length, 0);
   const w = e.whyIdle(); assert.ok(['consensus', 'agree', 'against'].includes(w.code), w.code); assert.match(w.text, /SOL|BTC|ETH/);
@@ -63,7 +63,7 @@ test('MENTORE selettività 1–2: nella sala operativa alza la soglia di qualche
   assert.deepStrictEqual([c.ok, c.raise], [true, 0.08]);
   t.level = 3; assert.strictEqual(m.entryCheck({ symbol: 'SOL', side: 'LONG', conf: 0.9, flowStrict: false, consensus: true }).ok, false);
   // giro completo: con il livello 1 su tutte le direzioni dei perps e un consenso buono Alpha entra comunque
-  const e = mkEngine(); e.cfg.trading = true;
+  const e = mkEngine({ cfgVersion: 14, pace: 'normale' }); e.cfg.trading = true;
   for (const s of ['SOL', 'BTC', 'ETH']) for (const side of ['LONG', 'SHORT']) e.mentor.tune(s, side).level = 1;
   e.desk.analyze = () => ['trend', 'momentum', 'breakout', 'mtf'].map((id) => vote(id, 1, 0.7));
   e.openShort = async (c, margin, plan, side, lev) => { const p = { id: 'x' + Math.random(), mint: c.m, symbol: c.s.symbol, side, lev, costBase: margin, feesBase: 0, entryPrice: 100, openedAt: Date.now(), perp: true, bot: c.bot }; e.book.positions.push(p); return p; };

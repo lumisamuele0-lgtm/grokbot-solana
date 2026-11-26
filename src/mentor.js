@@ -165,7 +165,7 @@ class Mentor {
     if (tags.has('uscita_prematura')) { const v = clamp(t.tpMult + STEP.tp, LIMITS.tpMult); if (v !== t.tpMult) { t.tpMult = v; ch.push(`target più lontani ×${v.toFixed(2)}`); } }
     if (tags.has('commissioni') || tags.has('senza_slancio')) { const v = clamp(t.level + STEP.level, LIMITS.level); if (v !== t.level) { t.level = v; ch.push(`ingressi più selettivi (${v.toFixed(1)}/3)`); } }
     if (tags.has('notizie_rischiose')) { const v = clamp(t.newsRiskMax - 0.1, LIMITS.newsRiskMax); if (v !== t.newsRiskMax) { t.newsRiskMax = v; ch.push(`soglia rischio notizie ${Math.round(v * 100)}%`); } }
-    const block = (kind, extra, hours, label) => { if (t.blocks.some((b) => b.kind === kind && b.until > now && (!extra.regime || b.regime === extra.regime))) return; t.blocks.push({ kind, ...extra, until: now + hours * 3600e3 }); ch.push(label); };
+    const block = (kind, extra, hours, label) => { if (t.blocks.some((b) => b.kind === kind && b.until > now && (!extra.regime || b.regime === extra.regime))) return; const h = hours * (this.blockScale || 1); t.blocks.push({ kind, ...extra, until: now + h * 3600e3 }); ch.push(h !== hours ? label.replace(`${hours} ore`, `${h} ${h === 1 ? 'ora' : 'ore'}`) : label); }; // Ritmo aggressivo: pause del Mentore dimezzate
     if (tags.has('contro_trend') && cnt('contro_trend') >= 2 && e.ctx.regime) block('regime', { regime: e.ctx.regime }, 6, `niente ${e.side} in mercato ${e.ctx.regime} per 6 ore`);
     if (tags.has('funding_avverso') && cnt('funding_avverso') >= 2) block('funding', {}, 6, 'pausa con funding avverso per 6 ore');
     if (tags.has('volatilita_alta') && cnt('volatilita_alta') >= 2) block('atr', { min: 1.5 }, 6, 'pausa con volatilità alta per 6 ore');
