@@ -119,7 +119,7 @@ test('migrazione v6: leva salvata sotto 5x → 5x, il resto invariato', () => {
   assert.strictEqual(r.changed, true); assert.ok(r.cfg.cfgVersion >= 7);
   assert.strictEqual(r.cfg.leverage, 5);
   assert.strictEqual(r.cfg.shortsOn, false, 'la scelta sugli short resta'); assert.strictEqual(r.cfg.perpLongs, true);
-  assert.strictEqual(r.cfg.maxTradePct, 5); assert.strictEqual(r.cfg.budget, 33);
+  assert.strictEqual(r.cfg.maxTradePct, 20); assert.strictEqual(r.cfg.budget, 33);
   assert.strictEqual(migrateConfig({ cfgVersion: 5, leverage: 10 }).cfg.leverage, 10, '10x resta 10x');
   assert.strictEqual(migrateConfig(r.cfg).changed, false, 'una sola volta');
   const old = migrateConfig({ cfgVersion: 4, leverage: 1 }); assert.strictEqual(old.cfg.shortsOn, true); assert.strictEqual(old.cfg.leverage, 5);
@@ -177,7 +177,7 @@ test('pipeline: short su SOL in ribasso, mai long e short insieme, REALE bloccat
   await e.pipeline();
   const b = e.book; assert.strictEqual(b.positions.length, 1); const p = b.positions[0];
   assert.strictEqual(p.side, 'SHORT'); assert.strictEqual(p.mint, SOL);
-  assert.ok(Math.abs(p.costBase - 70) < 0.01, 'margine = 7% del capitale'); assert.ok(Math.abs(p.sizeUsd - 350) < 0.1, 'esposizione 35% a 5x');
+  assert.ok(p.costBase >= 80 - 0.01 && p.costBase <= 200 + 0.01, `margine 8–20% del capitale secondo il consenso (${p.costBase})`); assert.ok(Math.abs(p.sizeUsd - p.costBase * 5) < 0.1, 'esposizione = margine × 5x');
   await e.pipeline(); assert.strictEqual(b.positions.filter((x) => x.mint === SOL).length, 1, 'nessun secondo trade sullo stesso asset');
   // con un LONG su SOL aperto non si apre lo short
   const e2 = mkEngine(); e2.market.candles[SOL] = e.market.candles[SOL]; setPx(e2, SOL, p.entryPrice); e2.refreshBalances = async () => {};
@@ -202,14 +202,14 @@ test('pipeline: con "long con leva" attivo, un LONG su SOL va su Jupiter Perps a
   e.watch.set(SOL, { symbol: 'SOL', core: true });
   await e.pipeline();
   const p = e.book.positions[0]; assert.ok(p, 'posizione aperta'); assert.strictEqual(p.side, 'LONG'); assert.ok(p.perp); assert.strictEqual(p.lev, 5);
-  assert.ok(Math.abs(p.costBase - 70) < 0.01 && Math.abs(p.sizeUsd - 350) < 0.1, 'margine 7%, esposizione 35%');
+  assert.ok(p.costBase >= 80 - 0.01 && p.costBase <= 200 + 0.01 && Math.abs(p.sizeUsd - p.costBase * 5) < 0.1, 'margine 8–20%, esposizione margine × 5x');
   assert.ok(p.feat.includes('leva:5x'));
 });
 
 test('migrazione v7: accende i long con leva, il resto invariato', () => {
   const r = migrateConfig({ cfgVersion: 6, perpLongs: false, leverage: 10, shortsOn: true, maxTradePct: 6, budget: 50, tokens: ['x'] });
   assert.ok(r.cfg.cfgVersion >= 7); assert.strictEqual(r.cfg.perpLongs, true);
-  assert.strictEqual(r.cfg.leverage, 10); assert.strictEqual(r.cfg.maxTradePct, 6); assert.strictEqual(r.cfg.budget, 50); assert.deepStrictEqual(r.cfg.tokens, ['x']);
+  assert.strictEqual(r.cfg.leverage, 10); assert.strictEqual(r.cfg.maxTradePct, 20); assert.strictEqual(r.cfg.budget, 50); assert.deepStrictEqual(r.cfg.tokens, ['x']);
   assert.strictEqual(migrateConfig(r.cfg).changed, false);
 });
 

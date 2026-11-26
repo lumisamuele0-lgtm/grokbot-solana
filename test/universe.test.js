@@ -5,7 +5,7 @@ const { Engine, newBook } = require('../src/engine');
 const { Keystore } = require('../src/keystore');
 const { DEFAULTS, migrateConfig } = require('../src/config');
 const { screen, offer, fromJup } = require('../src/universe');
-const { MAX_COINS } = require('../src/galaxy');
+const { MAX_COINS } = require('../src/desk');
 const P = require('../src/perps');
 const jup = require('../src/jupiter');
 const { SOL, USDC } = require('../src/tokens');
@@ -15,6 +15,7 @@ const good = (o = {}) => ({ mint: 'Good1111111111111111111111111111111111111111'
   liquidityUsd: 2e6, volume24h: 5e6, mcapUsd: 2e8, holders: 50000, topHoldersPct: 20, organic: 90, change1h: 1, change6h: 2, change24h: 3, ageDays: 400, perp: false, ...o });
 const mkMint = (i) => `Coin${String(i).padStart(2, '0')}`.padEnd(43, '1');
 function candles(n = 200, drift = 0.0005) { const out = []; const t = Date.now() - n * 60000; for (let i = 0; i < n; i++) { const c = 1 * (1 + drift * i) + 0.003 * Math.sin(i * 1.3); out.push({ t: t + i * 60000, o: c, h: c * 1.001, l: c * 0.999, c, v: 1 }); } return out; }
+const yes = (e, n = 6, dir = 1) => { e.desk.analyze = () => ['trend', 'momentum', 'flow', 'meme', 'whale', 'mtf', 'breakout', 'reversion'].slice(0, n).map((id) => ({ id, dir, conf: 0.8, why: 'test' })); }; // analisti d'accordo (test)
 function mkEngine(cfg = {}) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sbuni-'));
   fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ budget: 1000, baseCurrency: 'USDC', cfgVersion: 8, ...cfg }));
@@ -53,42 +54,40 @@ test('leva e long/short solo dove ci sono i perps: SOL/BTC/ETH 5x L/S, il resto 
   assert.deepStrictEqual(offer({ perp: false }, 5), { lev: 1, sides: ['LONG'], label: 'Spot · Long' });
 });
 
-test('massimo 3 cripto di focus scelte dal Mentore; nessuno short sulle cripto spot', () => {
+test('radar: SOL/BTC/ETH con leva + fino a 12 cripto spot; nessuno short sulle cripto spot', () => {
   const e = mkEngine();
-  const coins = Array.from({ length: 8 }, (_, i) => good({ mint: mkMint(i), symbol: 'C' + i, change1h: i % 3 ? 2 + i : -4 - i, volume24h: 1e6 * (i + 1) }));
+  const coins = Array.from({ length: 20 }, (_, i) => good({ mint: mkMint(i), symbol: 'C' + i, change1h: i % 3 ? 2 + i : -4 - i, volume24h: 1e6 * (i + 1) }));
   e.universe.setCoins([...coins, fromJup({ id: SOL, symbol: 'SOL', isVerified: true, tokenProgram: TK, liquidity: 1e9, stats24h: { buyVolume: 1e9, sellVolume: 1e9 } })]);
-  const f = e.galaxy.pickFocus();
-  assert.ok(f.length <= MAX_COINS && f.length >= 1, `${f.length} cripto`);
+  const f = e.desk.pickCoins();
+  assert.strictEqual(MAX_COINS, 12);
+  assert.strictEqual(f.filter((c) => !c.perp).length, 12, 'fino a 12 cripto spot sul radar'); assert.ok(f.some((c) => c.perp && c.symbol === 'SOL'));
   for (const c of f) if (!c.perp) assert.strictEqual(c.label, 'Spot · Long');
-  // rivalutazione: sempre al massimo 3
-  e.galaxy.pickFocus(Date.now() + 6 * 60e3); assert.ok(e.galaxy.focusMints().length <= MAX_COINS);
-  const v = e.galaxy.view(); assert.strictEqual(v.maxCoins, 3); assert.ok(v.focus.length <= 3);
+  e.desk.pickCoins(Date.now() + 6 * 60e3); assert.ok(e.desk.coinMints().length <= MAX_COINS + 3);
+  const v = e.desk.view(); assert.strictEqual(v.maxCoins, 12); assert.strictEqual(v.execs.length, 2); assert.strictEqual(v.analysts.length, 12);
 });
 
-test('spot: long 1x via Jupiter, 7% del capitale; short spot rifiutato; honeypot scartato', async () => {
+test('spot: Omega compra long 1x via Jupiter (fino al 20%); short spot rifiutato; honeypot scartato', async () => {
   const e = mkEngine(); const M = mkMint(1);
   e.universe.setCoins([good({ mint: M, symbol: 'GOOD', change1h: 3, change6h: 4 })]);
   readySpot(e, M, 'GOOD');
   const real = jup.quote; let calls = 0;
   jup.quote = async (i, o, amt) => { calls++; return i === USDC ? { outAmount: String(Math.floor((Number(amt) / 1e6 / e.market.prices[M].usd) * 1e6)), priceImpactPct: '0.001' } : { outAmount: '1000', priceImpactPct: '0' }; };
   try {
-    const f = e.galaxy.pickFocus();
-    assert.ok(f.every((c) => !c.perp), 'solo la cripto spot nell\'universo');
-    const [pos] = await e.galaxy.turn();
-    assert.ok(pos, 'acquisto spot'); assert.ok(!pos.perp); assert.strictEqual(pos.lev, 1); assert.strictEqual(pos.side, 'LONG'); assert.strictEqual(pos.bot, 'nova');
-    assert.ok(Math.abs(pos.costBase - 70) < 0.01, `7% di 1000 (${pos.costBase})`); assert.ok(!pos.liqPrice, 'spot: niente liquidazione');
-    // lo short spot non esiste
-    const r = await e.enterTrade({ m: M, s: { symbol: 'GOOD' }, a: { atrPct: 1, last: 1 }, side: 'SHORT', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, bot: 'selene', perp: false });
-    assert.ok(!r); assert.strictEqual(e.book.positions.filter((p) => p.bot === 'selene').length, 0);
-    // chiusura: entra nel PnL del pianeta
+    e.desk.pickCoins(); yes(e);
+    const [pos] = await e.desk.turn();
+    assert.ok(pos, 'acquisto spot'); assert.ok(!pos.perp); assert.strictEqual(pos.lev, 1); assert.strictEqual(pos.side, 'LONG'); assert.strictEqual(pos.bot, 'omega');
+    assert.ok(Math.abs(pos.costBase - 200) < 0.01, `20% di 1000 (${pos.costBase})`); assert.ok(!pos.liqPrice, 'spot: niente liquidazione');
+    const r = await e.enterTrade({ m: M, s: { symbol: 'GOOD' }, a: { atrPct: 1, last: 1 }, side: 'SHORT', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, bot: 'omega', perp: false });
+    assert.ok(!r); assert.ok(!e.book.positions.some((p) => p.side === 'SHORT'));
+    // chiusura: entra nel PnL del trader e aggiorna i pesi degli analisti che avevano ragione
     e.market.prices[M] = { usd: pos.entryPrice * 1.02, ts: Date.now() };
     jup.quote = async (i, o, amt) => ({ outAmount: String(Math.floor(Number(amt) * pos.entryPrice * 1.02)), priceImpactPct: '0' });
     await e.closePosition(pos, 'Take-profit');
-    const tr = e.book.trades[0]; assert.strictEqual(tr.bot, 'nova'); assert.strictEqual(tr.lev, 1); assert.ok(e.galaxy.view().bots.find((b) => b.id === 'nova').pnl > 0);
-    // honeypot: nessuna via di vendita → non compra
+    const tr = e.book.trades[0]; assert.strictEqual(tr.bot, 'omega'); assert.strictEqual(tr.lev, 1);
+    const v = e.desk.view(); assert.ok(v.execs.find((b) => b.id === 'omega').pnl > 0); assert.ok(v.analysts.find((a) => a.id === 'flow').weight > 1, 'chi aveva ragione pesa di più');
     const H = mkMint(7); readySpot(e, H, 'HONEY');
     jup.quote = async (i) => { if (i === H) throw new Error('No routes found'); return { outAmount: '1000000', priceImpactPct: '0' }; };
-    const h = await e.enterTrade({ m: H, s: { symbol: 'HONEY' }, a: { atrPct: 1, last: 1 }, side: 'LONG', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, bot: 'selene', perp: false });
+    const h = await e.enterTrade({ m: H, s: { symbol: 'HONEY' }, a: { atrPct: 1, last: 1 }, side: 'LONG', rs: { score: 0 } }, { conf: 1, capital: 500, cash: 500, bot: 'omega', perp: false });
     assert.ok(!h); assert.ok(!e.book.positions.some((p) => p.mint === H));
   } finally { jup.quote = real; }
   assert.ok(calls > 0);
@@ -103,12 +102,11 @@ test('REALE: perps sempre bloccati; spot reale solo se lo attivi (e allora usa l
   const real = jup.quote; jup.quote = async (i, o, amt) => ({ outAmount: String(Number(amt)), priceImpactPct: '0' });
   let swaps = 0; e.realSwap = async () => { swaps++; return { ok: false, err: 'test: niente invio' }; };
   try {
-    e.setTrading(true); assert.ok(e.galaxy.view().realWaiting, 'spot reale spento: REALE in attesa');
+    e.setTrading(true); yes(e); assert.ok(e.desk.view().realWaiting, 'spot reale spento: REALE in attesa');
     await e.cycle(); assert.strictEqual(swaps, 0); assert.strictEqual(e.book.positions.length, 0);
     e.cfg.realSpot = true;
-    assert.ok(!e.galaxy.view().realWaiting); assert.match(e.galaxy.view().realNote, /solo spot/);
-    assert.ok(e.galaxy.pickFocus().every((c) => !c.perp), 'in REALE si scelgono solo cripto operabili (spot)');
-    await e.galaxy.turn();
+    assert.ok(!e.desk.view().realWaiting); assert.match(e.desk.view().realNote, /solo Omega/);
+    e.desk.pickCoins(); await e.desk.turn();
     assert.ok(swaps >= 1, 'lo spot reale passa dallo swap Jupiter reale esistente');
     assert.ok(!e.book.positions.some((p) => p.perp), 'nessun perps reale'); assert.strictEqual(P.REAL_SHORTS_ENABLED, false);
   } finally { jup.quote = real; }

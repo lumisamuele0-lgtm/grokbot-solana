@@ -103,12 +103,25 @@ function riskPlan(atr, cfg, core) {
 // capitale = budget + PnL realizzato, limitato dal valore effettivo.
 // Rischio per operazione: si investe esattamente maxTradePct% del capitale (× memeSizeMult per i meme),
 // mai più del contante disponibile. Lo stop-loss resta calcolato sulla volatilità (riskPlan).
-function sizePosition({ capital, cash, cfg, core, minTrade }) {
-  let size = capital * (cfg.maxTradePct / 100);
+// DIMENSIONE: margine = capitale × maxTradePct% (tetto rigido 20%) × frac (forza del consenso dei trader, 0–1)
+const MAX_TRADE_PCT = 20;
+function sizePosition({ capital, cash, cfg, core, minTrade, frac = 1 }) {
+  const pct = Math.min(MAX_TRADE_PCT, Math.max(0, Number(cfg.maxTradePct) || 0));
+  let size = capital * (pct / 100) * Math.min(1, Math.max(0, Number(frac) || 0));
   if (!core) size *= cfg.memeSizeMult;
   size = Math.min(size, cash);
   if (size < minTrade) return { size: 0, reason: `Importo sotto il minimo (${minTrade})` };
   return { size };
+}
+
+// ESPOSIZIONE: margine × leva di tutte le posizioni aperte + la nuova ≤ capitale × maxExposurePct%
+function exposureFit({ positions, equity, cfg, size, lev = 1, minTrade = 0 }) {
+  const cur = (positions || []).reduce((a, p) => a + (p.costBase || 0) * (p.lev || 1), 0);
+  const cap = Math.max(0, equity) * ((Number(cfg.maxExposurePct) || 0) / 100);
+  if (cur + size * lev <= cap + 1e-9) return { size, exposure: cur, cap };
+  const fit = (cap - cur) / Math.max(1, lev);
+  if (fit < minTrade || fit <= 0) return { size: 0, exposure: cur, cap, reason: `Esposizione massima raggiunta (${Math.round(cur)} su ${Math.round(cap)}, ${cfg.maxExposurePct}% del capitale)` };
+  return { size: fit, exposure: cur, cap };
 }
 
 // Limiti globali: kill switch, perdita giornaliera, posizioni massime.
@@ -236,4 +249,4 @@ function reversion(c1) {
   return { ok: true, LONG: mk(1), SHORT: mk(-1), rsi: r, mid: m, lo, hi };
 }
 
-module.exports = { reversion, effectiveStop, shortStopCap, exitLevels, exitPlan, filterRules, safetyRules, analyze, flowScore, riskPlan, sizePosition, checkLimits, exitCheck };
+module.exports = { MAX_TRADE_PCT, exposureFit, reversion, effectiveStop, shortStopCap, exitLevels, exitPlan, filterRules, safetyRules, analyze, flowScore, riskPlan, sizePosition, checkLimits, exitCheck };

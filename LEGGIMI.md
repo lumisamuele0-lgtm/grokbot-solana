@@ -50,27 +50,26 @@ Bot di trading **completamente automatico** su Solana. Gira sul **tuo computer**
 | ESECUZIONE | quote e swap su Jupiter (gratuito), firma con il wallet del bot, conferma on-chain |
 | SORVEGLIANZA | controlla le posizioni e chiude a target, stop, trailing o tempo massimo |
 
-### L'Osservatorio Galattico (14 bot)
-Niente più squadre né partite: **14 bot** lavorano ognuno per conto suo, ciascuno con la **propria strategia**, finché non premi **Pausa** (nessun cronometro).
-- **Il cielo**: il **sole** al centro è il tuo portafoglio (saldo e guadagno/perdita; si scalda di verde quando guadagni, di rosso quando perdi). Ogni **pianeta** è un bot: la **grandezza** è il suo capitale, il **colore/alone** il suo PnL, la **velocità in orbita** quanto è attivo. Tocca un pianeta per la sua scheda: dettagli, strategia, posizioni aperte (con «Chiudi»), storico, nota del Mentore e interruttore **pausa del singolo bot** (le sue posizioni aperte restano gestite). Tocca il sole per il Wallet.
-- **I bot**: 8 di trend/momentum (Nova, Orione, Vega, Lyra, Atlante, Sirio, Titano, Zefiro) e 6 di contropiede (Selene, Andromeda, Polaris, Nebula, Aurora, Calipso): EMA, ADX, Donchian, MACD, VWAP, squeeze, Supertrend, ROC, RSI/Bande di Bollinger, RSI2, funding, Fear&Greed, long/short ratio. Una posizione per bot, mai due bot sulla stessa cripto nella stessa direzione, al massimo 2 ingressi per giro; margine 7%, leva minima 5x sui perps, stop prima della liquidazione, uscite intelligenti, limiti giornalieri e kill switch come sempre.
-- **Cripto di focus (max 3)**: le sceglie il **Mentore** fra tutte quelle scambiabili su Solana con Phantom/Jupiter (anche i token del tuo Phantom), con gli stessi filtri anti-truffa (token verificato, niente autorità di mint/freeze, RugCheck, via di vendita su Jupiter…). Sono le stelle 🔭 in alto: le **comete** partono dal pianeta verso la cripto quando un bot apre un'operazione; **scintille** se chiude in guadagno, il pianeta si **spegne un attimo** se chiude in perdita.
-- **🐸 Memecoin: filtri allentati** (Impostazioni, acceso): entrano molte più memecoin di Solana/Phantom. Soglie predefinite: liquidità ≥ 50k $, volume 24h ≥ 100k $, capitalizzazione ≥ 1M $, età ≥ 24 ore, top holder ≤ 60%, volume organico ≥ 20; ammessi anche i token «community»/«strict» di Jupiter e i Token-2022 senza commissioni di trasferimento, hook, delegati permanenti o blocchi. Anti-truffa sempre attivi: via di vendita su Jupiter (anti-honeypot), niente autorità di mint/freeze, RugCheck senza rischi gravi, tetto agli holder, niente pump/crolli estremi; una memecoin scartata dal controllo on-chain esce subito dal campo. Le memecoin si comprano solo spot 1x long (7%), con uscite furbe; in REALE serve «Spot REALE».
-- **Leva e short solo dove si può**: su SOL, BTC ed ETH (Jupiter Perps) leva minima 5x, long e short, stop prima della liquidazione. Su tutte le altre cripto **spot 1x, solo long** (swap Jupiter), stessa dimensione 7% e uscite furbe. Per ogni cripto giocano 2 giocatori: perps = attaccante (long) + difensore (short); spot = attaccante + scalper (entrambi long). Chi resta senza posto va in panchina.
-- **Spot REALE**: in modalità REALE gli acquisti spot veri partono solo se accendi «Spot REALE» in Impostazioni (budget, kill switch e limiti giornalieri restano). Leva e short reali restano bloccati fino al test con 5-10 USDC.
-- **Il faro del Mentore** (in basso a sinistra): il suo fascio illumina i bot che sta correggendo. Dopo 2 perdite di fila un bot diventa più selettivo (fino a 2 livelli), dopo 3 si ferma 2 minuti a ricalibrare; una vittoria gli dà un piccolo bonus (max +0,3). Il Mentore **non tocca mai** margine, leva, stop o kill switch. Sotto il faro: l'ultima indicazione e le **notizie** (controllate ogni 90 s) che scorrono.
-- **REALE**: in alto la modalità è sempre chiara (SIMULAZIONE in turchese, **REALE · SOLDI VERI** in rosso). In REALE leva e short restano bloccati finché non approvi il test con 5-10 USDC e lo spot vero parte solo con «Spot REALE» acceso.
-- **Schede in basso**: Cielo · Posizioni · **Wallet** · Mentore (notizie, correzioni, diario, conoscenze, strategie) · Sicurezza (impostazioni, protezioni, esci). Sul cielo c'è anche **☰ Lista**: la stessa cosa in elenco, più comoda da leggere.
-- **Wallet** (anche toccando il sole): saldo del bot, SOL e prezzo, ROI, pulsanti grandi **Deposita** (firmi in Phantom) e **Preleva** (in REALE con la password del wallet del bot, fondi solo al tuo Phantom), **Phantom**, **Budget**, **Wallet bot** (crea, sblocca/blocca, esporta chiave, backup cifrato, indirizzo di prelievo), **Guida REALE**, indirizzo pubblico del bot con **QR** e **Copia**, saldi e transazioni reali.
-- **Animazioni**: canvas a 60 fps, si fermano quando l'app non è visibile; con «Riduci movimento» su iPhone le orbite e le scie restano ferme.
-- **Dati vecchi**: le posizioni e lo storico della vecchia partita passano automaticamente ai pianeti (es. il giocatore A1 → Nova); `data/matches.json` resta dov'è, intatto ma non più usato.
+### La sala operativa: 12 analisti → 2 trader
+Niente più galassia né pianeti: un'app di trading con **12 analisti** che studiano il mercato e **2 trader** che sono gli **unici** ad aprire operazioni.
+- **I 12 analisti** (non operano, votano LONG, SHORT o si astengono, con una fiducia 0–100%): 📈 Trend (EMA 9/21 su 1 e 5 min), 🚀 Momentum (15/60 min), 💥 Breakout (Donchian 20 su 5 min), 🔄 Contropiede (RSI/Bollinger), 🌊 Flusso ordini (acquisti/vendite, accelerazione del volume), 🐸 Cacciatore meme (solo spot), 📰 Notizie (sentiment RSS, solo SOL/BTC/ETH), ⚖️ Funding & L/S (funding e long/short ratio, solo SOL/BTC/ETH), ⚡ Volatilità (squeeze/ATR), 🧭 Multi-timeframe, 🐋 Balene & liquidità, 🌍 Macro BTC (BTC, capitalizzazione totale, Fear&Greed). Le strategie promosse dal backtest del Mentore rinforzano o indeboliscono i loro voti.
+- **I 2 trader**: **Alpha** (aggressivo, momentum e leva: long e short 5x/10x su SOL, BTC, ETH con Jupiter Perps; entra con consenso ≥ 28% e almeno 3 analisti d'accordo) e **Omega** (selettivo, spot 1x solo long su tutte le altre cripto di Solana, memecoin comprese, dopo i controlli anti-truffa; consenso ≥ 36% e almeno 4 analisti d'accordo). Ognuno dà più peso agli analisti del suo stile.
+- **Consenso pesato**: (peso dei voti a favore × fiducia − peso dei voti contro × fiducia) ÷ (peso di chi ha votato + 30% del peso di chi si astiene). I pesi li aggiorna il **Mentore** a ogni trade chiuso: chi aveva ragione pesa di più (fino a 1,6), chi sbagliava di meno (fino a 0,4).
+- **Tante posizioni in poco tempo**: scansione ogni **10 s**, radar con SOL/BTC/ETH + fino a **12 cripto spot**, fino a **4 ingressi per giro** (3 per trader), fino a **8 posizioni** insieme (regolabile fino a 15). Una posizione per cripto; sui perps mai long e short insieme sullo stesso asset.
+- **Dimensione**: margine = capitale × «margine massimo per operazione» (default e tetto rigido **20%**) × forza del consenso (dal 40% al 100%). Esempio: consenso 30% → 70% di 20% = 14% del capitale. Il contante disponibile limita comunque: con 20% pieno ci stanno 5 posizioni, con consensi più bassi (dimensioni più piccole) ne entrano di più.
+- **Correzioni del Mentore**: dopo 2 perdite di fila un trader chiede un consenso più alto (+5 punti, max +15); dopo 3 si ferma 2 minuti. Il Mentore resta com'era: notizie ogni 90 s, post-mortem, backtest delle strategie.
+- **Schede in basso**: **Home** (capitale con grafico, PnL oggi/totale, ROI, misuratori di rischio, i 2 trader, posizioni, segnali in tempo reale, Mentore e notizie) · **Trader** (PnL, vincenti, posizioni, ultima decisione con gli analisti a favore/contro, pausa del trader) · **Analisti** (griglia dei 12 con segnale attuale, fiducia, % di successo e peso; flusso dei segnali; diario, conoscenze, strategie e logger del Mentore) · **Posizioni** (ingresso, prezzo attuale, stop, target, PnL, «Chiudi») · **Wallet** · **Impostazioni** (cursori del rischio, impostazioni avanzate, sicurezza).
+- **🐸 Memecoin: filtri allentati** (acceso): liquidità ≥ 50k $, volume 24h ≥ 100k $, capitalizzazione ≥ 1M $, età ≥ 24 ore, top holder ≤ 60%, volume organico ≥ 20. Anti-truffa sempre attivi: via di vendita su Jupiter (anti-honeypot), niente autorità di mint/freeze, RugCheck senza rischi gravi, Token-2022 rischiosi scartati, niente pump/crolli estremi. Solo spot 1x long.
+- **Spot REALE**: in REALE gli acquisti spot veri (Omega) partono solo se accendi «Spot REALE» in Impostazioni. Leva e short reali (Alpha) restano bloccati fino al test con 5-10 USDC.
+- **Wallet**: saldo del bot, SOL e prezzo, ROI, **Deposita** (firmi in Phantom) e **Preleva** (in REALE con la password del wallet del bot, fondi solo al tuo Phantom), **Phantom**, **Budget**, **Wallet bot** (crea, sblocca/blocca, esporta chiave, backup cifrato, indirizzo di prelievo), **Guida REALE**, indirizzo pubblico con **QR** e **Copia**, saldi e transazioni reali. Tutto invariato.
+- **Dati vecchi**: posizioni aperte e storico dell'Osservatorio passano automaticamente ai trader (perps → Alpha, spot → Omega; il vecchio bot resta salvato come `origBot`). Niente si perde.
 
 ## 5. I pulsanti
 
 - **Phantom**: collega il tuo wallet.
 - **Budget**: cambia capitale e modalità.
 - **Deposita**: sposta il budget da Phantom al wallet del bot (lo confermi tu in Phantom).
-- **Avvia / Pausa** (in alto a destra): mette in orbita i 14 bot / li ferma (le posizioni aperte restano protette da stop e target).
+- **Avvia / Pausa** (in alto a destra): fa lavorare la sala (12 analisti, Alpha e Omega) / la ferma (le posizioni aperte restano protette da stop e target). Dopo ogni aggiornamento il bot riparte in pausa: premi **Avvia**.
 - **Preleva**: vende tutto e rimanda tutti i fondi al tuo Phantom.
 - **Impostazioni**: rischio, token, RPC, wallet del bot, accesso da iPhone, stop di emergenza.
 
@@ -117,16 +116,20 @@ Su iPhone il collegamento a Phantom funziona dentro l'app Phantom: tocca **Phant
 |---|---|---|
 | Kill switch % | 20 | se il capitale scende del 20%, vende tutto (in USDC) e si ferma |
 | Kill switch assoluto | 0 (off) | come sopra ma in importo fisso |
-| Stop giornaliero | 8% | niente nuove operazioni fino a domani |
-| Cripto | solo SOL, BTC, ETH con leva | ogni nuovo ingresso è con leva (min 5x) su Jupiter Perps, LONG o SHORT · niente acquisti spot (le vecchie posizioni spot vengono solo gestite fino alla chiusura) |
-| Rischio per operazione | 7% | del capitale (budget + utili realizzati) investito in ogni trade, meme compresi |
-| Posizioni max | 3 | |
+| Limite di perdita giornaliera | 15% | niente nuovi ingressi fino a domani (le posizioni aperte restano protette) |
+| Esposizione totale max | 400% | somma di margine × leva di tutte le posizioni; oltre, il trade viene ridotto o bloccato |
+| Scansione | ogni 10 s | |
+| Cripto | SOL, BTC, ETH con leva + fino a 12 spot | Alpha: leva 5x/10x long e short su Jupiter Perps · Omega: spot 1x solo long |
+| Margine massimo per operazione | 20% (1–20) | del capitale, scalato dalla forza del consenso (40–100%); tetto rigido 20% |
+| Posizioni max | 8 (1–15) | |
 | Slippage | 100 bps (1%) | |
 | Impatto prezzo max | 1% | se lo swap muove troppo il prezzo, non entra |
 | Durata max | 240 min | poi chiude comunque |
 | Filtri meme | Liq ≥ 40k $, Vol 24h ≥ 3k $, età dalla creazione del pool ≥ 1 minuto, MCap ≥ 300k $, RugCheck ≤ 30, niente mint/freeze authority | |
 
-Il bot entra **sempre con leva**: LONG e SHORT solo su **SOL, BTC, ETH** tramite Jupiter Perps, leva **5x o 10x** (minimo 5x, default 5x, limite rigido 10x). Nessun nuovo acquisto spot: vedi sotto.
+Leva e short solo su **SOL, BTC, ETH** tramite Jupiter Perps (Alpha), leva **5x o 10x** (minimo 5x, default 5x, limite rigido 10x); sulle altre cripto spot 1x solo long (Omega).
+
+**Rischio per operazione (onesto)**: con margine 20% e leva 5x l'esposizione è il 100% del capitale; lo stop resta entro il 40% della distanza dalla liquidazione (a 5x al massimo ~7,9%, in pratica lo stop ATR, max 6%), quindi una singola operazione può perdere circa 1–2% del capitale con uno stop tipico del 1–2%, fino a ~6% nel caso peggiore. Prima (margine 7%) era circa un terzo. Più posizioni aperte = rischi che si sommano: per questo ci sono l'esposizione massima (400%), il limite giornaliero (−15%) e il kill switch (−20%).
 
 ### Uscite furbe (attive di default)
 R = distanza dello stop-loss iniziale, calcolata sulla volatilità (ATR × 2,2, tra 1,5% e 10%; meme almeno 3%).
@@ -141,7 +144,7 @@ Le prese parziali entrano subito nel PnL realizzato; il resto resta "aperto". Ne
 ### LONG + SHORT (Jupiter Perps, leva 5x / 10x)
 - Il CAPO cerca anche segnali **SHORT** speculari a quelli LONG: EMA9 sotto EMA21, trend 5m ribassista, EMA21 in discesa, RSI 28–50, momentum 15m negativo, flusso non in acquisto; niente short se il mercato SOL sale più dell'1% in un'ora.
 - Solo **SOL, BTC, ETH** si possono shortare (mercati Jupiter Perps, collaterale **USDC**). Mai un long e uno short sullo stesso asset insieme.
-- **Margine** = rischio per operazione (7% del capitale, non cambia con la leva). **Leva** selezionabile 5x (default e minimo) o 10x → esposizione 35% o 70% del capitale. Valori sotto 5x vengono portati a 5x.
+- **Margine** = fino al 20% del capitale × forza del consenso (non cambia con la leva). **Leva** selezionabile 5x (default e minimo) o 10x → con margine 20% esposizione 100% o 200% del capitale. Valori sotto 5x vengono portati a 5x.
 - **Long con leva** (acceso di default, migrazione v7): i LONG su SOL/BTC/ETH usano Jupiter Perps alla stessa leva. Se lo spegni il bot fa solo SHORT. Gli altri token non vengono più comprati; una posizione spot già aperta resta gestita (stop, prese, trailing) fino alla chiusura, senza vendite forzate.
 
 | Leva | Liquidazione (movimento contrario) | Stop-loss massimo | Chiusura forzata |

@@ -1,6 +1,6 @@
 'use strict';
 const { CORE, OLD_MEMES } = require('./tokens');
-const CFG_VERSION = 11; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
+const CFG_VERSION = 12; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
 const DEFAULTS = {
   cfgVersion: CFG_VERSION,
   mode: 'SIM', // SIM | REAL
@@ -10,10 +10,11 @@ const DEFAULTS = {
   feeReserveSol: 0.03, // SOL tenuti per le commissioni (non usati per il trading)
   maxLossPct: 20, // kill switch: perdita totale %
   maxLossAbs: 0, // kill switch: perdita assoluta in valuta base (0 = disattivato)
-  dailyLossPct: 8,
-  maxTradePct: 7, // rischio per operazione: % del capitale investita in ogni trade
+  dailyLossPct: 15, // limite di perdita giornaliera: oltre, nessun nuovo ingresso fino a domani
+  maxTradePct: 20, // margine massimo per operazione: % del capitale (tetto rigido 20%; i trader usano 40–100% di questo in base al consenso)
+  maxExposurePct: 400, // esposizione totale massima: somma di margine × leva di tutte le posizioni, in % del capitale
   memeSizeMult: 1, // moltiplicatore per i meme (1 = stessa dimensione dei token principali)
-  maxOpen: 3,
+  maxOpen: 8,
   slippageBps: 100,
   maxPriceImpactPct: 1.0,
   slAtrMult: 2.2, slMinPct: 1.5, slMaxPct: 10, rewardRisk: 1.8,
@@ -28,20 +29,20 @@ const DEFAULTS = {
   // LONG + SHORT: short su SOL/BTC/ETH tramite Jupiter Perps, collaterale USDC, leva massima 2x (limite rigido)
   // leva perps selezionabile 5x / 10x (minimo 5x, limite rigido 10x); i long con leva sono facoltativi (spenti = long spot)
   shortsOn: true, leverage: 5, perpLongs: true,
-  // OSSERVATORIO: max 3 cripto di focus fra tutte quelle di Solana/Phantom. Leva e short solo dove ci sono i perps (SOL/BTC/ETH);
+  // SALA OPERATIVA: radar con SOL/BTC/ETH + fino a 12 cripto di Solana/Phantom. Leva e short solo dove ci sono i perps (SOL/BTC/ETH);
   // sulle altre spot 1x solo long. In REALE lo spot vero (swap Jupiter) parte solo se lo attivi tu (realSpot).
   spotLongs: true, realSpot: false,
   // MEMECOIN: filtri allentati per avere molte più memecoin (anti-truffa sempre attivi: via di vendita, niente mint/freeze, RugCheck, holder, pump/crolli)
   memeLoose: true, memeMinLiqUsd: 50000, memeMinVol24hUsd: 100000, memeMinMcapUsd: 1000000, memeMinAgeHours: 24, memeMinOrganic: 20, memeMaxTopHoldersPct: 60,
   uniMinLiqUsd: 250000, uniMinVol24hUsd: 500000, uniMinMcapUsd: 10000000, uniMinAgeDays: 7, uniMinOrganic: 50, uniMaxTopHoldersPct: 50,
   reversalExit: true, reversalPct: 3, // uscita rapida su crollo del momentum a 5 min o ondata di vendite
-  cooldownMin: 20,
-  cycleSec: 20,
+  cooldownMin: 5,
+  cycleSec: 10,
   scanMemes: false, // solo cripto principali: lo scanner non cerca meme né pool nuovi
   tokens: CORE.map((t) => t.mint),
   minLiquidityUsd: 100000, minVolume24hUsd: 100000, minPairAgeMin: 1440, minMcapUsd: 5000000,
   maxPump1hPct: 35, maxDump24hPct: 40, maxRugScore: 30,
-  maxWatch: 13,
+  maxWatch: 16,
   rpcUrl: 'https://api.mainnet-beta.solana.com',
   priorityFeeMaxLamports: 300000,
   simPriorityLamports: 30000,
@@ -49,9 +50,9 @@ const DEFAULTS = {
 };
 // limiti di validazione [min, max]
 const LIMITS = {
-  budget: [0, 1e9], feeReserveSol: [0.01, 1], maxLossPct: [1, 90], maxLossAbs: [0, 1e9], dailyLossPct: [1, 90], maxTradePct: [1, 100],
-  memeSizeMult: [0, 1], maxOpen: [1, 10], slippageBps: [10, 1000], maxPriceImpactPct: [0.1, 10], slAtrMult: [0.5, 6], slMinPct: [0.5, 20],
-  slMaxPct: [1, 40], rewardRisk: [0.8, 6], maxHoldMin: [5, 10080], tp1R: [0.3, 10], tp1Pct: [5, 90], tp2R: [0.5, 20], tp2Pct: [0, 90], beBufferPct: [0, 5], trailActR: [0.2, 10], trailAtrMult: [0.3, 6], memeExitMult: [0.3, 1.5], timeStopMin: [5, 10080], timeStopMinGainPct: [-20, 50], reversalPct: [0.5, 50], leverage: [1, 10], cooldownMin: [0, 1440], cycleSec: [10, 600], minLiquidityUsd: [0, 1e9],
+  budget: [0, 1e9], feeReserveSol: [0.01, 1], maxLossPct: [1, 90], maxLossAbs: [0, 1e9], dailyLossPct: [1, 50], maxTradePct: [1, 20], maxExposurePct: [50, 1000],
+  memeSizeMult: [0, 1], maxOpen: [1, 15], slippageBps: [10, 1000], maxPriceImpactPct: [0.1, 10], slAtrMult: [0.5, 6], slMinPct: [0.5, 20],
+  slMaxPct: [1, 40], rewardRisk: [0.8, 6], maxHoldMin: [5, 10080], tp1R: [0.3, 10], tp1Pct: [5, 90], tp2R: [0.5, 20], tp2Pct: [0, 90], beBufferPct: [0, 5], trailActR: [0.2, 10], trailAtrMult: [0.3, 6], memeExitMult: [0.3, 1.5], timeStopMin: [5, 10080], timeStopMinGainPct: [-20, 50], reversalPct: [0.5, 50], leverage: [1, 10], cooldownMin: [0, 1440], cycleSec: [5, 600], minLiquidityUsd: [0, 1e9],
   minVolume24hUsd: [0, 1e10], minPairAgeMin: [0, 600000], minMcapUsd: [0, 1e12], maxPump1hPct: [1, 1000], maxDump24hPct: [1, 100],
   maxRugScore: [0, 100], uniMinLiqUsd: [50000, 1e10], uniMinVol24hUsd: [50000, 1e11], uniMinMcapUsd: [1e6, 1e13], uniMinAgeDays: [1, 3650], uniMinOrganic: [0, 100], uniMaxTopHoldersPct: [5, 100], memeMinLiqUsd: [20000, 1e10], memeMinVol24hUsd: [20000, 1e11], memeMinMcapUsd: [250000, 1e13], memeMinAgeHours: [6, 87600], memeMinOrganic: [0, 100], memeMaxTopHoldersPct: [5, 80], maxWatch: [1, 30], priorityFeeMaxLamports: [0, 5000000], simPriorityLamports: [0, 5000000],
 };
@@ -96,6 +97,9 @@ const MIGRATIONS = {
   10: (c) => { c.memeLoose = true; for (const k of ['memeMinLiqUsd', 'memeMinVol24hUsd', 'memeMinMcapUsd', 'memeMinAgeHours', 'memeMinOrganic', 'memeMaxTopHoldersPct']) c[k] = DEFAULTS[k]; },
   // v11: Osservatorio Galattico (niente più squadre/derby): tolta solo la chiave «derby»; leva, margine, stop, filtri, PIN e wallet invariati
   11: (c) => { delete c.derby; },
+  // v12: sala operativa (12 analisti → 2 trader), scelta di Samuele: fino al 20% del capitale per operazione, fino a 8 posizioni,
+  // giro ogni 10 s, limite di perdita giornaliera 15%, esposizione totale max 400%. Stop, leva, kill switch, REALE, PIN e wallet invariati.
+  12: (c) => { c.maxTradePct = 20; c.maxOpen = 8; c.cycleSec = 10; c.dailyLossPct = 15; c.maxExposurePct = 400; c.cooldownMin = 5; c.maxWatch = Math.max(Number(c.maxWatch) || 0, 16); },
   4: (c) => { c.scanMemes = false; const extra = (Array.isArray(c.tokens) ? c.tokens : []).filter((m) => !OLD_MEMES.includes(m) && !CORE.some((t) => t.mint === m)); c.tokens = [...CORE.map((t) => t.mint), ...extra]; if ((c.maxWatch || 0) < CORE.length + 1) c.maxWatch = CORE.length + 1; },
 };
 function migrateConfig(saved) {

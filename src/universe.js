@@ -1,5 +1,5 @@
 'use strict';
-// UNIVERSO delle cripto per i bot dell'Osservatorio: tutte le cripto scambiabili su Solana con Phantom/Jupiter
+// UNIVERSO delle cripto per la sala operativa (analisti e trader): tutte le cripto scambiabili su Solana con Phantom/Jupiter
 // (lista token gratuita di Jupiter: più scambiate e con più volume "organico" nelle 24h) + i token presenti nel tuo Phantom.
 // Filtri di sicurezza: token verificato su Jupiter, niente autorità di mint/freeze, niente Token-2022, niente stablecoin,
 // azioni tokenizzate o "liquid staking", liquidità/volume/capitalizzazione/età minime, holder non troppo concentrati,

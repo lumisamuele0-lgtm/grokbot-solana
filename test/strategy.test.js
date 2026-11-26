@@ -56,14 +56,16 @@ test('piano di rischio: SL dentro i limiti, TP = SL × rapporto, leva 1', () => 
   assert.ok(Math.abs(m.tpPct - m.slPct * DEFAULTS.rewardRisk) < 1e-9);
   assert.ok(S.riskPlan(0.2, DEFAULTS, false).slPct >= 3);
 });
-test('dimensione: 7% del capitale per operazione, limitato dal contante e dal minimo', () => {
+test('dimensione: fino al 20% del capitale per operazione (mai oltre), scalata dal consenso, limitata dal contante e dal minimo', () => {
   const a = S.sizePosition({ capital: 100, cash: 100, cfg: DEFAULTS, confidence: 1, atr: 1, core: true, minTrade: 2 });
-  assert.ok(Math.abs(a.size - 7) < 1e-9);
+  assert.ok(Math.abs(a.size - 20) < 1e-9);
   const m = S.sizePosition({ capital: 100, cash: 100, cfg: DEFAULTS, confidence: 0.2, atr: 8, core: false, minTrade: 2 });
-  assert.ok(Math.abs(m.size - 7) < 1e-9);
-  assert.ok(Math.abs(S.sizePosition({ capital: 100, cash: 100, cfg: { ...DEFAULTS, memeSizeMult: 0.5 }, core: false, minTrade: 2 }).size - 3.5) < 1e-9);
+  assert.ok(Math.abs(m.size - 20) < 1e-9);
+  assert.ok(Math.abs(S.sizePosition({ capital: 100, cash: 100, cfg: { ...DEFAULTS, memeSizeMult: 0.5 }, core: false, minTrade: 2 }).size - 10) < 1e-9);
+  assert.ok(Math.abs(S.sizePosition({ capital: 100, cash: 100, cfg: { ...DEFAULTS, maxTradePct: 90 }, core: true, minTrade: 2 }).size - 20) < 1e-9, 'tetto rigido 20%');
+  assert.ok(Math.abs(S.sizePosition({ capital: 100, cash: 100, cfg: DEFAULTS, core: true, minTrade: 2, frac: 0.5 }).size - 10) < 1e-9, 'consenso 0,5 → 10%');
   assert.strictEqual(S.sizePosition({ capital: 100, cash: 5, cfg: DEFAULTS, confidence: 1, atr: 1, core: true, minTrade: 2 }).size, 5);
-  assert.strictEqual(S.sizePosition({ capital: 20, cash: 20, cfg: DEFAULTS, confidence: 0, atr: 1, core: false, minTrade: 2 }).size, 0);
+  assert.strictEqual(S.sizePosition({ capital: 5, cash: 5, cfg: DEFAULTS, confidence: 0, atr: 1, core: false, minTrade: 2 }).size, 0);
 });
 test('filtri: volume 24h minimo ed età minima (regole)', () => {
   const DEFAULTS0 = { ...DEFAULTS, minVolume24hUsd: 3000, minPairAgeMin: 1, minLiquidityUsd: 40000, minMcapUsd: 300000 };
@@ -76,9 +78,9 @@ test('limiti: kill switch %, stop assoluto, perdita giornaliera, posizioni max',
   const c = { ...DEFAULTS, maxLossAbs: 0 };
   assert.strictEqual(S.checkLimits({ equity: 79, startEquity: 100, dayStartEquity: 100, openCount: 0, cfg: c }).kill, true);
   assert.strictEqual(S.checkLimits({ equity: 95, startEquity: 100, dayStartEquity: 100, openCount: 0, cfg: { ...c, maxLossAbs: 5 } }).kill, true);
-  const d = S.checkLimits({ equity: 91, startEquity: 100, dayStartEquity: 100, openCount: 0, cfg: c });
+  const d = S.checkLimits({ equity: 84, startEquity: 100, dayStartEquity: 100, openCount: 0, cfg: c });
   assert.strictEqual(d.kill, false); assert.strictEqual(d.canOpen, false);
-  assert.strictEqual(S.checkLimits({ equity: 100, startEquity: 100, dayStartEquity: 100, openCount: 3, cfg: c }).canOpen, false);
+  assert.strictEqual(S.checkLimits({ equity: 100, startEquity: 100, dayStartEquity: 100, openCount: 8, cfg: c }).canOpen, false);
   assert.strictEqual(S.checkLimits({ equity: 100, startEquity: 100, dayStartEquity: 100, openCount: 1, cfg: c }).canOpen, true);
 });
 test('uscite: stop-loss, take-profit, trailing, tempo massimo', () => {

@@ -84,7 +84,7 @@ test('backtest: presa parziale a 1R e stop a pareggio', () => {
   assert.ok(near(t.r, lev * gross - B.feePctOnMargin(lev, ((t.j - t.i) * 15) / 60) / 100, 1e-9));
 });
 
-test('statistiche: drawdown sul capitale (margine 7%), shrinkage, profit factor', () => {
+test('statistiche: drawdown sul capitale (margine per operazione), shrinkage, profit factor', () => {
   const s = B.stats([{ r: 0.1 }, { r: -0.2 }, { r: 0.1 }], { marginPct: 7 });
   const e1 = 1.007, e2 = e1 * 0.986; assert.ok(near(s.ddPct, ((e1 - e2) / e1) * 100, 1e-9));
   assert.ok(near(s.expPct, 0), 'media zero'); assert.ok(near(s.pf, 1));
@@ -138,7 +138,7 @@ test('pipeline: le strategie attive del MENTORE possono far entrare il CAPO; que
   e.research.signalFor = (sym, side) => (side === 'SHORT' ? { score: 1.2, against: 0, strategies: ['funding'], opposite: [], atrPct: 1 } : { score: 0, against: 1.2, strategies: [], opposite: ['funding'], atrPct: null });
   await e.pipeline();
   const p = e.book.positions[0]; assert.ok(p, 'short aperto sul segnale delle strategie'); assert.strictEqual(p.side, 'SHORT'); assert.ok(p.perp); assert.strictEqual(p.lev, 5);
-  assert.ok(Math.abs(p.costBase - 70) < 0.01, 'margine sempre 7%'); assert.ok(p.feat.includes('short.strat:funding'));
+  assert.ok(Math.abs(p.costBase - 200) < 0.01, 'margine pieno 20% (consenso massimo)'); assert.ok(p.feat.includes('short.strat:funding'));
   assert.ok(p.slPct <= P.liqDistancePct(5) * 0.4, 'stop prima della liquidazione');
   assert.ok(e.st.log.some((l) => l.agent === 'MENTORE' && /Funding contrarian/.test(l.text)));
   assert.ok(e.snapshot().research.strategies.length === ST.STRATEGIES.length);

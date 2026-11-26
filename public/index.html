@@ -3,25 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#04040c">
+<meta name="theme-color" content="#06080f">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Osservatorio">
+<meta name="apple-mobile-web-app-title" content="GrokBot">
 <meta name="format-detection" content="telephone=no">
-<title>GrokBot · Osservatorio Galattico</title>
+<title>GrokBot · Sala operativa</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div class="space-bg" aria-hidden="true"></div>
+<div class="app-bg" aria-hidden="true"></div>
 
 <!-- Accesso con PIN -->
 <section id="login" class="screen center hidden">
-  <div class="orb" aria-hidden="true"><i></i><b></b></div>
-  <h1 class="t">Osservatorio Galattico</h1>
+  <div class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <h1 class="t">GrokBot · Sala operativa</h1>
   <p class="sub" id="loginSub">Inserisci il PIN per entrare</p>
   <div class="glass cap">
     <label class="field"><span id="pinLbl">PIN (6–12 cifre)</span><input id="pin" class="in pin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="12"></label>
@@ -35,13 +35,13 @@
 
 <!-- Configurazione sessione (capitale di partenza) -->
 <section id="setup" class="screen center hidden">
-  <div class="orb" aria-hidden="true"><i></i><b></b></div>
+  <div class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
   <h1 class="t">Capitale di partenza</h1>
-  <p class="sub">il sole al centro dell'Osservatorio</p>
+  <p class="sub">quanto possono usare i 2 trader della sala</p>
   <div class="glass cap">
     <div class="bignum" id="capNum">0,00 €</div>
     <div class="bar"><i id="capBar"></i></div>
-    <div class="note" id="capNote">Scegli quanto possono usare i 14 bot. In simulazione i soldi sono finti ma prezzi e quote sono reali.</div>
+    <div class="note" id="capNote">Scegli quanto possono usare Alpha e Omega (i 12 analisti non operano, danno solo segnali). In simulazione i soldi sono finti ma prezzi e quote sono reali.</div>
     <div id="capForm">
       <div class="field"><span>Modalità</span>
         <div class="seg" id="capMode"><button data-v="SIM" class="on">Simulazione</button><button data-v="REAL">Reale</button></div></div>
@@ -52,7 +52,7 @@
       <div class="err" id="capErr"></div>
       <div class="btns">
         <button class="btn pri" id="capGo">Avvia sessione</button>
-        <button class="btn ghost hidden" id="capBack">Torna all'Osservatorio</button>
+        <button class="btn ghost hidden" id="capBack">Torna alla sala</button>
       </div>
     </div>
   </div>
@@ -62,7 +62,7 @@
 <section id="dash" class="screen hidden">
   <header class="topbar" id="topbar">
     <div class="tb-l">
-      <div class="brand"><span class="brand-dot"></span>Osservatorio</div>
+      <div class="brand"><span class="brand-mk" aria-hidden="true"><i></i><i></i><i></i></span>Sala operativa</div>
       <div class="tb-tags"><span class="mode sim" id="modePill">SIMULAZIONE</span><span class="mode demo hidden" id="demoPill">DEMO</span><span class="live" id="live"><i></i>LIVE</span></div>
     </div>
     <button class="run" id="runBtn" data-a="toggle" aria-label="Avvia o metti in pausa i bot"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>Avvia</span></button>
@@ -70,25 +70,65 @@
   <div class="banner hidden" id="entryBlock" role="status"></div>
   <div class="banner kill hidden" id="killBox" role="alert"></div>
 
-  <!-- CIELO -->
-  <main class="view" id="vSky" data-view="sky">
-    <div class="sky" id="sky">
-      <canvas id="skyCanvas" aria-label="Osservatorio: il sole è il portafoglio, i pianeti sono i 14 bot. Tocca un pianeta per i dettagli."></canvas>
-      <div class="sun-read" id="sunRead" aria-live="polite">
-        <div class="sr-l" id="sunLbl">Portafoglio</div>
-        <div class="sr-v" id="bal">—</div>
-        <div class="sr-p" id="pl">—</div>
+  <!-- HOME -->
+  <main class="view" id="vHome" data-view="home">
+    <div class="wrap">
+      <div class="glass eq" id="eqCard">
+        <div class="eq-top"><span class="lbl" id="eqLbl">Capitale</span><span class="badge-m sim" id="eqMode">SIM</span></div>
+        <div class="eq-v" id="bal">—</div>
+        <div class="eq-p"><span id="pl">—</span><span class="pill" id="eqRoi">1,00x</span></div>
+        <canvas id="eqSpark" aria-label="Andamento del capitale"></canvas>
+        <div class="eq-g">
+          <div><span>Oggi</span><b id="eqDay">—</b></div>
+          <div><span>Totale</span><b id="eqTot">—</b></div>
+          <div><span>Vincenti</span><b id="eqWr">—</b></div>
+        </div>
       </div>
-      <div class="sky-top">
-        <div class="focus" id="focus" aria-label="Cripto di focus del Mentore"></div>
-        <button class="chipbtn" id="listToggle" aria-pressed="false" type="button">☰ Lista</button>
+      <div class="risk glass" id="riskStrip" role="group" aria-label="Rischio in tempo reale"></div>
+      <div class="sec"><h3>Trader</h3><button class="lnk" data-go="trader" type="button">dettagli ›</button></div>
+      <div class="xmini" id="homeExecs"></div>
+      <div class="sec"><h3>Posizioni aperte</h3><button class="lnk" data-go="pos" type="button"><span id="homePosN"></span> tutte ›</button></div>
+      <div class="hpos" id="homePos"></div>
+      <div class="sec"><h3>Segnali in tempo reale</h3><button class="lnk" data-go="anal" type="button">analisti ›</button></div>
+      <div class="glass feed" id="feedHome"></div>
+      <div class="glass mcard" id="mCard"><div class="mc-h"><span class="mc-ic" aria-hidden="true">🧠</span><b>Mentore</b><span class="mu" id="mT"></span></div><div class="mc-x" id="mInsight">—</div><div class="mu small" id="mCoins"></div></div>
+      <div class="sec"><h3>Notizie</h3><span id="newsT">ogni 90 s</span></div>
+      <div class="glass news" id="news"></div>
+    </div>
+  </main>
+
+  <!-- TRADER -->
+  <main class="view hidden" id="vTrader" data-view="trader">
+    <div class="wrap">
+      <p class="intro">Solo <b>Alpha</b> e <b>Omega</b> aprono operazioni. Ognuno somma i segnali dei 12 analisti con un <b>consenso pesato</b> (i pesi li aggiorna il Mentore in base a chi ha ragione) ed entra solo sopra la sua soglia.</p>
+      <div id="execs"></div>
+    </div>
+  </main>
+
+  <!-- ANALISTI -->
+  <main class="view hidden" id="vAnal" data-view="anal">
+    <div class="wrap">
+      <p class="intro">12 analisti, ognuno con il suo metodo. Non operano: votano <b>LONG</b>, <b>SHORT</b> o si astengono. Chi ha più successo pesa di più nel consenso.</p>
+      <div class="agrid" id="anGrid" role="list"></div>
+      <div class="sec"><h3>Flusso dei segnali</h3><span id="feedN"></span></div>
+      <div class="glass feed" id="feed"></div>
+      <div class="sec"><h3>Correzioni del Mentore</h3><span>trader più selettivi o in pausa</span></div>
+      <div class="glass" id="mCorr"></div>
+      <div class="stats">
+        <div class="stat glass"><div class="lbl">Analizzati</div><div class="n" id="sA">0</div></div>
+        <div class="stat glass"><div class="lbl">Scartati</div><div class="n" id="sR">0</div></div>
+        <div class="stat glass"><div class="lbl">Approvati</div><div class="n mint" id="sO">0</div></div>
       </div>
-      <div class="beacon glass" id="beacon" role="button" tabindex="0" aria-label="Il Mentore: ultima indicazione">
-        <div class="bc-h"><span class="bc-ic">🗼</span><b>Mentore</b><span class="bc-t" id="beaconT"></span></div>
-        <div class="bc-x" id="beaconX">Il faro osserva i mercati…</div>
-        <div class="ticker" id="ticker"><div class="tk-in" id="tickerIn"></div></div>
-      </div>
-      <div class="botlist hidden" id="botList" role="list"></div>
+      <div class="sec"><h3>Diario del Mentore</h3><span>errori, correzioni</span></div>
+      <button class="glass know research" id="mentorDiary" type="button"></button>
+      <div class="sec"><h3>Conoscenze</h3><span>cosa funziona e cosa evitare</span></div>
+      <button class="glass know" id="know" type="button"></button>
+      <div class="sec"><h3>Strategie studiate</h3><span>backtest walk-forward</span></div>
+      <button class="glass know research" id="research" type="button"></button>
+      <div class="sec"><h3>Scartati per regola</h3></div>
+      <div class="glass rules" id="rules"></div>
+      <div class="sec"><h3>Diario di bordo</h3><span>in tempo reale</span></div>
+      <div class="console mono glass" id="console"></div>
     </div>
   </main>
 
@@ -133,7 +173,7 @@
   <main class="view hidden" id="vWallet" data-view="wallet">
     <div class="wrap">
       <div class="glass whero" id="wHero">
-        <div class="wh-sun" aria-hidden="true"></div>
+        <div class="wh-glow" aria-hidden="true"></div>
         <div class="lbl" id="heroLbl">Saldo del bot</div>
         <div class="wh-bal" id="wBal">—</div>
         <div class="wh-pl"><span id="wPl">—</span><span class="pill" id="roi">1,00x</span></div>
@@ -145,7 +185,7 @@
       </div>
       <div class="actions">
         <button class="act glass" data-a="phantom"><span class="ai">👻</span><span id="navPh">Phantom</span></button>
-        <button class="act glass" data-a="budget"><span class="ai">☀︎</span><span>Budget</span></button>
+        <button class="act glass" data-a="budget"><span class="ai">💼</span><span>Budget</span></button>
         <button class="act glass" data-a="botwallet"><span class="ai">🔑</span><span>Wallet bot</span></button>
         <button class="act glass" data-a="guide"><span class="ai">🧭</span><span>Guida REALE</span></button>
       </div>
@@ -161,37 +201,13 @@
     </div>
   </main>
 
-  <!-- MENTORE & NOTIZIE -->
-  <main class="view hidden" id="vMentor" data-view="mentor">
-    <div class="wrap">
-      <div class="glass mhero"><div class="mh-ic">🗼</div><div><div class="lbl">Il faro del Mentore</div><div class="mh-x" id="mInsight">—</div><div class="mu" id="mFocus"></div></div></div>
-      <div class="sec"><h3>Bot sotto correzione</h3><span>il fascio del faro li illumina</span></div>
-      <div class="glass" id="mCorr"></div>
-      <div class="sec"><h3>Notizie</h3><span id="newsT">ogni 90 s</span></div>
-      <div class="glass news" id="news"></div>
-      <div class="stats">
-        <div class="stat glass"><div class="lbl">Analizzati</div><div class="n" id="sA">0</div></div>
-        <div class="stat glass"><div class="lbl">Scartati</div><div class="n" id="sR">0</div></div>
-        <div class="stat glass"><div class="lbl">Approvati</div><div class="n mint" id="sO">0</div></div>
-      </div>
-      <div class="sec"><h3>Diario del Mentore</h3><span>errori, correzioni</span></div>
-      <button class="glass know research" id="mentorDiary" type="button"></button>
-      <div class="sec"><h3>Conoscenze</h3><span>cosa funziona e cosa evitare</span></div>
-      <button class="glass know" id="know" type="button"></button>
-      <div class="sec"><h3>Strategie studiate</h3><span>backtest walk-forward</span></div>
-      <button class="glass know research" id="research" type="button"></button>
-      <div class="sec"><h3>Scartati per regola</h3></div>
-      <div class="glass rules" id="rules"></div>
-      <div class="sec"><h3>Diario di bordo</h3><span>in tempo reale</span></div>
-      <div class="console mono glass" id="console"></div>
-    </div>
-  </main>
-
   <!-- IMPOSTAZIONI & SICUREZZA -->
   <main class="view hidden" id="vSet" data-view="set">
     <div class="wrap">
+      <div class="sec"><h3>Rischio della sala</h3><span>vale per Alpha e Omega</span></div>
+      <div class="glass rform" id="riskForm"></div>
       <div class="sec"><h3>Impostazioni</h3></div>
-      <button class="glass rowbtn" data-a="settings"><span>⚙️ Rischio, leva, memecoin, modalità</span><span class="chev">›</span></button>
+      <button class="glass rowbtn" data-a="settings"><span>⚙️ Leva, uscite, memecoin, modalità, avanzate</span><span class="chev">›</span></button>
       <button class="glass rowbtn" data-a="botwallet"><span>🔑 Wallet del bot: crea, sblocca, esporta, backup</span><span class="chev">›</span></button>
       <div class="sec"><h3>Sicurezza</h3></div>
       <div class="glass secbox" id="secBox">
@@ -203,23 +219,23 @@
         <div class="kv"><span>Spot REALE</span><b id="secSpot">—</b></div>
       </div>
       <button class="glass rowbtn" id="logoutBtn" type="button"><span>🚪 Esci (chiudi la sessione)</span><span class="chev">›</span></button>
-      <p class="fine">Nessun guadagno è garantito: i bot seguono regole rigide di rischio (7% per operazione, stop prima della liquidazione, kill switch, limiti giornalieri).</p>
+      <p class="fine">Nessun guadagno è garantito: le perdite sono possibili. I trader seguono regole rigide: margine massimo per operazione (tetto 20%), posizioni ed esposizione massime, stop-loss su ogni posizione (sui perps sempre prima della liquidazione), limite di perdita giornaliera e kill switch.</p>
     </div>
   </main>
 
   <nav class="tabs" id="nav" aria-label="Sezioni">
-    <button data-tab="sky" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><ellipse cx="12" cy="12" rx="9.5" ry="4.2" transform="rotate(-18 12 12)"/></svg><span>Cielo</span></button>
+    <button data-tab="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="9" rx="2"/><rect x="13.5" y="3" width="7.5" height="5" rx="2"/><rect x="3" y="15" width="7.5" height="6" rx="2"/><rect x="13.5" y="11" width="7.5" height="10" rx="2"/></svg><span>Home</span></button>
+    <button data-tab="trader"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg><span>Trader</span></button>
+    <button data-tab="anal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="6" cy="7" r="2.3"/><circle cx="12" cy="5" r="2.3"/><circle cx="18" cy="7" r="2.3"/><path d="M6 10v3l6 5 6-5v-3M12 8v10"/></svg><span>Analisti</span></button>
     <button data-tab="pos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 18l5-6 4 3 7-9"/><path d="M15 6h5v5"/></svg><span>Posizioni</span><i class="badge hidden" id="posBadge"></i></button>
     <button data-tab="wallet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18M16 14.5h2"/><path d="M6 6l9-3 1.5 3"/></svg><span>Wallet</span></button>
-    <button data-tab="mentor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 21l1.2-11h3.6L15 21z"/><path d="M8.5 10h7M10 6.5h4V10h-4zM12 3v3.5M4 5l4 2.5M20 5l-4 2.5"/></svg><span>Mentore</span></button>
-    <button data-tab="set"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Sicurezza</span></button>
+    <button data-tab="set"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.6M12 18.6v2.6M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></svg><span>Impostaz.</span></button>
   </nav>
 </section>
 
 <div class="sheetbg hidden" id="sheetBg"></div>
 <div class="sheet" id="sheet" role="dialog" aria-modal="true"><div class="grab"></div><div id="sheetBody"></div></div>
 
-<script src="/sky.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

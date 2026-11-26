@@ -1,4 +1,4 @@
-/* GrokBot · Osservatorio Galattico — interfaccia (mobile first, iPhone). Tutti i dati arrivano dal motore via SSE. */
+/* GrokBot · Sala operativa (12 analisti → 2 trader) — interfaccia (mobile first, iPhone). Tutti i dati arrivano dal motore via SSE. */
 (function () {
   'use strict';
   const $ = (s, r = document) => r.querySelector(s);
@@ -14,7 +14,7 @@
   let S = null; // ultima istantanea
   let es = null;
   let sheetRefresh = null;
-  let tab = 'sky';
+  let tab = 'home';
   const ICONS = {
     scout: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>',
     shield: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/></svg>',
@@ -40,7 +40,7 @@
     return j;
   }
   function toast(msg, ms = 3200) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = msg; document.body.appendChild(d); setTimeout(() => d.remove(), ms); }
-  function show(id) { ['login', 'setup', 'dash'].forEach((x) => $('#' + x).classList.toggle('hidden', x !== id)); window.scrollTo(0, 0); if (window.Sky) Sky.setVisible(id === 'dash' && tab === 'sky'); }
+  function show(id) { ['login', 'setup', 'dash'].forEach((x) => $('#' + x).classList.toggle('hidden', x !== id)); window.scrollTo(0, 0); }
 
   // ---------- accesso
   let setupMode = false;
@@ -76,10 +76,9 @@
 
   async function start() {
     S = await api('/api/state');
-    if (!window.__skyInit) { window.__skyInit = 1; Sky.init($('#skyCanvas'), { onTap: onSkyTap }); }
     if (!localStorage.getItem('sb_started')) openSetup(false); else { show('dash'); }
     render(S);
-    applyList(); let t0 = 'sky'; try { t0 = sessionStorage.getItem('sb_tab') || 'sky'; } catch {} setTab(t0);
+    let t0 = 'home'; try { t0 = sessionStorage.getItem('sb_tab') || 'home'; } catch {} setTab(t0);
     connect();
   }
   function connect() {
@@ -233,7 +232,7 @@
     if (RMQ) { setTimeout(() => fl.remove(), 1600); return; }
     // destinazione/partenza: la card della posizione se visibile, altrimenti la sala operativa
     const card = document.querySelector(`.pcard[data-pid="${e.id}"]`); const vis = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight && r.width ? r : null; };
-    const tr = vis(card) || vis($('#sky')) || vis($('#pos'));
+    const tr = vis(card) || vis($('#homePos')) || vis($('#pos'));
     const chip = document.createElement('div'); chip.className = 'capChip ' + col; chip.textContent = txt; document.body.appendChild(chip);
     const from = out ? { x: ar.left + ar.width / 2, y: ar.top + ar.height / 2 } : tr ? { x: tr.left + tr.width / 2, y: tr.top + Math.min(40, tr.height / 2) } : { x: ar.left, y: ar.top + 80 };
     const to = out ? (tr ? { x: tr.left + tr.width / 2, y: tr.top + Math.min(40, tr.height / 2) } : { x: ar.left, y: ar.top + 120 }) : { x: ar.left + ar.width / 2, y: ar.top + ar.height / 2 };
@@ -243,8 +242,11 @@
   }
   function trimHist(s) { const h = s.equityHist || []; const lt = h.length ? h[h.length - 1].t : 0; return h.map((p) => p.v - s.startEquity).concat(pbLive.filter((p) => p.t > lt).map((p) => p.v)); }
   function drawPbSpark() {
-    const c = $('#pbSpark');
-    if (c && S && S.pnlBox) {
+    for (const sel of ['#pbSpark', '#eqSpark']) drawSpark($(sel));
+    requestAnimationFrame(drawPbSpark);
+  }
+  function drawSpark(c) {
+    if (c && S && S.pnlBox && c.offsetParent !== null) {
       const r = c.getBoundingClientRect(); const dpr = Math.min(2.5, devicePixelRatio || 1);
       if (r.width > 0) {
         if (c.width !== Math.round(r.width * dpr)) { c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); }
@@ -262,7 +264,6 @@
         x.fillStyle = col; x.shadowColor = col; x.shadowBlur = 10; x.beginPath(); x.arc(lx, ly, pulse, 0, 6.28); x.fill(); x.shadowBlur = 0;
       }
     }
-    requestAnimationFrame(drawPbSpark);
   }
   requestAnimationFrame(drawPbSpark);
   (function () {
@@ -287,7 +288,7 @@
       ? `${k.best.length ? `<div class="lbl kn-t">Cosa funziona</div>${k.best.map((x) => row(x, true)).join('')}` : ''}${k.worst.length ? `<div class="lbl kn-t">Da evitare</div>${k.worst.map((x) => row(x, false)).join('')}` : ''}`
       : '<div class="empty" style="padding:6px 0">Nessun pattern ancora affidabile (servono almeno 5 trade con la stessa caratteristica).</div>';
     const last = k.lastLesson ? `<div class="mu kn-last">Ultima lezione: ${esc(k.lastLesson.text)}</div>` : '';
-    const note = full ? '<p class="note">Il Mentore impara da ogni trade chiuso (anche in simulazione). Le percentuali sono smussate: con pochi dati restano vicine alla media. Non cambia mai il 7% per operazione, i filtri minimi, lo stop-loss o il kill switch: può solo rendere i bot più selettivi.</p>' : '';
+    const note = full ? '<p class="note">Il Mentore impara da ogni trade chiuso (anche in simulazione). Le percentuali sono smussate: con pochi dati restano vicine alla media. Non cambia mai il margine per operazione, i filtri minimi, lo stop-loss o il kill switch: può solo rendere i bot più selettivi.</p>' : '';
     return head + status + lists + last + note;
   }
   // ---------- strategie studiate dal MENTORE (ricerca sul web + backtest walk-forward)
@@ -311,7 +312,7 @@
     };
     const chips = fng || reg || sig ? `<div class="rs-chips">${fng}${reg}${sig}</div>` : '';
     const note = `<div class="mu rs-src">Fonti: ${srcTxt}${r.lastError ? ` · <span class="red">ultimo errore: ${esc(r.lastError)}</span>` : ''}</div>`;
-    const expl = full ? '<p class="note">Risultati FUORI CAMPIONE: i parametri si scelgono sul passato, poi si misura la strategia su settimane mai viste (walk-forward), con commissioni Jupiter, slittamento, prestito, la tua leva, stop prima della liquidazione e margine 7%. Si attiva solo se resta positiva dopo lo "sconto" per pochi dati (almeno 8 operazioni, profit factor &gt; 1,1, drawdown &lt; 25%). Le attive danno un voto al CAPO; quelle contrarie possono bloccare un ingresso. I risultati passati non garantiscono quelli futuri.</p>' : '';
+    const expl = full ? '<p class="note">Risultati FUORI CAMPIONE: i parametri si scelgono sul passato, poi si misura la strategia su settimane mai viste (walk-forward), con commissioni Jupiter, slittamento, prestito, la tua leva, stop prima della liquidazione e margine per operazione. Si attiva solo se resta positiva dopo lo "sconto" per pochi dati (almeno 8 operazioni, profit factor &gt; 1,1, drawdown &lt; 25%). Le attive danno un voto al CAPO; quelle contrarie possono bloccare un ingresso. I risultati passati non garantiscono quelli futuri.</p>' : '';
     return head + chips + r.strategies.map(row).join('') + note + expl;
   }
   // ---------- diario del MENTORE: post-mortem, lezioni, correzioni, ultima ricerca
@@ -334,7 +335,7 @@
       const every = n && n.intervalSec ? (n.intervalSec >= 60 ? `${nf(n.intervalSec / 60, n.intervalSec % 60 ? 1 : 0)} min` : `${n.intervalSec} s`) : '90 s';
       web = `<div class="lbl kn-t">Notizie crypto · lette ogni ${every}</div>${n ? `<div class="mu rs-up">ultimo controllo ${hms(n.lastCheck || n.t)} · ultimo titolo nuovo ${hhmm(n.lastNew || n.t)} · ${n.count} titoli (24h) da ${n.sources.length} fonti</div>` : ''}<div class="rs-chips">${as}${cx}</div>${heads}`;
     }
-    const note = full ? '<p class="note">Le correzioni sono piccole e graduali: stop ×0,8–1,3, target ×1–1,4, selettività 0–3, pause di 2–6 ore. Se dopo 6 trade vanno peggio di prima vengono annullate. Non cambiano mai la leva (minimo 5x), il margine del 7%, lo stop prima della liquidazione o il kill switch. Le notizie si leggono ogni 90 secondi da 6 feed RSS gratuiti (solo i titoli nuovi vengono valutati). Il sentiment è un conteggio di parole nei titoli: un indizio, non una previsione.</p>' : '';
+    const note = full ? '<p class="note">Le correzioni sono piccole e graduali: stop ×0,8–1,3, target ×1–1,4, selettività 0–3, pause di 2–6 ore. Se dopo 6 trade vanno peggio di prima vengono annullate. Non cambiano mai la leva (minimo 5x), il margine per operazione, lo stop prima della liquidazione o il kill switch. Le notizie si leggono ogni 90 secondi da 6 feed RSS gratuiti (solo i titoli nuovi vengono valutati). Il sentiment è un conteggio di parole nei titoli: un indizio, non una previsione.</p>' : '';
     return head + errs + les + cor + tune + web + note;
   }
   let lastMdH = '';
@@ -359,107 +360,194 @@
   }
 
 
-  // ---------- OSSERVATORIO: schede, cielo, pianeti
-  const TABS = { sky: '#vSky', pos: '#vPos', wallet: '#vWallet', mentor: '#vMentor', set: '#vSet' };
+  // ---------- SALA OPERATIVA: schede, trader, analisti, segnali
+  const TABS = { home: '#vHome', trader: '#vTrader', anal: '#vAnal', pos: '#vPos', wallet: '#vWallet', set: '#vSet' };
   function setTab(t) {
-    if (!TABS[t]) t = 'sky'; tab = t;
+    if (!TABS[t]) t = 'home'; tab = t;
     for (const [k, sel] of Object.entries(TABS)) $(sel).classList.toggle('hidden', k !== t);
     $$('#nav [data-tab]').forEach((b) => { const on = b.dataset.tab === t; b.classList.toggle('on', on); b.setAttribute('aria-current', on ? 'page' : 'false'); });
-    document.body.classList.toggle('on-sky', t === 'sky');
-    Sky.setVisible(t === 'sky' && !$('#dash').classList.contains('hidden') && !$('#sheet').classList.contains('open'));
-    if (t !== 'sky') window.scrollTo(0, 0);
+    window.scrollTo(0, 0);
     try { sessionStorage.setItem('sb_tab', t); } catch {}
+    if (t === 'set' && S) renderRiskForm(S, true);
   }
   $('#nav').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
-  const botOf = (id) => (S && S.galaxy ? S.galaxy.bots.find((b) => b.id === id) : null);
+  document.addEventListener('click', (e) => { const g = e.target.closest('[data-go]'); if (g) setTab(g.dataset.go); });
+  const desk = () => (S && S.desk) || { execs: [], analysts: [], feed: [], coins: [], corrections: [], risk: {} };
+  const execOf = (id) => desk().execs.find((x) => x.id === id) || null;
+  const anOf = (id) => desk().analysts.find((x) => x.id === id) || null;
+  const botOf = (id) => execOf(id) || anOf(id);
   const botName = (id) => { const b = botOf(id); return b ? b.name : null; };
-  function onSkyTap(t) {
-    if (t.type === 'bot') botSheet(t.id);
-    else if (t.type === 'sun') setTab('wallet');
-    else if (t.type === 'beacon') setTab('mentor');
-    else if (t.type === 'coin') { const c = (S.galaxy.focus || []).find((x) => x.symbol === t.symbol); if (c) toast(`🔭 Focus del Mentore: ${c.symbol} · ${c.label}${c.phantom ? ' · nel tuo Phantom' : ''}`); }
-  }
-  // vista a lista (alternativa accessibile al cielo)
-  let listMode = localStorage.getItem('sb_list') === '1';
-  function applyList() { $('#botList').classList.toggle('hidden', !listMode); $('#sky').classList.toggle('listing', listMode); $('#listToggle').textContent = listMode ? '🪐 Cielo' : '☰ Lista'; $('#listToggle').setAttribute('aria-pressed', listMode ? 'true' : 'false'); }
-  $('#listToggle').addEventListener('click', () => { listMode = !listMode; localStorage.setItem('sb_list', listMode ? '1' : '0'); applyList(); });
-  $('#botList').addEventListener('click', (e) => { const b = e.target.closest('[data-bot]'); if (b) botSheet(b.dataset.bot); });
-  $('#beacon').addEventListener('click', () => setTab('mentor'));
-  $('#beacon').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab('mentor'); } });
-  $('#focus').addEventListener('click', (e) => { const c = e.target.closest('[data-coin]'); if (c) onSkyTap({ type: 'coin', symbol: c.dataset.coin }); });
-  const dot = (b) => `hsl(${b.hue} 70% 62%)`;
   const pnlCls = (v) => (v > 1e-9 ? 'mint' : v < -1e-9 ? 'red' : 'mu');
-  function botStatus(b) {
-    if (b.paused) return '⏸ in pausa';
-    if (b.resting) return `🔧 ricalibrazione fino alle ${hhmm(b.resting)}`;
-    if (b.open) return '🛰 posizione aperta';
-    if (b.corrected) return `🔦 più selettivo (${b.selectivity}/2)`;
-    return S.trading ? '● in orbita, cerca segnali' : '○ fermo (premi Avvia)';
+  const pct0 = (x) => (x == null ? '—' : nf(x, 0) + '%');
+  const setH = (el, h) => { if (el && el.dataset.h !== h) { el.dataset.h = h; el.innerHTML = h; } };
+  const sideTag = (side, lev) => `<span class="side ${side === 'SHORT' ? 'short' : 'long'}">${side === 'SHORT' ? '▼ SHORT' : '▲ LONG'}${lev ? ' ' + lev + 'x' : ''}</span>`;
+  const xTag = (id) => { const x = execOf(id); return x ? `<span class="who" style="--h:${x.hue}">${esc(x.name)}</span>` : ''; };
+  function execStatus(x) {
+    if (x.paused) return { t: 'in pausa', c: 'mu' };
+    if (x.resting) return { t: `ricalibrazione fino alle ${hhmm(x.resting)}`, c: 'amber' };
+    if (!S.trading) return { t: 'fermo · premi Avvia', c: 'mu' };
+    if (desk().breaker) return { t: 'limite giornaliero: nessun nuovo ingresso', c: 'red' };
+    return { t: x.open ? `${x.open} ${x.open === 1 ? 'posizione' : 'posizioni'} · cerca altri ingressi` : 'cerca ingressi', c: 'mint' };
   }
-  function renderBotList(s) {
-    const h = s.galaxy.bots.map((b) => `<button class="bl glass" role="listitem" data-bot="${esc(b.id)}"><span class="bl-dot" style="background:${dot(b)};box-shadow:0 0 12px ${dot(b)}"></span><span class="bl-n"><b>${esc(b.name)}</b><small>${esc(b.strategyName)}</small><small class="bl-s">${esc(botStatus(b))}</small></span><span class="bl-v"><b class="${pnlCls(b.pnl)}">${money(b.pnl)}</b><small>${b.trades} trade · ${b.wins}V/${b.losses}P</small></span></button>`).join('');
-    const el = $('#botList'); if (el.dataset.h !== h) { el.dataset.h = h; el.innerHTML = h; }
+  const voteChips = (yes, no) => `${(yes || []).map((id) => `<span class="vc y">${esc((anOf(id) || {}).icon || '')} ${esc(botName(id) || id)}</span>`).join('')}${(no || []).map((id) => `<span class="vc n">${esc((anOf(id) || {}).icon || '')} ${esc(botName(id) || id)}</span>`).join('')}`;
+  function decisionHtml(d) {
+    if (!d) return '<div class="mu small">Nessuna decisione ancora.</div>';
+    const head = d.kind === 'open' ? `✅ <b>Aperto</b> ${sideTag(d.side, d.lev)} <b>$${esc(d.symbol)}</b>` : `⏳ <b>In attesa</b> · miglior candidato $${esc(d.symbol)} ${esc(d.side || '')}`;
+    const sc = d.score != null ? `<div class="cbar"><i style="width:${Math.max(0, Math.min(100, d.score * 100))}%"></i>${d.thr != null ? `<b style="left:${Math.min(100, d.thr * 100)}%"></b>` : ''}</div><div class="mu small">consenso ${nf(d.score * 100, 0)}%${d.thr != null ? ` · soglia ${nf(d.thr * 100, 0)}%` : ''} · ${hhmm(d.t)}</div>` : '';
+    return `<div class="dec-h">${head}</div>${sc}${(d.yes && d.yes.length) || (d.no && d.no.length) ? `<div class="vcs">${voteChips(d.yes, d.no)}</div>` : ''}`;
   }
-  function renderFocus(s) {
-    const f = s.galaxy.focus || [];
-    const h = f.length ? `<span class="fl" title="Cripto di focus del Mentore">🔭</span>${f.map((c) => `<button class="fc" data-coin="${esc(c.symbol)}" style="--c:${esc(c.color || '#9ab')}"><i></i>${c.meme ? '🐸 ' : ''}${esc(c.symbol)}<small>${esc(c.perp ? (s.cfg.leverage || 5) + 'x L/S' : 'spot')}</small></button>`).join('')}` : '<span class="fl">🔭 il Mentore sceglie…</span>';
-    const el = $('#focus'); if (el.dataset.h !== h) { el.dataset.h = h; el.innerHTML = h; }
+  function renderRisk(s) {
+    const r = desk().risk || {}; const br = desk().breaker; const c = s.cfg;
+    const m = (lbl, val, cur, max, sub, warn) => { const p = max > 0 ? Math.max(0, Math.min(100, (cur / max) * 100)) : 0; return `<div class="rk${warn || (warn !== false && p >= 90) ? ' rk-w' : ''}"><span>${lbl}</span><b>${val}</b><div class="rb"><i style="width:${p}%"></i></div><small>${sub}</small></div>`; };
+    const dl = Math.max(0, -(r.dayPnlPct || 0));
+    const h = m('Posizioni', `${r.open || 0}/${c.maxOpen}`, r.open || 0, c.maxOpen, 'aperte ora')
+      + m('Esposizione', pct0(r.exposurePct), r.exposurePct || 0, c.maxExposurePct, `max ${c.maxExposurePct}% (margine × leva)`)
+      + m('Per operazione', `≤ ${c.maxTradePct}%`, c.maxTradePct, 20, 'del capitale, scala col consenso', false)
+      + m('Perdita oggi', `${nf(dl, 1)}%`, dl, c.dailyLossPct, `limite ${c.dailyLossPct}%`, !!br);
+    setH($('#riskStrip'), h + (br ? `<div class="rbrk">⛔ Limite di perdita giornaliera raggiunto (−${nf(br.pct, 1)}%): nessun nuovo ingresso fino a domani. Le posizioni aperte restano protette da stop e target.</div>` : ''));
   }
-  let tickerH = '';
-  function renderBeacon(s) {
-    const g = s.galaxy; const ins = g.insight;
-    const corr = g.corrections || [];
-    const txt = corr.length ? corr.map((c) => c.text).filter(Boolean)[0] || `${corr.length} bot sotto correzione` : ins ? ins.text : (s.entryBlock ? s.entryBlock : 'Il faro osserva i mercati e sceglie le cripto di focus.');
-    $('#beaconX').textContent = txt; $('#beaconT').textContent = ins ? hhmm(ins.t) : '';
-    $('#beacon').classList.toggle('alert', corr.length > 0);
-    const news = (s.research && s.research.news && s.research.news.latest) || [];
-    const h = news.length ? news.map((n) => `<span class="tk ${n.sentiment > 0.15 ? 'up' : n.sentiment < -0.15 ? 'dn' : ''}">${n.sentiment > 0.15 ? '▲' : n.sentiment < -0.15 ? '▼' : '•'} ${esc(n.title)} <small>${esc(n.source || '')}</small></span>`).join('') : '<span class="tk">Notizie in arrivo (controllo ogni 90 s)…</span>';
-    if (h !== tickerH) { tickerH = h; $('#tickerIn').innerHTML = h + (news.length ? h : ''); $('#tickerIn').style.animationDuration = Math.max(30, news.length * 9) + 's'; }
+  function renderHomeExecs(s) {
+    const h = desk().execs.map((x) => { const st = execStatus(x); return `<button class="glass xm" data-exec="${esc(x.id)}" style="--h:${x.hue}" type="button">
+      <div class="xm-h"><span class="xav">${esc(x.name[0])}</span><span><b>${esc(x.name)}</b><small>${esc(x.role)}</small></span></div>
+      <div class="xm-v ${pnlCls(x.pnl)}">${money(x.pnl)}</div>
+      <div class="xm-s"><span>${x.winRate == null ? '—' : nf(x.winRate, 0) + '%'} vinte</span><span>${x.open} aperte</span></div>
+      <div class="xm-st ${st.c}"><i></i>${esc(st.t)}</div></button>`; }).join('');
+    setH($('#homeExecs'), h);
   }
-  function renderMentorTab(s) {
-    const g = s.galaxy;
-    $('#mInsight').textContent = g.insight ? g.insight.text : 'Nessuna indicazione nuova: il Mentore osserva.';
-    $('#mFocus').textContent = (g.focus || []).length ? `Focus: ${g.focus.map((c) => c.symbol + ' (' + c.label + ')').join(' · ')}` : '';
-    const corr = g.corrections || [];
-    const ch = corr.length ? corr.map((c) => { const b = botOf(c.bot); return `<button class="kv corr" data-bot="${esc(c.bot)}"><span><i class="bl-dot" style="background:${b ? dot(b) : '#999'}"></i> <b>${esc(b ? b.name : c.bot)}</b></span><span class="mu">${esc(c.resting ? 'pausa di 2 min' : 'più selettivo')}</span></button><div class="mu small">${esc(c.text)}</div>`; }).join('') : '<div class="empty">Nessun bot sotto correzione: tutti in orbita regolare.</div>';
-    if ($('#mCorr').dataset.h !== ch) { $('#mCorr').dataset.h = ch; $('#mCorr').innerHTML = ch; }
+  function posCard(p, s, mini) {
+    const d = s.base === 'SOL' ? 4 : 2; const sh = p.side === 'SHORT'; const pp = sh || p.perp; const px = (x) => (x == null ? '—' : x >= 100 ? nf(x, 0) : x >= 1 ? nf(x, 2) : nf(x, 6));
+    const lo = p.stop != null ? p.stop : p.sl, hi = p.next != null ? p.next : p.tp;
+    const span = hi - lo; const k = span !== 0 && p.price ? Math.max(0, Math.min(1, (p.price - lo) / span)) : 0.5;
+    const sgnP = (x) => (x >= 0 ? '+' : '−') + nf(Math.abs(x), 1) + '%';
+    const cur = pp ? '$' : '';
+    if (mini) return `<div class="hp" data-pid="${esc(p.id)}"><span class="hp-s"><b>$${esc(p.symbol)}</b> ${sideTag(p.side, p.lev || 1)} ${xTag(p.bot)}</span><span class="hp-v ${pnlCls(p.pnl)}">${p.pnl >= 0 ? '+' : ''}${nf(p.pnl, d)}<small>${nf(p.pnlPct, 2)}%</small></span></div>`;
+    return `<div data-pid="${esc(p.id)}" class="pcard${sh ? ' isShort' : ''}${pp && (p.lev || 1) >= 5 ? ' hiLev' : ''}">
+      <div><div class="sym">$${esc(p.symbol)} ${sideTag(p.side, p.lev || 1)} ${xTag(p.bot)}</div>
+        <div class="sub2">${pp ? `margine ${nf(p.costBase, d)} ${s.base} · esposizione $${nf(p.sizeUsd, 2)}` : `investiti ${nf(p.costBase, d)} ${s.base}`} · ${hhmm(p.openedAt)}${p.consensus != null ? ` · consenso ${nf(p.consensus * 100, 0)}%` : ''}${p.sigOpen ? ` · <a href="https://solscan.io/tx/${esc(p.sigOpen)}" target="_blank" rel="noopener">tx</a>` : ''}</div></div>
+      <div class="pnl ${p.pnl >= 0 ? 'mint' : 'red'}">${p.pnl >= 0 ? '+' : ''}${nf(p.pnl, d)}<div class="sub2">${nf(p.pnlPct, 2)}%</div></div>
+      <div class="pg" style="grid-column:1/3"><span><small>Ingresso</small><b>${cur}${px(p.entryPrice)}</b></span><span><small>Attuale</small><b>${cur}${px(p.price)}</b></span><span><small>Stop</small><b class="red">${cur}${px(lo)}</b></span><span><small>Target</small><b class="mint">${cur}${px(hi)}</b></span></div>
+      ${pp ? `<div class="sub2 liq" style="grid-column:1/3">☠️ liquidazione $${px(p.liqPrice)} (${sgnP(((p.liqPrice - p.entryPrice) / p.entryPrice) * 100)}) · commissioni $${nf(p.perpFeesUsd || 0, 3)}</div>` : ''}
+      ${p.partialsN ? `<div class="sub2 pp" style="grid-column:1/3">💰 ${p.partialsN} ${p.partialsN === 1 ? 'presa parziale' : 'prese parziali'} (${p.soldPct}% ${sh ? 'ricomprato' : 'venduto'}) · incassato ${p.realizedPart >= 0 ? '+' : ''}${nf(p.realizedPart, d)} ${s.base}</div>` : ''}
+      <div class="rng" title="stop → prossimo obiettivo"><i style="left:calc(${k * 100}% - 1px)"></i></div>
+      <div class="sub2">${p.stopKind === 'trailing' ? '🪜 trailing' : p.stopKind === 'pareggio' ? '🛡 pareggio' : 'stop'} ${p.stopPct != null ? sgnP(p.stopPct) : '−' + nf(p.slPct, 1) + '%'}</div><div class="sub2" style="text-align:right">${p.nextLabel ? esc(p.nextLabel) + ' ' + sgnP(p.nextPct) : 'target +' + nf(p.tpPct, 1) + '%'} <button class="chip cl" data-closepos="${esc(p.id)}">Chiudi</button></div></div>`;
+  }
+  function feedItem(f) {
+    const who = botOf(f.who); const isX = !!execOf(f.who);
+    const ic = isX ? `<span class="xav sm" style="--h:${who.hue}">${esc(who.name[0])}</span>` : `<span class="fi-ic">${esc(who ? who.icon : '•')}</span>`;
+    const body = f.kind === 'close' ? `<b>${esc(who ? who.name : f.who)}</b> ha chiuso <b>$${esc(f.symbol)}</b> <span class="${pnlCls(f.pnl)}">${money(f.pnl)}</span>`
+      : f.kind === 'open' ? `<b>${esc(who ? who.name : f.who)}</b> apre ${sideTag(f.side, f.lev)} <b>$${esc(f.symbol)}</b> · consenso ${nf((f.score || 0) * 100, 0)}%`
+        : `<b>${esc(who ? who.name : f.who)}</b> ${sideTag(f.side)} <b>$${esc(f.symbol)}</b> <span class="mu">· ${nf((f.conf || 0) * 100, 0)}% · ${esc(f.text || '')}</span>`;
+    return `<div class="fi ${f.kind}">${ic}<span class="fi-t">${body}</span><small>${hhmm(f.t)}</small></div>`;
+  }
+  function renderFeed(s) {
+    const f = desk().feed || [];
+    setH($('#feedHome'), f.slice(0, 6).map(feedItem).join('') || '<div class="empty">Nessun segnale ancora: premi Avvia, gli analisti scansionano ogni 10 s.</div>');
+    setH($('#feed'), f.slice(0, 30).map(feedItem).join('') || '<div class="empty">Nessun segnale ancora.</div>');
+    $('#feedN').textContent = f.length ? `ultimi ${Math.min(30, f.length)}` : '';
+  }
+  function renderExecs(s) {
+    const d = s.base === 'SOL' ? 4 : 2;
+    const h = desk().execs.map((x) => { const st = execStatus(x); const ps = s.positions.filter((p) => p.bot === x.id);
+      return `<section class="glass xc" style="--h:${x.hue}">
+        <div class="xc-h"><span class="xav lg">${esc(x.name[0])}</span><div class="xc-n"><h4>${esc(x.name)}</h4><div class="mu small">${esc(x.role)}</div></div><span class="sp"></span>
+          <button class="tgl ${x.paused ? '' : 'on'}" data-xpause="${esc(x.id)}" role="switch" aria-checked="${x.paused ? 'false' : 'true'}" aria-label="${esc(x.name)} attivo"><i></i></button></div>
+        <div class="xm-st ${st.c}"><i></i>${esc(st.t)}</div>
+        ${x.note ? `<div class="bs-note">🔧 ${esc(x.note)}</div>` : ''}
+        <div class="grid3"><div class="cell"><span>PnL</span><b class="${pnlCls(x.pnl)}">${money(x.pnl)}</b></div><div class="cell"><span>Vincenti</span><b>${x.winRate == null ? '—' : nf(x.winRate, 0) + '%'}</b></div><div class="cell"><span>Trade</span><b>${x.trades}</b></div>
+          <div class="cell"><span>Aperte</span><b>${x.open}</b></div><div class="cell"><span>Esposizione</span><b>${money(x.exposure, false)}</b></div><div class="cell"><span>Soglia</span><b>${nf(x.thr * 100, 0)}%</b></div></div>
+        <div class="grp"><span class="lbl">Ultima decisione</span><div class="dec">${decisionHtml(x.decision)}</div></div>
+        <div class="grp"><span class="lbl">Posizioni di ${esc(x.name)}</span><div class="hpos">${ps.map((p) => posCard(p, s, true)).join('') || '<div class="empty">Nessuna posizione aperta.</div>'}</div></div>
+        ${x.history.length ? `<div class="grp"><span class="lbl">Ultime chiuse</span>${x.history.slice(0, 5).map((t) => `<div class="kv"><span>${hhmm(t.closedAt)} <b>$${esc(t.symbol)}</b> <small class="mu">${t.side === 'SHORT' ? '▼' : '▲'}${t.lev > 1 ? ' ' + t.lev + 'x' : ''} · ${esc(t.reason || '')}</small></span><b class="${pnlCls(t.pnl)}">${t.pnl >= 0 ? '+' : ''}${nf(t.pnl, d)}</b></div>`).join('')}</div>` : ''}
+        <p class="note">${esc(x.desc)} Entra con almeno ${x.minAgree} analisti d'accordo e consenso ≥ ${nf(x.thr * 100, 0)}%. Margine = fino al ${s.cfg.maxTradePct}% del capitale × forza del consenso (40–100%).</p>
+      </section>`; }).join('');
+    setH($('#execs'), h);
+  }
+  function renderAnalysts(s) {
+    const h = desk().analysts.map((a) => { const g = a.signal; const w = a.weight || 1;
+      return `<button class="glass an${a.paused ? ' off' : ''}${g ? ' sig ' + (g.side === 'SHORT' ? 'dn' : 'up') : ''}" data-an="${esc(a.id)}" role="listitem" type="button">
+        <div class="an-h"><span class="an-ic">${esc(a.icon)}</span><b>${esc(a.name)}</b></div>
+        <div class="an-s">${a.paused ? '<span class="mu">in pausa</span>' : g ? `${g.side === 'SHORT' ? '▼' : '▲'} <b>$${esc(g.symbol)}</b> <span>${nf(g.conf * 100, 0)}%</span>` : '<span class="mu">nessun segnale</span>'}</div>
+        <div class="cbar sm"><i style="width:${g && !a.paused ? g.conf * 100 : 0}%"></i></div>
+        <div class="an-f"><span>successo ${a.hitRate == null ? '—' : nf(a.hitRate, 0) + '%'}</span><span class="${w > 1.02 ? 'mint' : w < 0.98 ? 'red' : ''}">peso ${nf(w, 2)}</span></div></button>`; }).join('');
+    setH($('#anGrid'), h);
+  }
+  function renderMentorBox(s) {
+    const g = desk(); const ins = g.insight; const corr = g.corrections || [];
+    $('#mInsight').textContent = corr.length ? corr.map((c) => c.text).filter(Boolean)[0] || 'Correzioni in corso' : ins ? ins.text : (s.entryBlock || 'Il Mentore osserva: aggiorna i pesi degli analisti a ogni trade chiuso e legge le notizie ogni 90 s.');
+    $('#mT').textContent = ins ? hhmm(ins.t) : '';
+    $('#mCard').classList.toggle('alert', corr.length > 0);
+    $('#mCoins').textContent = (g.coins || []).length ? `Radar: ${g.coins.map((c) => (c.meme ? '🐸' : '') + c.symbol).join(' · ')}` : '';
+    const ch = corr.length ? corr.map((c) => { const x = execOf(c.bot); return `<div class="kv"><span>${xTag(c.bot)} <b>${esc(x ? x.name : c.bot)}</b></span><span class="mu">${esc(c.resting ? 'pausa di 2 min' : 'più selettivo')}</span></div><div class="mu small">${esc(c.text)}</div>`; }).join('') : '<div class="empty">Nessuna correzione in corso.</div>';
+    setH($('#mCorr'), ch);
     const n = s.research && s.research.news;
-    const nh = n && n.latest && n.latest.length ? n.latest.map((x) => `<a class="nw" href="${esc(/^https:\/\//.test(x.link || '') ? x.link : '#')}" target="_blank" rel="noopener noreferrer"><span class="nw-s ${x.sentiment > 0.15 ? 'mint' : x.sentiment < -0.15 ? 'red' : 'mu'}">${x.sentiment > 0.15 ? '▲' : x.sentiment < -0.15 ? '▼' : '•'}</span><span><b>${esc(x.title)}</b><small class="mu">${esc(x.source || '')}${x.t ? ' · ' + hhmm(x.t) : ''}${x.assets && x.assets.length ? ' · ' + esc(x.assets.join(', ')) : ''}${x.risk > 0.3 ? ' · ⚠️ rischio' : ''}</small></span></a>`).join('') : '<div class="empty">Nessuna notizia recente.</div>';
-    if ($('#news').dataset.h !== nh) { $('#news').dataset.h = nh; $('#news').innerHTML = nh; }
+    const nh = n && n.latest && n.latest.length ? n.latest.slice(0, 6).map((x) => `<a class="nw" href="${esc(/^https:\/\//.test(x.link || '') ? x.link : '#')}" target="_blank" rel="noopener noreferrer"><span class="nw-s ${x.sentiment > 0.15 ? 'mint' : x.sentiment < -0.15 ? 'red' : 'mu'}">${x.sentiment > 0.15 ? '▲' : x.sentiment < -0.15 ? '▼' : '•'}</span><span><b>${esc(x.title)}</b><small class="mu">${esc(x.source || '')}${x.t ? ' · ' + hhmm(x.t) : ''}${x.assets && x.assets.length ? ' · ' + esc(x.assets.join(', ')) : ''}${x.risk > 0.3 ? ' · ⚠️ rischio' : ''}</small></span></a>`).join('') : '<div class="empty">Nessuna notizia recente.</div>';
+    setH($('#news'), nh);
     $('#newsT').textContent = n && n.lastCheck ? `ogni 90 s · ultimo controllo ${hhmm(n.lastCheck)}` : 'ogni 90 s';
   }
-  $('#mCorr').addEventListener('click', (e) => { const b = e.target.closest('[data-bot]'); if (b) botSheet(b.dataset.bot); });
+  // rischio regolabile direttamente (cursori): margine max per operazione, posizioni, esposizione, perdita giornaliera
+  const RISK = [
+    { k: 'maxTradePct', l: 'Margine massimo per operazione', min: 1, max: 20, step: 1, f: (v) => v + '% del capitale', n: 'Tetto rigido 20%. Il trader usa dal 40% al 100% di questo valore in base alla forza del consenso.' },
+    { k: 'maxOpen', l: 'Posizioni aperte insieme', min: 1, max: 15, step: 1, f: (v) => v + ' posizioni', n: 'Leva e short solo su SOL/BTC/ETH (una per mercato); le altre sono spot 1x long.' },
+    { k: 'maxExposurePct', l: 'Esposizione totale massima', min: 50, max: 1000, step: 50, f: (v) => v + '% del capitale', n: 'Somma di margine × leva di tutte le posizioni. Oltre, il trade viene ridotto o bloccato.' },
+    { k: 'dailyLossPct', l: 'Limite di perdita giornaliera', min: 1, max: 50, step: 1, f: (v) => '−' + v + '% in un giorno', n: 'Raggiunto il limite, nessun nuovo ingresso fino a domani (le posizioni aperte restano protette dagli stop).' },
+  ];
+  let riskDirty = false;
+  function riskNote(c) {
+    const lev = c.leverage || 5; const dist = (S.shorts && S.shorts.liqDist && S.shorts.liqDist[lev]) || 100 / lev; const stop = Math.min(6, dist * 0.4); // stop ATR, mai oltre il 6% né oltre il 40% della distanza dalla liquidazione
+    return `Esempio con ${lev}x: margine ${c.maxTradePct}% → esposizione ${c.maxTradePct * lev}% del capitale; lo stop resta entro ${nf(stop, 1)}% (max 6% e mai oltre il 40% della distanza dalla liquidazione), quindi il rischio massimo per operazione è circa ${nf((c.maxTradePct * lev * stop) / 100, 1)}% del capitale (di solito meno: lo stop dipende dalla volatilità). Con ${c.maxOpen} posizioni il rischio si somma.`;
+  }
+  function renderRiskForm(s, force) {
+    const box = $('#riskForm'); if (!box || (riskDirty && !force)) return;
+    if (force) riskDirty = false;
+    const c = s.cfg;
+    const h = RISK.map((r) => `<label class="rs"><span class="rs-l">${r.l}<b data-rv="${r.k}">${r.f(c[r.k])}</b></span><input type="range" data-rk="${r.k}" min="${r.min}" max="${r.max}" step="${r.step}" value="${c[r.k]}" aria-label="${esc(r.l)}"><small>${r.n}</small></label>`).join('')
+      + `<p class="note" id="riskEx">${riskNote(c)}</p><div class="btns"><button class="btn pri" id="riskSave" type="button" disabled>Salva rischio</button></div><div class="err" id="riskErr"></div>`;
+    if (box.dataset.h !== h) { box.dataset.h = h; box.innerHTML = h; }
+  }
+  $('#riskForm').addEventListener('input', (e) => {
+    const i = e.target.closest('[data-rk]'); if (!i) return; riskDirty = true;
+    const r = RISK.find((x) => x.k === i.dataset.rk); $(`[data-rv="${r.k}"]`).textContent = r.f(Number(i.value));
+    const c = { ...S.cfg }; $$('[data-rk]').forEach((x) => { c[x.dataset.rk] = Number(x.value); }); $('#riskEx').textContent = riskNote(c);
+    $('#riskSave').disabled = false;
+  });
+  $('#riskForm').addEventListener('click', async (e) => {
+    if (!e.target.closest('#riskSave')) return; const btn = $('#riskSave'); btn.disabled = true; $('#riskErr').textContent = '';
+    const patch = {}; $$('[data-rk]').forEach((x) => { patch[x.dataset.rk] = Number(x.value); });
+    try { await api('/api/config', patch); riskDirty = false; toast('✅ Rischio aggiornato'); S = await api('/api/state'); render(S); renderRiskForm(S, true); }
+    catch (er) { $('#riskErr').textContent = er.message; btn.disabled = false; }
+  });
+  $('#homeExecs').addEventListener('click', (e) => { if (e.target.closest('[data-exec]')) setTab('trader'); });
+  $('#execs').addEventListener('click', async (e) => {
+    const t = e.target.closest('[data-xpause]'); if (!t) return;
+    const x = execOf(t.dataset.xpause); if (!x) return; const paused = !x.paused; t.disabled = true;
+    try { await api('/api/bot/pause', { id: x.id, paused }); x.paused = paused; toast(paused ? `⏸ ${x.name} in pausa (le posizioni aperte restano gestite)` : `▶ ${x.name} di nuovo al lavoro`); renderExecs(S); renderHomeExecs(S); }
+    catch (er) { toast(er.message); } finally { t.disabled = false; }
+  });
+  $('#anGrid').addEventListener('click', (e) => { const b = e.target.closest('[data-an]'); if (b) analystSheet(b.dataset.an); });
   $('#know').addEventListener('click', () => agentSheet('MENTORE'));
   $('#research').addEventListener('click', () => agentSheet('MENTORE'));
   $('#mentorDiary').addEventListener('click', () => agentSheet('MENTORE'));
+  $('#mCard').addEventListener('click', () => setTab('anal'));
   $('#logoutBtn').addEventListener('click', async () => { try { await api('/api/auth/logout', {}); } catch {} location.reload(); });
 
-  // scheda di un pianeta (bot)
-  function botSheet(id) {
-    if (!botOf(id)) return;
-    Sky.select(id);
+  // scheda di un analista
+  function analystSheet(id) {
     const draw = () => {
-      const b = botOf(id); if (!b) return '<div class="empty">Bot non trovato</div>';
-      const d = S.base === 'SOL' ? 4 : 2;
-      const ps = S.positions.filter((p) => p.bot === id);
-      const posH = ps.length ? ps.map((p) => `<div class="kv"><span><b>$${esc(p.symbol)}</b> <span class="side ${p.side === 'SHORT' ? 'short' : 'long'}">${p.side === 'SHORT' ? '▼ SHORT' : '▲ LONG'} ${p.lev || 1}x</span><br><small class="mu">ingresso ${hhmm(p.openedAt)} · ${p.stopKind === 'trailing' ? 'trailing' : 'stop'} ${p.stopPct != null ? nf(p.stopPct, 1) + '%' : '−' + nf(p.slPct, 1) + '%'}</small></span><span class="r"><b class="${pnlCls(p.pnl)}">${p.pnl >= 0 ? '+' : ''}${nf(p.pnl, d)}</b><br><small>${nf(p.pnlPct, 2)}%</small> <button class="chip" data-closepos="${esc(p.id)}">Chiudi</button></span></div>`).join('') : '<div class="empty">Nessuna posizione aperta.</div>';
-      const hist = b.history.length ? b.history.map((t) => `<div class="kv"><span>${hhmm(t.closedAt)} <b>$${esc(t.symbol)}</b> <small class="mu">${t.side === 'SHORT' ? '▼' : '▲'}${t.lev > 1 ? ' ' + t.lev + 'x' : ''} · ${esc(t.reason || '')}</small></span><b class="${pnlCls(t.pnl)}">${t.pnl >= 0 ? '+' : ''}${nf(t.pnl, d)}</b></div>`).join('') : '<div class="empty">Ancora nessuna operazione chiusa.</div>';
-      const wr = b.wins + b.losses ? Math.round((b.wins / (b.wins + b.losses)) * 100) + '%' : '—';
-      return `<div class="bs-h"><span class="planet" style="--h:${b.hue}"></span><div><h4>${esc(b.name)}</h4><div class="mu">${esc(b.strategyName)} · ${esc(b.styleLabel)}</div></div>
-        <span class="sp"></span><button class="tgl ${b.paused ? '' : 'on'}" id="bPause" role="switch" aria-checked="${b.paused ? 'false' : 'true'}" aria-label="Bot attivo"><i></i></button></div>
-        <div class="bs-st">${esc(botStatus(b))}</div>
-        ${b.note ? `<div class="bs-note">🔦 ${esc(b.note)}</div>` : ''}
-        <div class="grid3"><div class="cell"><span>PnL</span><b class="${pnlCls(b.pnl)}">${money(b.pnl)}</b></div><div class="cell"><span>Capitale</span><b>${money(b.capital, false)}</b></div><div class="cell"><span>Vincenti</span><b>${wr}</b></div>
-        <div class="cell"><span>Trade</span><b>${b.trades}</b></div><div class="cell"><span>Aperto</span><b class="${pnlCls(b.unrealized)}">${money(b.unrealized)}</b></div><div class="cell"><span>Attività</span><b>${Math.round(b.activity * 100)}%</b></div></div>
-        <div class="grp"><span class="lbl">Strategia</span><div class="glass pad"><b>${esc(b.strategyName)}</b><p class="note">${esc(b.strategyDesc)}${b.strategy ? ` · ${b.strategyActive ? `✅ attiva fuori campione su ${esc((b.strategyOn || []).join(', '))}` : '⏳ in studio: conta solo quando il backtest la promuove'}` : ''}</p><p class="note">Leva e short solo su SOL/BTC/ETH · sulle altre cripto spot 1x solo long · margine ${S.cfg.maxTradePct}% per operazione · una posizione alla volta.</p></div></div>
-        <div class="grp"><span class="lbl">Posizioni aperte</span><div class="glass pad">${posH}</div></div>
-        <div class="grp"><span class="lbl">Storico</span><div class="glass pad">${hist}</div></div>
+      const a = anOf(id); if (!a) return '<div class="empty">Analista non trovato</div>';
+      const g = a.signal; const items = (desk().feed || []).filter((f) => f.who === id).slice(0, 8);
+      return `<div class="bs-h"><span class="an-ic lg">${esc(a.icon)}</span><div><h4>${esc(a.name)}</h4><div class="mu">Guarda: ${esc(a.scope)}</div></div>
+        <span class="sp"></span><button class="tgl ${a.paused ? '' : 'on'}" id="aPause" role="switch" aria-checked="${a.paused ? 'false' : 'true'}" aria-label="Analista attivo"><i></i></button></div>
+        <p class="note">${esc(a.desc)}</p>
+        <div class="grid3"><div class="cell"><span>Successo</span><b>${a.hitRate == null ? '—' : nf(a.hitRate, 0) + '%'}</b></div><div class="cell"><span>Voti valutati</span><b>${a.n}</b></div><div class="cell"><span>Peso</span><b>${nf(a.weight, 2)}</b></div></div>
+        <div class="grp"><span class="lbl">Segnale attuale</span><div class="glass pad">${g ? `${sideTag(g.side)} <b>$${esc(g.symbol)}</b> · fiducia ${nf(g.conf * 100, 0)}%<div class="mu small">${esc(g.why)} · ${hhmm(g.t)}</div>` : '<span class="mu">nessun segnale forte ora</span>'}</div></div>
+        <div class="grp"><span class="lbl">Ultimi segnali</span><div class="glass feed">${items.map(feedItem).join('') || '<div class="empty">nessuno</div>'}</div></div>
+        <p class="note">Il peso parte da 1 e va da 0,4 a 1,6: sale quando il voto dell'analista era giusto sul trade chiuso, scende quando era sbagliato. Un analista in pausa non vota.</p>
         <div class="btns"><button class="btn ghost" data-close>Chiudi</button></div>`;
     };
     openSheet(draw, (body) => {
-      const t = $('#bPause', body); if (t) t.addEventListener('click', async () => {
-        const b = botOf(id); const paused = !b.paused; t.disabled = true;
-        try { await api('/api/bot/pause', { id, paused }); b.paused = paused; toast(paused ? `⏸ ${b.name} in pausa (le posizioni aperte restano gestite)` : `▶ ${b.name} di nuovo in orbita`); S.galaxy.bots = S.galaxy.bots.slice(); Sky.setState(S); }
+      const t = $('#aPause', body); if (t) t.addEventListener('click', async () => {
+        const a = anOf(id); const paused = !a.paused; t.disabled = true;
+        try { await api('/api/bot/pause', { id, paused }); a.paused = paused; toast(paused ? `⏸ ${a.name} non vota più` : `▶ ${a.name} di nuovo al lavoro`); renderAnalysts(S); }
         catch (er) { toast(er.message); } finally { t.disabled = false; }
       });
     }, true);
@@ -500,16 +588,16 @@
 
   // ---------- eventi live
   function onEv(e) {
-    Sky.event(e);
     const who = e.bot ? botName(e.bot) : null; const tag = who ? ` · ${who}` : '';
     if (e.type === 'log') appendLog(e);
     if (e.type === 'cash') cashFx(e);
-    if (e.type === 'correct') toast(`🔦 ${e.text}`);
+    if (e.type === 'correct') toast(`🔧 ${e.text}`);
+    if (e.type === 'breaker') toast(`⛔ ${e.text}`, 6000);
     const d = S && S.base === 'SOL' ? 4 : 2; const u = S ? S.base : '';
     if (e.type === 'trade' && e.side === 'PARTIAL') toast(`💰 Presa parziale ${e.pct}% su $${e.symbol}${tag} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, d)} ${u}`);
-    else if (e.type === 'trade' && e.side === 'SHORT') toast(`☄️ SHORT ${e.lev}x su $${e.symbol}${tag}${e.mode === 'SIM' ? ' (simulato)' : ''}`);
-    else if (e.type === 'trade' && e.short) toast(`${(e.pnl || 0) >= 0 ? '✨' : '🌑'} Chiuso $${e.symbol}${tag} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, d)} ${u}`);
-    else if (e.type === 'trade') toast(e.side === 'BUY' ? `☄️ ${e.lev > 1 ? `LONG ${e.lev}x su` : 'Comprato'} $${e.symbol}${tag}${e.mode === 'SIM' ? ' (simulato)' : ''}` : `${(e.pnl || 0) >= 0 ? '✨' : '🌑'} Venduto $${e.symbol}${tag} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, d)} ${u}`);
+    else if (e.type === 'trade' && e.side === 'SHORT') toast(`▼ SHORT ${e.lev}x su $${e.symbol}${tag}${e.mode === 'SIM' ? ' (simulato)' : ''}`);
+    else if (e.type === 'trade' && e.short) toast(`${(e.pnl || 0) >= 0 ? '✅' : '🔻'} Chiuso $${e.symbol}${tag} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, d)} ${u}`);
+    else if (e.type === 'trade') toast(e.side === 'BUY' ? `▲ ${e.lev > 1 ? `LONG ${e.lev}x su` : 'Comprato'} $${e.symbol}${tag}${e.mode === 'SIM' ? ' (simulato)' : ''}` : `${(e.pnl || 0) >= 0 ? '✅' : '🔻'} Venduto $${e.symbol}${tag} · ${(e.pnl >= 0 ? '+' : '') + nf(e.pnl, d)} ${u}`);
   }
 
   let lastLogT = 0;
@@ -538,17 +626,21 @@
     document.body.classList.toggle('is-real', real);
     $('#demoPill').classList.toggle('hidden', !(s.host && s.host.demo));
     const lv = $('#live'); lv.classList.toggle('off', !s.live); lv.lastChild.textContent = s.live ? 'LIVE' : 'IN ATTESA';
-    // sole: equity e PnL leggibili sopra il canvas
-    $('#sunLbl').textContent = real ? 'Portafoglio reale' : 'Portafoglio simulato';
+    // capitale, PnL e ROI in alto nella Home
+    $('#eqLbl').textContent = real ? 'Capitale reale' : 'Capitale simulato';
+    const em = $('#eqMode'); em.textContent = real ? 'REALE' : 'SIM'; em.className = 'badge-m ' + (real ? 'real' : 'sim');
+    $('#eqRoi').textContent = 'ROI ' + nf(s.roi, 2) + 'x'; $('#eqRoi').classList.toggle('neg', s.roi < 1);
     const pctAll = s.startEquity > 0 ? (s.pnl / s.startEquity) * 100 : 0;
     if (s.equityEur != null) tween('bal', $('#bal'), s.equityEur, eur); else tween('bal', $('#bal'), s.equity, (v) => nf(v, s.base === 'SOL' ? 4 : 2) + ' ' + s.base);
     if (s.pnlEur != null) tween('pl', $('#pl'), s.pnlEur, (v) => `${v >= 0 ? '+' : '−'}${eur(Math.abs(v))} · ${pctAll >= 0 ? '+' : '−'}${nf(Math.abs(pctAll), 2)}%`);
     else tween('pl', $('#pl'), s.pnl, (v) => `${v >= 0 ? '+' : '−'}${nf(Math.abs(v), s.base === 'SOL' ? 4 : 2)} ${s.base} · ${pctAll >= 0 ? '+' : '−'}${nf(Math.abs(pctAll), 2)}%`);
-    $('#pl').className = 'sr-p ' + pnlCls(s.pnl);
+    $('#pl').className = pnlCls(s.pnl);
+    { const { pb, fmt } = pnlConv(s); const cl = (id, v) => { const el = $(id); el.textContent = fmt(v || 0); el.className = pnlCls(v); }; cl('#eqDay', pb.day); cl('#eqTot', pb.total);
+      $('#eqWr').textContent = s.winRate == null ? '—' : `${nf(s.winRate, 0)}% (${s.wins}/${s.wins + s.losses})`; }
     $('#heroMeta').textContent = `${nf(s.equity, s.base === 'SOL' ? 4 : 2)} ${s.base} · vincenti ${s.winRate == null ? '—' : nf(s.winRate, 0) + '%'} (${s.wins}/${s.wins + s.losses}) · commissioni ${nf(s.fees, s.base === 'SOL' ? 5 : 3)} ${s.base} · ROI ${nf(s.roi, 2)}x`;
     const kb = $('#killBox'); kb.classList.toggle('hidden', !s.killed);
-    if (s.killed) kb.innerHTML = `<b>Kill switch attivo.</b> ${esc(s.killReason || '')} · Il bot ha venduto tutto e si è fermato. Per ripartire: Sicurezza → Impostazioni → Riarma.`;
-    const g = s.galaxy || { bots: [], focus: [], corrections: [] };
+    if (s.killed) kb.innerHTML = `<b>Kill switch attivo.</b> ${esc(s.killReason || '')} · Il bot ha venduto tutto e si è fermato. Per ripartire: Impostazioni → Leva, uscite… → Riarma.`;
+    const g = s.desk || { execs: [], analysts: [], corrections: [] };
     const eb = $('#entryBlock'); const blockTxt = s.entryBlock ? '⏸ ' + (g.realWaiting || s.entryBlock) + ' Le posizioni già aperte restano gestite.' : g.realNote ? 'ℹ️ ' + g.realNote : '';
     eb.classList.toggle('hidden', !blockTxt); eb.textContent = blockTxt;
     tween('sA', $('#sA'), s.counters.analyzed, (v) => Math.round(v).toLocaleString('it-IT'));
@@ -556,7 +648,7 @@
     tween('sO', $('#sO'), s.counters.approved, (v) => Math.round(v).toLocaleString('it-IT'));
     renderPnl(s);
     renderKnowledge(s); renderResearch(s); renderMentor(s);
-    renderFocus(s); renderBeacon(s); renderBotList(s); renderMentorTab(s);
+    renderRisk(s); renderHomeExecs(s); renderExecs(s); renderAnalysts(s); renderFeed(s); renderMentorBox(s); renderRiskForm(s);
     if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; }
     $('#secSpot').textContent = s.cfg.realSpot ? 'ACCESO (swap veri)' : 'spento'; $('#secSpot').className = s.cfg.realSpot ? 'red' : 'mint';
     renderWallet(s);
@@ -567,22 +659,10 @@
     const rh = rules.map(([k, v]) => `<div class="rule"><div class="rl"><span>${esc(k)}</span><b>${v}</b></div><div class="rb"><i style="width:${(v / max) * 100}%"></i></div></div>`).join('') || '<div class="empty">ancora nessuno scarto</div>';
     if ($('#rules').dataset.h !== rh) { const old = $('#rules').innerHTML; $('#rules').dataset.h = rh; $('#rules').innerHTML = rh.replace(/width:[\d.]+%/g, (m) => (old ? m : 'width:0%')); if (!old) requestAnimationFrame(() => { $('#rules').innerHTML = rh; }); }
     // posizioni
-    const nm = (id) => { const b = botOf(id); return b ? `<span class="who" style="--h:${b.hue}">${esc(b.name)}</span>` : ''; };
     const d = s.base === 'SOL' ? 4 : 2;
-    $('#posN').textContent = `${s.positions.length} / ${s.cfg.maxOpen}`;
-    $('#pos').innerHTML = s.positions.map((p) => {
-      const lo = p.stop != null ? p.stop : p.sl, hi = p.next != null ? p.next : p.tp;
-      const span = hi - lo; const k = span !== 0 && p.price ? Math.max(0, Math.min(1, (p.price - lo) / span)) : 0.5;
-      const sgnP = (x) => (x >= 0 ? '+' : '−') + nf(Math.abs(x), 1) + '%';
-      const sh = p.side === 'SHORT'; const pp = sh || p.perp; const px = (x) => (x >= 100 ? nf(x, 0) : x >= 1 ? nf(x, 2) : nf(x, 4));
-      const badge = `<span class="side ${sh ? 'short' : 'long'}">${sh ? '▼ SHORT' : '▲ LONG'} ${p.lev || 1}x</span>`;
-      return `<div data-pid="${esc(p.id)}" class="pcard${sh ? ' isShort' : ''}${pp && (p.lev || 1) >= 5 ? ' hiLev' : ''}"><div><div class="sym">$${esc(p.symbol)} ${badge} ${nm(p.bot)}</div><div class="sub2">${pp ? `margine ${nf(p.costBase, d)} ${s.base} · esposizione $${nf(p.sizeUsd, 2)} · ingresso $${px(p.entryPrice)}` : `ingresso ${nf(p.costBase, d)} ${s.base}`} · ${hhmm(p.openedAt)}${p.sigOpen ? ` · <a href="https://solscan.io/tx/${p.sigOpen}" target="_blank" rel="noopener">tx</a>` : ''}</div></div>
-      <div class="pnl ${p.pnl >= 0 ? 'mint' : 'red'}">${p.pnl >= 0 ? '+' : ''}${nf(p.pnl, d)}<div class="sub2">${nf(p.pnlPct, 2)}%</div></div>
-      ${pp ? `<div class="sub2 liq" style="grid-column:1/3">☠️ liquidazione $${px(p.liqPrice)} (${sgnP(((p.liqPrice - p.entryPrice) / p.entryPrice) * 100)}) · ora $${p.price ? px(p.price) : '—'} · commissioni $${nf(p.perpFeesUsd || 0, 3)}</div>` : ''}
-      ${p.partialsN ? `<div class="sub2 pp" style="grid-column:1/3">💰 ${p.partialsN} ${p.partialsN === 1 ? 'presa parziale' : 'prese parziali'} (${p.soldPct}% ${sh ? 'ricomprato' : 'venduto'}) · incassato ${p.realizedPart >= 0 ? '+' : ''}${nf(p.realizedPart, d)} ${s.base}</div>` : ''}
-      <div class="rng" title="stop → prossimo obiettivo"><i style="left:calc(${k * 100}% - 1px)"></i></div>
-      <div class="sub2">${p.stopKind === 'trailing' ? '🪜 trailing' : p.stopKind === 'pareggio' ? '🛡 pareggio' : 'stop'} ${p.stopPct != null ? sgnP(p.stopPct) : '−' + nf(p.slPct, 1) + '%'}</div><div class="sub2" style="text-align:right">${p.nextLabel ? esc(p.nextLabel) + ' ' + sgnP(p.nextPct) : 'target +' + nf(p.tpPct, 1) + '%'} <button class="chip" data-closepos="${p.id}" style="margin-left:6px;padding:3px 8px">Chiudi</button></div></div>`;
-    }).join('') || '<div class="empty">Nessuna posizione aperta: i bot entrano solo quando tutte le regole sono rispettate.</div>';
+    $('#posN').textContent = `${s.positions.length} / ${s.cfg.maxOpen}`; $('#homePosN').textContent = `${s.positions.length}/${s.cfg.maxOpen}`;
+    $('#pos').innerHTML = s.positions.map((p) => posCard(p, s, false)).join('') || '<div class="empty">Nessuna posizione aperta: i trader entrano solo quando il consenso degli analisti supera la soglia e tutte le regole di rischio sono rispettate.</div>';
+    setH($('#homePos'), s.positions.slice(0, 5).map((p) => posCard(p, s, true)).join('') + (s.positions.length > 5 ? `<button class="lnk more" data-go="pos" type="button">+${s.positions.length - 5} altre ›</button>` : '') || '<div class="empty glass">Nessuna posizione aperta.</div>');
     $('#histN').textContent = s.trades.length ? `${s.trades.length} chiuse` : '';
     $('#hist').innerHTML = s.trades.length ? `<table class="h">${s.trades.slice(0, 25).map((t) => `<tr><td>${hhmm(t.closedAt)}</td><td><b>$${esc(t.symbol)}</b> <span class="side ${t.side === 'SHORT' ? 'short' : 'long'}">${t.side === 'SHORT' ? '▼ S' : '▲ L'}${t.lev > 1 ? ' ' + t.lev + 'x' : ''}</span><div class="mu" style="font-size:11px">${esc(t.reason)}</div></td><td class="r ${t.pnl >= 0 ? 'mint' : 'red'}">${t.pnl >= 0 ? '+' : ''}${nf(t.pnl, d)}<div style="font-size:11px">${nf(t.pnlPct, 2)}%</div></td><td class="r">${t.sigClose ? `<a href="https://solscan.io/tx/${t.sigClose}" target="_blank" rel="noopener">tx</a>` : '<span class="mu">sim</span>'}</td></tr>`).join('')}</table>` : '<div class="empty">Ancora nessuna operazione chiusa.</div>';
     // portafogli
@@ -599,7 +679,6 @@
     const run = $('#runBtn'); run.classList.toggle('on', s.trading);
     run.innerHTML = s.trading ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg><span>Pausa</span>' : '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>Avvia</span>';
     $('#navPh').textContent = s.user.address ? short(s.user.address).slice(0, 6) : 'Phantom';
-    Sky.setState(s);
   }
 
   document.addEventListener('click', async (e) => {
@@ -615,9 +694,8 @@
     paint();
     sheetRefresh = live ? () => { if (!body.contains(document.activeElement) || document.activeElement === document.body) paint(); } : null;
     $('#sheetBg').classList.remove('hidden'); requestAnimationFrame(() => { $('#sheetBg').classList.add('open'); $('#sheet').classList.add('open'); });
-    setTimeout(() => { if ($('#sheet').classList.contains('open') && window.Sky) Sky.setVisible(false); }, 320);
   }
-  function closeSheet() { sheetRefresh = null; $('#sheet').classList.remove('open'); $('#sheetBg').classList.remove('open'); setTimeout(() => $('#sheetBg').classList.add('hidden'), 250); if (window.Sky) { Sky.select(null); Sky.setVisible(tab === 'sky' && !$('#dash').classList.contains('hidden')); } }
+  function closeSheet() { sheetRefresh = null; $('#sheet').classList.remove('open'); $('#sheetBg').classList.remove('open'); setTimeout(() => $('#sheetBg').classList.add('hidden'), 250); }
   $('#sheetBg').addEventListener('click', closeSheet);
 
   // ---------- Phantom
@@ -679,7 +757,7 @@
         b.disabled = true;
         try {
           if (S.trading) { await api('/api/trading', { on: false }); toast('⏸ Bot in pausa: le posizioni aperte restano protette da stop e target'); }
-          else { await api('/api/trading', { on: true }); toast('🚀 I 14 bot sono in orbita'); }
+          else { await api('/api/trading', { on: true }); toast('🚀 Sala operativa al lavoro: 12 analisti, Alpha e Omega'); }
         } finally { b.disabled = false; }
       }
       if (a === 'withdraw') withdrawSheet();
@@ -783,11 +861,10 @@
         <div class="card"><div class="row"><b>${S.mode === 'REAL' ? 'REALE · soldi veri' : 'SIMULAZIONE'}</b><span class="sp"></span><button class="chip" id="sMode">${S.mode === 'REAL' ? 'Passa a simulazione' : 'Passa a reale…'}</button></div></div></div>
       <div class="grp"><span class="lbl">Gestione del rischio</span><div class="grid2">
         ${num('maxLossPct', 'Kill switch: perdita totale %')}${num('maxLossAbs', `Kill switch: perdita max (${S.base}, 0=off)`)}
-        ${num('dailyLossPct', 'Stop giornaliero %')}${num('maxTradePct', 'Rischio per operazione (% capitale)')}
-        ${num('maxOpen', 'Posizioni max', '1')}${num('slippageBps', 'Slippage (bps, 100=1%)', '1')}
+        ${num('cycleSec', 'Scansione ogni (secondi)', '1')}${num('slippageBps', 'Slippage (bps, 100=1%)', '1')}
         ${num('maxPriceImpactPct', 'Impatto prezzo max %')}${num('cooldownMin', 'Pausa dopo un token (min)', '1')}
         ${num('maxHoldMin', 'Durata max posizione (min)', '1')}${num('feeReserveSol', 'Riserva SOL commissioni')}</div>
-        <p class="note">Ogni nuova operazione è con leva (min 5x) su SOL/BTC/ETH. Stop-loss e target sono calcolati sulla volatilità (ATR).</p></div>
+        <p class="note">Margine per operazione, posizioni max, esposizione e limite giornaliero si regolano con i cursori in Impostazioni → Rischio della sala (ora: ${c.maxTradePct}% · ${c.maxOpen} posizioni · ${c.maxExposurePct}% · −${c.dailyLossPct}%/giorno). Stop-loss e target sono calcolati sulla volatilità (ATR).</p></div>
       <div class="grp"><span class="lbl">Short (LONG + SHORT)</span>
         <div class="switch"><span>Short su SOL, BTC, ETH (Jupiter Perps, collaterale USDC)</span><span class="toggle ${c.shortsOn ? 'on' : ''}" data-t="shortsOn"></span></div>
         <div class="switch"><span>Long con leva su SOL, BTC, ETH (spento = solo short)</span><span class="toggle ${c.perpLongs ? 'on' : ''}" data-t="perpLongs"></span></div>
@@ -795,7 +872,7 @@
         <div class="seg" id="sLev">${[5, 10].map((l) => `<button type="button" class="${(c.leverage || 5) === l ? 'on' : ''} hot" data-lev="${l}">${l}x</button>`).join('')}</div>
         <input type="hidden" data-k="leverage" value="${c.leverage || 5}">
         <div class="note" id="sLevNote"></div>
-        <p class="note">Margine = ${c.maxTradePct}% del capitale (non cambia con la leva). Commissioni Jupiter: 0,06% apertura + 0,06% chiusura sull'esposizione + prestito orario (oggi ~0,0001%/h, in simulazione contiamo 0,001%/h). Lo stop-loss resta sempre entro il 40% della distanza dalla liquidazione e il bot chiude comunque all'80%; con più leva stop, prese parziali e trailing diventano più stretti. Mai un long e uno short insieme sullo stesso asset.</p>
+        <p class="note">Margine = fino al ${c.maxTradePct}% del capitale × forza del consenso (non cambia con la leva). Commissioni Jupiter: 0,06% apertura + 0,06% chiusura sull'esposizione + prestito orario (oggi ~0,0001%/h, in simulazione contiamo 0,001%/h). Lo stop-loss resta sempre entro il 40% della distanza dalla liquidazione e il bot chiude comunque all'80%; con più leva stop, prese parziali e trailing diventano più stretti. Mai un long e uno short insieme sullo stesso asset.</p>
         ${S.shorts && !S.shorts.realEnabled ? `<p class="note warnTxt">⚠️ ${esc(S.shorts.realMsg)}</p>` : ''}</div>
       <div class="grp"><span class="lbl">Uscite furbe</span>
         <div class="switch"><span>Uscite furbe (prese parziali, trailing, uscite rapide)</span><span class="toggle ${c.smartExits ? 'on' : ''}" data-t="smartExits"></span></div>
@@ -816,7 +893,7 @@
         <p class="note">Con i filtri allentati entrano anche i token «community»/«strict» di Jupiter (non solo i verificati) e i Token-2022 senza commissioni di trasferimento, hook, delegati permanenti o blocchi. <b>Anti-truffa sempre attivi</b>: via di vendita su Jupiter (anti-honeypot), niente autorità di mint/freeze, RugCheck senza rischi gravi (punteggio ≤ ${c.maxRugScore}), tetto agli holder, niente pump > ${c.maxPump1hPct}% in 1h né crolli > ${c.maxDump24hPct}% in 24h. Le memecoin si comprano solo <b>spot 1x long</b>, ${c.maxTradePct}% per operazione, con uscite furbe; in REALE serve «Spot REALE». Le memecoin sono molto volatili: nessun guadagno garantito.</p></div>
       <div class="grp"><span class="lbl">Cripto su cui lavorano i bot</span>
         <div class="chips" style="margin-top:4px">${['SOL', 'BTC', 'ETH'].map((x) => `<span class="chip on">${x} · ${c.leverage || 5}x L/S</span>`).join('')}<span class="chip">tutte le altre · spot 1x long</span></div>
-        <p class="note">I 14 bot lavorano su <b>massimo 3 cripto di focus</b> scelte dal Mentore fra tutte quelle scambiabili su Solana con Phantom/Jupiter (anche quelle nel tuo Phantom) che superano i filtri di sicurezza: verificate su Jupiter, niente autorità di mint/freeze, niente Token-2022, liquidità ≥ ${Math.round(c.uniMinLiqUsd / 1000)}k $, volume 24h ≥ ${Math.round(c.uniMinVol24hUsd / 1000)}k $, capitalizzazione ≥ ${Math.round(c.uniMinMcapUsd / 1e6)}M $, età ≥ ${c.uniMinAgeDays} giorni, RugCheck e via di vendita su Jupiter. <b>Leva e short solo su SOL, BTC, ETH</b> (Jupiter Perps, min 5x); sulle altre cripto <b>spot 1x, solo long</b>, stessa dimensione (${c.maxTradePct}%) e uscite furbe.</p>
+        <p class="note">Gli analisti guardano <b>SOL, BTC, ETH più fino a 12 cripto spot</b> scelte ogni 2 minuti fra tutte quelle scambiabili su Solana con Phantom/Jupiter (anche quelle nel tuo Phantom) che superano i filtri di sicurezza: verificate su Jupiter, niente autorità di mint/freeze, niente Token-2022, liquidità ≥ ${Math.round(c.uniMinLiqUsd / 1000)}k $, volume 24h ≥ ${Math.round(c.uniMinVol24hUsd / 1000)}k $, capitalizzazione ≥ ${Math.round(c.uniMinMcapUsd / 1e6)}M $, età ≥ ${c.uniMinAgeDays} giorni, RugCheck e via di vendita su Jupiter. <b>Leva e short solo su SOL, BTC, ETH</b> (Jupiter Perps, min 5x); sulle altre cripto <b>spot 1x, solo long</b>, stessa dimensione (${c.maxTradePct}%) e uscite furbe.</p>
         <div class="switch"><span>Spot 1x solo long sulle cripto senza leva</span><span class="toggle ${c.spotLongs ? 'on' : ''}" data-t="spotLongs"></span></div>
         <div class="switch"><span>Spot REALE (swap veri su Jupiter, soldi veri)</span><span class="toggle ${c.realSpot ? 'on' : ''}" data-t="realSpot" id="sRealSpot"></span></div>
         <p class="note warnTxt">In REALE lo spot compra cripto vere col wallet del bot (rispetta budget, kill switch e limiti giornalieri). È spento finché non lo accendi tu. Leva e short reali restano bloccati fino al test con 5-10 USDC.</p></div>

@@ -56,10 +56,10 @@ test('impara: i meme appena nati perdono, i principali vincono → scarta i prim
   assert.ok(sm.worst.some((w) => w.label.includes('meme') || w.label.includes('<1h')));
 });
 
-test('il Mentore non cambia mai la dimensione (7%) né i limiti dell\'utente', () => {
+test('il Mentore non cambia mai la dimensione (20%) né i limiti dell\'utente', () => {
   // la dimensione dipende solo da capitale e impostazioni, non dalla conoscenza
   const sz = S.sizePosition({ capital: 100, cash: 100, cfg: DEFAULTS, core: false, minTrade: 2 });
-  assert.ok(Math.abs(sz.size - 7) < 1e-9);
+  assert.ok(Math.abs(sz.size - 20) < 1e-9);
   const kb = K.empty(); for (let i = 0; i < 30; i++) K.learn(kb, { id: 'x' + i, feat: ['tipo:meme'], pnlPct: 5 });
   const r = K.assess(kb, ['tipo:meme']);
   assert.ok(r.adj <= 1); assert.strictEqual(r.skip, false); assert.ok(!('size' in r));

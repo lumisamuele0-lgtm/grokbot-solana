@@ -55,7 +55,7 @@ test('uscita a tempo e inversione rapida', () => {
 test('migrazione v3: attiva le uscite furbe senza toccare il resto', () => {
   const { cfg } = migrateConfig({ cfgVersion: 2, maxTradePct: 5, smartExits: false, budget: 3 });
   assert.strictEqual(cfg.smartExits, true); assert.strictEqual(cfg.partialTp, true); assert.strictEqual(cfg.tp1Pct, 40);
-  assert.strictEqual(cfg.maxTradePct, 5); assert.strictEqual(cfg.budget, 3);
+  assert.strictEqual(cfg.maxTradePct, 20, 'v12: 20% per operazione'); assert.strictEqual(cfg.budget, 3);
 });
 
 function mkEngine() {
