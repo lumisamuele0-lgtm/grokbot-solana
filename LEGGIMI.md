@@ -56,7 +56,7 @@ Niente più galassia né pianeti: un'app di trading con **12 analisti** che stud
 - **I 2 trader**: **Alpha** (aggressivo, momentum e leva: long e short 5x/10x su SOL, BTC, ETH con Jupiter Perps; entra con consenso ≥ 28% e almeno 3 analisti d'accordo) e **Omega** (selettivo, spot 1x solo long su tutte le altre cripto di Solana, memecoin comprese, dopo i controlli anti-truffa; consenso ≥ 36% e almeno 4 analisti d'accordo). Ognuno dà più peso agli analisti del suo stile.
 - **Consenso pesato**: (peso dei voti a favore × fiducia − peso dei voti contro × fiducia) ÷ (peso di chi ha votato + 30% del peso di chi si astiene). I pesi li aggiorna il **Mentore** a ogni trade chiuso: chi aveva ragione pesa di più (fino a 1,6), chi sbagliava di meno (fino a 0,4).
 - **Tante posizioni in poco tempo**: scansione ogni **10 s**, radar con SOL/BTC/ETH + fino a **12 cripto spot**, fino a **4 ingressi per giro** (3 per trader), fino a **8 posizioni** insieme (regolabile fino a 15). Una posizione per cripto; sui perps mai long e short insieme sullo stesso asset.
-- **Dimensione**: margine = capitale × «margine massimo per operazione» (default e tetto rigido **20%**) × forza del consenso (dal 40% al 100%). Esempio: consenso 30% → 70% di 20% = 14% del capitale. Il contante disponibile limita comunque: con 20% pieno ci stanno 5 posizioni, con consensi più bassi (dimensioni più piccole) ne entrano di più.
+- **Dimensione**: margine = capitale × «margine massimo per operazione» (default **20%**, regolabile fino al **100%**; sopra il 20% compare un avviso rosso) × forza del consenso (dal 40% al 100%). Esempio: consenso 30% → 70% di 20% = 14% del capitale. Il contante disponibile limita comunque: con 20% pieno ci stanno 5 posizioni, con consensi più bassi (dimensioni più piccole) ne entrano di più.
 - **Correzioni del Mentore**: dopo 2 perdite di fila un trader chiede un consenso più alto (+5 punti, max +15); dopo 3 si ferma 2 minuti. Il Mentore resta com'era: notizie ogni 90 s, post-mortem, backtest delle strategie.
 - **Schede in basso**: **Home** (capitale con grafico, PnL oggi/totale, ROI, misuratori di rischio, i 2 trader, posizioni, segnali in tempo reale, Mentore e notizie) · **Trader** (PnL, vincenti, posizioni, ultima decisione con gli analisti a favore/contro, pausa del trader) · **Analisti** (griglia dei 12 con segnale attuale, fiducia, % di successo e peso; flusso dei segnali; diario, conoscenze, strategie e logger del Mentore) · **Posizioni** (ingresso, prezzo attuale, stop, target, PnL, «Chiudi») · **Wallet** · **Impostazioni** (cursori del rischio, impostazioni avanzate, sicurezza).
 - **🐸 Memecoin: filtri allentati** (acceso): liquidità ≥ 50k $, volume 24h ≥ 100k $, capitalizzazione ≥ 1M $, età ≥ 24 ore, top holder ≤ 60%, volume organico ≥ 20. Anti-truffa sempre attivi: via di vendita su Jupiter (anti-honeypot), niente autorità di mint/freeze, RugCheck senza rischi gravi, Token-2022 rischiosi scartati, niente pump/crolli estremi. Solo spot 1x long.
@@ -120,7 +120,7 @@ Su iPhone il collegamento a Phantom funziona dentro l'app Phantom: tocca **Phant
 | Esposizione totale max | 400% | somma di margine × leva di tutte le posizioni; oltre, il trade viene ridotto o bloccato |
 | Scansione | ogni 10 s | |
 | Cripto | SOL, BTC, ETH con leva + fino a 12 spot | Alpha: leva 5x/10x long e short su Jupiter Perps · Omega: spot 1x solo long |
-| Margine massimo per operazione | 20% (1–20) | del capitale, scalato dalla forza del consenso (40–100%); tetto rigido 20% |
+| Margine massimo per operazione | 20% (1–100) | del capitale, scalato dalla forza del consenso (40–100%); mai oltre il contante disponibile. Sopra il 20%: **rischio molto alto, una sola operazione può azzerare il capitale** |
 | Posizioni max | 8 (1–15) | |
 | Slippage | 100 bps (1%) | |
 | Impatto prezzo max | 1% | se lo swap muove troppo il prezzo, non entra |
@@ -130,6 +130,8 @@ Su iPhone il collegamento a Phantom funziona dentro l'app Phantom: tocca **Phant
 Leva e short solo su **SOL, BTC, ETH** tramite Jupiter Perps (Alpha), leva **5x o 10x** (minimo 5x, default 5x, limite rigido 10x); sulle altre cripto spot 1x solo long (Omega).
 
 **Rischio per operazione (onesto)**: con margine 20% e leva 5x l'esposizione è il 100% del capitale; lo stop resta entro il 40% della distanza dalla liquidazione (a 5x al massimo ~7,9%, in pratica lo stop ATR, max 6%), quindi una singola operazione può perdere circa 1–2% del capitale con uno stop tipico del 1–2%, fino a ~6% nel caso peggiore. Prima (margine 7%) era circa un terzo. Più posizioni aperte = rischi che si sommano: per questo ci sono l'esposizione massima (400%), il limite giornaliero (−15%) e il kill switch (−20%).
+
+**Margine oltre il 20% (fino al 100%)**: possibile da Impostazioni → Rischio della sala, ma **una sola operazione può azzerare il capitale**: con margine 100% e leva 5x l'esposizione è il 500% del capitale e un movimento contrario di pochi punti percentuali porta via gran parte del margine (lo stop può scivolare). Restano sempre attivi: esposizione totale massima (riduce o blocca il trade), limite di perdita giornaliera, kill switch, stop entro il 40% della distanza dalla liquidazione, margine mai oltre il contante disponibile e blocchi REALE (short/leva reali spenti).
 
 ### Uscite furbe (attive di default)
 R = distanza dello stop-loss iniziale, calcolata sulla volatilità (ATR × 2,2, tra 1,5% e 10%; meme almeno 3%).
@@ -144,7 +146,7 @@ Le prese parziali entrano subito nel PnL realizzato; il resto resta "aperto". Ne
 ### LONG + SHORT (Jupiter Perps, leva 5x / 10x)
 - Il CAPO cerca anche segnali **SHORT** speculari a quelli LONG: EMA9 sotto EMA21, trend 5m ribassista, EMA21 in discesa, RSI 28–50, momentum 15m negativo, flusso non in acquisto; niente short se il mercato SOL sale più dell'1% in un'ora.
 - Solo **SOL, BTC, ETH** si possono shortare (mercati Jupiter Perps, collaterale **USDC**). Mai un long e uno short sullo stesso asset insieme.
-- **Margine** = fino al 20% del capitale × forza del consenso (non cambia con la leva). **Leva** selezionabile 5x (default e minimo) o 10x → con margine 20% esposizione 100% o 200% del capitale. Valori sotto 5x vengono portati a 5x.
+- **Margine** = fino al 20% del capitale (predefinito; regolabile fino al 100%) × forza del consenso (non cambia con la leva). **Leva** selezionabile 5x (default e minimo) o 10x → con margine 20% esposizione 100% o 200% del capitale. Valori sotto 5x vengono portati a 5x.
 - **Long con leva** (acceso di default, migrazione v7): i LONG su SOL/BTC/ETH usano Jupiter Perps alla stessa leva. Se lo spegni il bot fa solo SHORT. Gli altri token non vengono più comprati; una posizione spot già aperta resta gestita (stop, prese, trailing) fino alla chiusura, senza vendite forzate.
 
 | Leva | Liquidazione (movimento contrario) | Stop-loss massimo | Chiusura forzata |
@@ -173,7 +175,7 @@ Ogni ~90 secondi legge anche le **notizie** da 6 feed RSS gratuiti (CoinDesk, Co
 
 ## 9b. Ritmo e chiave resoconto
 
-**Ritmo** (Impostazioni → Ritmo): quanto in fretta i trader entrano. Stop, tetto 20% per operazione, limite di perdita giornaliera, kill switch, controlli anti-truffa e blocchi REALE sono identici in tutti e tre.
+**Ritmo** (Impostazioni → Ritmo): quanto in fretta i trader entrano. Stop, margine massimo per operazione, limite di perdita giornaliera, kill switch, controlli anti-truffa e blocchi REALE sono identici in tutti e tre.
 
 | Ritmo | Giro | Ingressi per giro (per trader) | Soglie Alpha / Omega | Pausa sulla stessa cripto | Radar spot |
 |---|---|---|---|---|---|
@@ -184,6 +186,10 @@ Ogni ~90 secondi legge anche le **notizie** da 6 feed RSS gratuiti (CoinDesk, Co
 In Aggressivo le pause del Mentore dopo le perdite durano la metà e un trader in pausa dopo 3 perdite riparte dopo 1 minuto. Più operazioni non vuol dire più guadagni.
 
 **Chiave resoconto** (Impostazioni → Chiave resoconto → «Genera chiave resoconto»): un token `sbr_…` mostrato una sola volta; sul server resta solo un'impronta HMAC cifrata. Serve solo a leggere `GET /api/report` con l'header `Authorization: Bearer sbr_…` (30 letture ogni 10 minuti; 10 chiavi sbagliate bloccano quell'IP per 10 minuti). Non può comprare, vendere, prelevare o cambiare impostazioni e non contiene wallet né chiavi. «Revoca» la disattiva subito; generarne una nuova sostituisce la vecchia.
+
+## 9d. Perché a volte fa solo short (o solo long)
+
+Long e short usano le stesse regole, speculari: con mercato in salita (EMA, momentum, breakout, multi-timeframe, BTC in rialzo) Alpha apre LONG con leva, in discesa SHORT. Se per ore il prezzo di SOL/BTC/ETH scende, vedrai solo short; non è un errore. Omega (spot, solo long) compra solo quando almeno 2 analisti sono d'accordo su una cripto verificata. Il flusso ordini non vota più SHORT solo perché il volume cala (correzione di novembre 2026) e ignora i token con meno di 20 scambi nell'ultima ora.
 
 ## 10. Limiti e rischi (onesti)
 

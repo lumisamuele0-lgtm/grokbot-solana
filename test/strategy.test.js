@@ -62,7 +62,8 @@ test('dimensione: fino al 20% del capitale per operazione (mai oltre), scalata d
   const m = S.sizePosition({ capital: 100, cash: 100, cfg: DEFAULTS, confidence: 0.2, atr: 8, core: false, minTrade: 2 });
   assert.ok(Math.abs(m.size - 20) < 1e-9);
   assert.ok(Math.abs(S.sizePosition({ capital: 100, cash: 100, cfg: { ...DEFAULTS, memeSizeMult: 0.5 }, core: false, minTrade: 2 }).size - 10) < 1e-9);
-  assert.ok(Math.abs(S.sizePosition({ capital: 100, cash: 100, cfg: { ...DEFAULTS, maxTradePct: 90 }, core: true, minTrade: 2 }).size - 20) < 1e-9, 'tetto rigido 20%');
+  assert.ok(Math.abs(S.sizePosition({ capital: 100, cash: 100, cfg: { ...DEFAULTS, maxTradePct: 90 }, core: true, minTrade: 2 }).size - 90) < 1e-9, 'fino al 100% se scelto');
+  assert.strictEqual(S.sizePosition({ capital: 100, cash: 100, cfg: { ...DEFAULTS, maxTradePct: 500 }, core: true, minTrade: 2 }).size, 100, 'mai oltre il 100%');
   assert.ok(Math.abs(S.sizePosition({ capital: 100, cash: 100, cfg: DEFAULTS, core: true, minTrade: 2, frac: 0.5 }).size - 10) < 1e-9, 'consenso 0,5 → 10%');
   assert.strictEqual(S.sizePosition({ capital: 100, cash: 5, cfg: DEFAULTS, confidence: 1, atr: 1, core: true, minTrade: 2 }).size, 5);
   assert.strictEqual(S.sizePosition({ capital: 5, cash: 5, cfg: DEFAULTS, confidence: 0, atr: 1, core: false, minTrade: 2 }).size, 0);

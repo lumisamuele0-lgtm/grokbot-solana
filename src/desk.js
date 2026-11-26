@@ -56,7 +56,7 @@ const ANALYSTS = [
       if (r.LONG.conf >= 0.75) return V(1, 0.5, 'vendite eccessive'); if (r.SHORT.conf >= 0.75) return V(-1, 0.5, 'acquisti eccessivi');
       return NONE('nessun eccesso'); } },
   { id: 'flow', name: 'Flusso ordini', icon: '🌊', desc: 'Acquisti contro vendite dell\'ultima ora e accelerazione del volume (dati on-chain DexScreener).',
-    fn(c) { const f = c.f; if (!(f.buys + f.sells)) return NONE('nessun dato di flusso'); if (Math.abs(f.score) < 0.3) return NONE('flusso bilanciato');
+    fn(c) { const f = c.f; if (!(f.buys + f.sells)) return NONE('nessun dato di flusso'); if (f.buys + f.sells < 20) return NONE(`troppo pochi scambi (${f.buys + f.sells})`); if (Math.abs(f.score) < 0.3) return NONE('flusso bilanciato');
       return V(sgn(f.score), 0.3 + Math.abs(f.score) * 0.6, `${f.buys} acquisti / ${f.sells} vendite`); } },
   { id: 'meme', name: 'Cacciatore meme', icon: '🐸', desc: 'Solo memecoin che hanno passato i filtri anti-truffa: momentum, flusso e crescita sana (niente pump estremi).', spotOnly: true,
     fn(c) { if (c.perp || !c.coin.meme) return NONE('non è una memecoin'); const ch1 = c.ch1, ch5 = c.ch5, f = c.f;

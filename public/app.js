@@ -403,7 +403,7 @@
     const dl = Math.max(0, -(r.dayPnlPct || 0));
     const h = m('Posizioni', `${r.open || 0}/${c.maxOpen}`, r.open || 0, c.maxOpen, 'aperte ora')
       + m('Esposizione', pct0(r.exposurePct), r.exposurePct || 0, c.maxExposurePct, `max ${c.maxExposurePct}% (margine × leva)`)
-      + m('Per operazione', `≤ ${c.maxTradePct}%`, c.maxTradePct, 20, 'del capitale, scala col consenso', false)
+      + m('Per operazione', `≤ ${c.maxTradePct}%`, c.maxTradePct, 100, c.maxTradePct > 20 ? '⚠️ rischio molto alto (sopra il 20%)' : 'del capitale, scala col consenso', c.maxTradePct > 20)
       + m('Perdita oggi', `${nf(dl, 1)}%`, dl, c.dailyLossPct, `limite ${c.dailyLossPct}%`, !!br);
     setH($('#riskStrip'), h + (br ? `<div class="rbrk">⛔ Limite di perdita giornaliera raggiunto (−${nf(br.pct, 1)}%): nessun nuovo ingresso fino a domani. Le posizioni aperte restano protette da stop e target.</div>` : ''));
   }
@@ -489,12 +489,13 @@
   }
   // rischio regolabile direttamente (cursori): margine max per operazione, posizioni, esposizione, perdita giornaliera
   const RISK = [
-    { k: 'maxTradePct', l: 'Margine massimo per operazione', min: 1, max: 20, step: 1, f: (v) => v + '% del capitale', n: 'Tetto rigido 20%. Il trader usa dal 40% al 100% di questo valore in base alla forza del consenso.' },
+    { k: 'maxTradePct', l: 'Margine massimo per operazione', min: 1, max: 100, step: 1, f: (v) => v + '% del capitale', n: 'Predefinito 20%, regolabile fino al 100%. Il trader usa dal 40% al 100% di questo valore in base alla forza del consenso; mai oltre il contante disponibile.' },
     { k: 'maxOpen', l: 'Posizioni aperte insieme', min: 1, max: 15, step: 1, f: (v) => v + ' posizioni', n: 'Leva e short solo su SOL/BTC/ETH (una per mercato); le altre sono spot 1x long.' },
     { k: 'maxExposurePct', l: 'Esposizione totale massima', min: 50, max: 1000, step: 50, f: (v) => v + '% del capitale', n: 'Somma di margine × leva di tutte le posizioni. Oltre, il trade viene ridotto o bloccato.' },
     { k: 'dailyLossPct', l: 'Limite di perdita giornaliera', min: 1, max: 50, step: 1, f: (v) => '−' + v + '% in un giorno', n: 'Raggiunto il limite, nessun nuovo ingresso fino a domani (le posizioni aperte restano protette dagli stop).' },
   ];
   let riskDirty = false;
+  const TRADE_WARN = '⚠️ Rischio molto alto: una sola operazione può azzerare il capitale. Sopra il 20% ogni trade impegna una grossa parte dei tuoi soldi; con la leva bastano pochi punti percentuali contro per perdere tutto il margine. Esposizione massima, limite giornaliero, kill switch e stop restano attivi.';
   function riskNote(c) {
     const lev = c.leverage || 5; const dist = (S.shorts && S.shorts.liqDist && S.shorts.liqDist[lev]) || 100 / lev; const stop = Math.min(6, dist * 0.4); // stop ATR, mai oltre il 6% né oltre il 40% della distanza dalla liquidazione
     return `Esempio con ${lev}x: margine ${c.maxTradePct}% → esposizione ${c.maxTradePct * lev}% del capitale; lo stop resta entro ${nf(stop, 1)}% (max 6% e mai oltre il 40% della distanza dalla liquidazione), quindi il rischio massimo per operazione è circa ${nf((c.maxTradePct * lev * stop) / 100, 1)}% del capitale (di solito meno: lo stop dipende dalla volatilità). Con ${c.maxOpen} posizioni il rischio si somma.`;
@@ -503,13 +504,14 @@
     const box = $('#riskForm'); if (!box || (riskDirty && !force)) return;
     if (force) riskDirty = false;
     const c = s.cfg;
-    const h = RISK.map((r) => `<label class="rs"><span class="rs-l">${r.l}<b data-rv="${r.k}">${r.f(c[r.k])}</b></span><input type="range" data-rk="${r.k}" min="${r.min}" max="${r.max}" step="${r.step}" value="${c[r.k]}" aria-label="${esc(r.l)}"><small>${r.n}</small></label>`).join('')
+    const h = RISK.map((r) => `<label class="rs"><span class="rs-l">${r.l}<b data-rv="${r.k}">${r.f(c[r.k])}</b></span><input type="range" data-rk="${r.k}" min="${r.min}" max="${r.max}" step="${r.step}" value="${c[r.k]}" aria-label="${esc(r.l)}"><small>${r.n}</small>${r.k === 'maxTradePct' ? `<div class="risk-warn" id="tradeWarn"${c.maxTradePct > 20 ? '' : ' hidden'}>${TRADE_WARN}</div>` : ''}</label>`).join('')
       + `<p class="note" id="riskEx">${riskNote(c)}</p><div class="btns"><button class="btn pri" id="riskSave" type="button" disabled>Salva rischio</button></div><div class="err" id="riskErr"></div>`;
     if (box.dataset.h !== h) { box.dataset.h = h; box.innerHTML = h; }
   }
   $('#riskForm').addEventListener('input', (e) => {
     const i = e.target.closest('[data-rk]'); if (!i) return; riskDirty = true;
     const r = RISK.find((x) => x.k === i.dataset.rk); $(`[data-rv="${r.k}"]`).textContent = r.f(Number(i.value));
+    if (r.k === 'maxTradePct') { const w = $('#tradeWarn'); if (w) w.hidden = !(Number(i.value) > 20); }
     const c = { ...S.cfg }; $$('[data-rk]').forEach((x) => { c[x.dataset.rk] = Number(x.value); }); $('#riskEx').textContent = riskNote(c);
     $('#riskSave').disabled = false;
   });
@@ -540,7 +542,7 @@
   function renderPace(s) {
     const box = $('#paceBox'); if (!box || !s) return; const cur = s.cfg.pace || 'aggressivo'; const P = PACES.find((x) => x[0] === cur) || PACES[2];
     const h = `<div class="chips" role="radiogroup" aria-label="Ritmo">${PACES.map(([k, l]) => `<button type="button" class="chip ${k === cur ? 'on' : ''}" data-pace="${k}" role="radio" aria-checked="${k === cur}">${l}</button>`).join('')}</div>
-      <p class="note">${esc(P[2])}.</p><p class="note">Più veloce = più operazioni, non più sicure: stop, tetto 20% per operazione, limite di perdita giornaliera, kill switch e controlli anti-truffa restano identici in ogni Ritmo.</p>`;
+      <p class="note">${esc(P[2])}.</p><p class="note">Più veloce = più operazioni, non più sicure: stop, margine massimo per operazione, limite di perdita giornaliera, kill switch e controlli anti-truffa restano identici in ogni Ritmo.</p>`;
     if (box.dataset.h !== h) { box.dataset.h = h; box.innerHTML = h; }
   }
   $('#paceBox').addEventListener('click', async (e) => {

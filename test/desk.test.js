@@ -67,9 +67,11 @@ test('consenso pesato: a favore − contro, astenuti contano poco, pesi e prefer
   e.desk.aState('trend').weight = 1.6; assert.ok(e.desk.consensus([vote('flow', 1), vote('trend', -1)], 'LONG', null).score < 0);
 });
 
-test('dimensione: mai oltre il 20% del capitale; il consenso scala il margine; esposizione totale limitata', () => {
-  assert.strictEqual(S.MAX_TRADE_PCT, 20);
-  assert.strictEqual(S.sizePosition({ capital: 1000, cash: 1000, cfg: { ...DEFAULTS, maxTradePct: 100 }, core: true, minTrade: 1 }).size, 200);
+test('dimensione: predefinito 20%, regolabile fino al 100% del capitale; il consenso scala il margine; esposizione totale limitata', () => {
+  assert.strictEqual(S.MAX_TRADE_PCT, 100); assert.strictEqual(S.SAFE_TRADE_PCT, 20); assert.strictEqual(DEFAULTS.maxTradePct, 20);
+  assert.strictEqual(S.sizePosition({ capital: 1000, cash: 1000, cfg: DEFAULTS, core: true, minTrade: 1 }).size, 200);
+  assert.strictEqual(S.sizePosition({ capital: 1000, cash: 1000, cfg: { ...DEFAULTS, maxTradePct: 100 }, core: true, minTrade: 1 }).size, 1000);
+  assert.strictEqual(S.sizePosition({ capital: 1000, cash: 300, cfg: { ...DEFAULTS, maxTradePct: 100 }, core: true, minTrade: 1 }).size, 300, '100% ma mai oltre il contante');
   assert.strictEqual(S.sizePosition({ capital: 1000, cash: 1000, cfg: DEFAULTS, core: true, minTrade: 1, frac: 0.4 }).size, 80);
   assert.strictEqual(S.sizePosition({ capital: 1000, cash: 50, cfg: DEFAULTS, core: true, minTrade: 1 }).size, 50, 'mai più del contante');
   const cfg = { ...DEFAULTS, maxExposurePct: 400 };

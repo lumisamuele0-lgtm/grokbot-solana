@@ -436,6 +436,10 @@ class Engine extends EventEmitter {
     const ex = S.exposureFit({ positions: b.positions, equity: eq, cfg, size, lev: levE, minTrade });
     if (!ex.size) { this.bump('RISCHIO'); this.agent('RISCHIO', ex.reason, 'block', { token: sym }); return; }
     if (ex.size < size) { this.agent('DIMENSIONE', `$${sym}: ridotto a ${this.fmtBase(ex.size)} per restare entro l'esposizione massima (${cfg.maxExposurePct}% del capitale)`, 'size', { token: sym }); size = round(ex.size, this.base.decimals); }
+    // il margine non supera MAI il contante disponibile (meno la commissione di rete), anche con margine per operazione fino al 100%
+    { const feeBuf = this.solToBase((5000 + (cfg.simPriorityLamports || 0)) / LAMPORTS_PER_SOL) * 2 || 0; const room = this.cash() - feeBuf;
+      if (!(room >= minTrade)) { this.bump('RISCHIO'); this.agent('RISCHIO', `$${sym}: contante insufficiente per un nuovo ingresso`, 'block', { token: sym }); return; }
+      if (size > room) size = round(room, this.base.decimals); }
     // long con leva (perps) solo su SOL/BTC/ETH, solo se attivati, e in REALE solo quando i perps reali saranno verificati
     // ogni nuovo ingresso è con leva (minimo 5x): mai più acquisti spot
     const perpMarket = P.SHORT_MARKETS[best.m];

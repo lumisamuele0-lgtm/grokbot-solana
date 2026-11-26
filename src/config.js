@@ -11,7 +11,7 @@ const DEFAULTS = {
   maxLossPct: 20, // kill switch: perdita totale %
   maxLossAbs: 0, // kill switch: perdita assoluta in valuta base (0 = disattivato)
   dailyLossPct: 15, // limite di perdita giornaliera: oltre, nessun nuovo ingresso fino a domani
-  maxTradePct: 20, // margine massimo per operazione: % del capitale (tetto rigido 20%; i trader usano 40–100% di questo in base al consenso)
+  maxTradePct: 20, // margine massimo per operazione: % del capitale (predefinito 20%, regolabile fino al 100%; i trader usano 40–100% di questo in base al consenso)
   maxExposurePct: 400, // esposizione totale massima: somma di margine × leva di tutte le posizioni, in % del capitale
   memeSizeMult: 1, // moltiplicatore per i meme (1 = stessa dimensione dei token principali)
   maxOpen: 8,
@@ -50,7 +50,7 @@ const DEFAULTS = {
   // MENTE dei bot: cervello neurale (aggiusta fiducia/consenso entro limiti stretti) e ricerca web su fonti pubbliche gratuite
   brainOn: true, webResearch: true,
   // RITMO della sala operativa: prudente | normale | aggressivo (velocità di scansione, soglie di consenso, ingressi per giro,
-  // cooldown, radar). NON cambia stop, tetto 20% per operazione, limite di perdita giornaliera, kill switch, anti-truffa, REALE.
+  // cooldown, radar). NON cambia stop, margine massimo per operazione, limite di perdita giornaliera, kill switch, anti-truffa, REALE.
   pace: 'aggressivo',
 };
 // preset del Ritmo (cycleSec, cooldownMin e maxWatch vengono copiati nella configurazione quando scegli il Ritmo; il resto è letto al volo)
@@ -63,7 +63,7 @@ const paceOf = (c) => PACE[c && c.pace] || PACE.aggressivo;
 function applyPace(c, pace) { const P = PACE[pace]; if (!P) return c; c.pace = pace; c.cycleSec = P.cycleSec; c.cooldownMin = P.cooldownMin; c.maxWatch = P.maxWatch; return c; }
 // limiti di validazione [min, max]
 const LIMITS = {
-  budget: [0, 1e9], feeReserveSol: [0.01, 1], maxLossPct: [1, 90], maxLossAbs: [0, 1e9], dailyLossPct: [1, 50], maxTradePct: [1, 20], maxExposurePct: [50, 1000],
+  budget: [0, 1e9], feeReserveSol: [0.01, 1], maxLossPct: [1, 90], maxLossAbs: [0, 1e9], dailyLossPct: [1, 50], maxTradePct: [1, 100], maxExposurePct: [50, 1000],
   memeSizeMult: [0, 1], maxOpen: [1, 15], slippageBps: [10, 1000], maxPriceImpactPct: [0.1, 10], slAtrMult: [0.5, 6], slMinPct: [0.5, 20],
   slMaxPct: [1, 40], rewardRisk: [0.8, 6], maxHoldMin: [5, 10080], tp1R: [0.3, 10], tp1Pct: [5, 90], tp2R: [0.5, 20], tp2Pct: [0, 90], beBufferPct: [0, 5], trailActR: [0.2, 10], trailAtrMult: [0.3, 6], memeExitMult: [0.3, 1.5], timeStopMin: [5, 10080], timeStopMinGainPct: [-20, 50], reversalPct: [0.5, 50], leverage: [1, 10], cooldownMin: [0, 1440], cycleSec: [3, 600], minLiquidityUsd: [0, 1e9],
   minVolume24hUsd: [0, 1e10], minPairAgeMin: [0, 600000], minMcapUsd: [0, 1e12], maxPump1hPct: [1, 1000], maxDump24hPct: [1, 100],
