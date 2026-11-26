@@ -557,14 +557,15 @@
   function renderWallet(s) {
     const real = s.mode === 'REAL';
     $('#heroLbl').textContent = real ? 'Saldo di trading del bot' : 'Saldo simulato';
-    if (s.equityEur != null) tween('wBal', $('#wBal'), s.equityEur, eur); else tween('wBal', $('#wBal'), s.equity, (v) => nf(v, s.base === 'SOL' ? 4 : 2) + ' ' + s.base);
+    tween('wBal', $('#wBal'), s.equity, baseFmt(s)); $('#wEur').textContent = eurNote(s);
     const pct = s.startEquity > 0 ? (s.pnl / s.startEquity) * 100 : 0;
-    if (s.pnlEur != null) tween('wPl', $('#wPl'), s.pnlEur, (v) => `${v >= 0 ? '+ ' : '− '}${eur(Math.abs(v))} (${nf(pct, 1)}%)`);
-    else tween('wPl', $('#wPl'), s.pnl, (v) => `${v >= 0 ? '+ ' : '− '}${nf(Math.abs(v), s.base === 'SOL' ? 4 : 2)} ${s.base} (${nf(pct, 1)}%)`);
+    tween('wPl', $('#wPl'), s.pnl, (v) => `${v >= 0 ? '+ ' : '− '}${baseFmt(s)(Math.abs(v))} (${nf(pct, 1)}%)`);
     $('#wPl').className = s.pnl >= 0 ? 'mint' : 'red';
     $('#roi').textContent = nf(s.roi, 2) + 'x'; $('#roi').classList.toggle('neg', s.roi < 1);
+    const sh = s.solHeld || {};
     $('#hSol').textContent = real ? `◎ ${nf(s.wallet.balances ? s.wallet.balances.sol : null, 4)}` : `◎ ${nf(s.solReserve, 4)} sim`;
-    $('#hSolPx').textContent = `SOL ${s.solUsd ? nf(s.solUsd, 2) + ' $' : '—'}`;
+    $('#hSolLbl').textContent = s.base === 'SOL' ? 'SOL del capitale' : real ? 'SOL in wallet (varia col prezzo, fuori dal capitale)' : 'Riserva SOL simulata per commissioni (fuori dal capitale)';
+    $('#hSolPx').textContent = `${sh.eur != null && s.base !== 'SOL' ? '≈ ' + eur(sh.eur) + ' · ' : ''}SOL ${s.solUsd ? nf(s.solUsd, 2) + ' $' : '—'}`;
     const pk = s.wallet.exists ? s.wallet.publicKey : null;
     $('#wAddr').textContent = pk || 'Wallet del bot non ancora creato: tocca «Wallet bot» per crearlo (serve una password).';
     $('#wCopy').classList.toggle('hidden', !pk);
@@ -615,6 +616,8 @@
   }
 
   document.addEventListener('error', (e) => { const t = e.target; if (t && t.tagName === 'IMG' && t.closest('.coin')) t.replaceWith(Object.assign(document.createElement('i'), { className: 'cdot' })); }, true); // logo non disponibile
+  const baseFmt = (s) => (v) => (s.base === 'SOL' ? '◎' + nf(v, 4) : nf(v, 2) + ' $');
+  const eurNote = (s) => (s.equityEur == null ? '' : s.base === 'SOL' ? `≈ ${eur(s.equityEur)} · il valore in € varia col prezzo di SOL, il capitale in ◎ no` : `≈ ${eur(s.equityEur)} al cambio €/$ di oggi (indicativo)`);
   const money = (v, sign = true) => { const d = S && S.base === 'SOL' ? 4 : 2; return (sign ? (v >= 0 ? '+' : '−') : '') + nf(Math.abs(v || 0), d) + (S && S.base === 'SOL' ? ' ◎' : ' $'); };
   // ---------- render
   let firstRender = true;
@@ -631,9 +634,9 @@
     const em = $('#eqMode'); em.textContent = real ? 'REALE' : 'SIM'; em.className = 'badge-m ' + (real ? 'real' : 'sim');
     $('#eqRoi').textContent = 'ROI ' + nf(s.roi, 2) + 'x'; $('#eqRoi').classList.toggle('neg', s.roi < 1);
     const pctAll = s.startEquity > 0 ? (s.pnl / s.startEquity) * 100 : 0;
-    if (s.equityEur != null) tween('bal', $('#bal'), s.equityEur, eur); else tween('bal', $('#bal'), s.equity, (v) => nf(v, s.base === 'SOL' ? 4 : 2) + ' ' + s.base);
-    if (s.pnlEur != null) tween('pl', $('#pl'), s.pnlEur, (v) => `${v >= 0 ? '+' : '−'}${eur(Math.abs(v))} · ${pctAll >= 0 ? '+' : '−'}${nf(Math.abs(pctAll), 2)}%`);
-    else tween('pl', $('#pl'), s.pnl, (v) => `${v >= 0 ? '+' : '−'}${nf(Math.abs(v), s.base === 'SOL' ? 4 : 2)} ${s.base} · ${pctAll >= 0 ? '+' : '−'}${nf(Math.abs(pctAll), 2)}%`);
+    // capitale nella valuta del bot (USDC = $, SOL = ◎): senza posizioni aperte resta fermo; il valore in € è solo indicativo (cambio del giorno)
+    tween('bal', $('#bal'), s.equity, baseFmt(s)); $('#eqEur').textContent = eurNote(s);
+    tween('pl', $('#pl'), s.pnl, (v) => `${v >= 0 ? '+' : '−'}${baseFmt(s)(Math.abs(v))} · ${pctAll >= 0 ? '+' : '−'}${nf(Math.abs(pctAll), 2)}%`);
     $('#pl').className = pnlCls(s.pnl);
     { const { pb, fmt } = pnlConv(s); const cl = (id, v) => { const el = $(id); el.textContent = fmt(v || 0); el.className = pnlCls(v); }; cl('#eqDay', pb.day); cl('#eqTot', pb.total);
       $('#eqWr').textContent = s.winRate == null ? '—' : `${nf(s.winRate, 0)}% (${s.wins}/${s.wins + s.losses})`; }
@@ -652,6 +655,8 @@
     if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; }
     $('#secSpot').textContent = s.cfg.realSpot ? 'ACCESO (swap veri)' : 'spento'; $('#secSpot').className = s.cfg.realSpot ? 'red' : 'mint';
     renderWallet(s);
+    const ob = $('#otherBook'); ob.classList.toggle('hidden', !s.otherBook);
+    if (s.otherBook) ob.textContent = `⚠️ ${s.otherBook.open} ${s.otherBook.open === 1 ? 'posizione aperta' : 'posizioni aperte'} nel conto ${s.otherBook.mode === 'REAL' ? 'REALE' : 'SIMULAZIONE'} (${s.otherBook.symbols.map((x) => '$' + x).join(', ')}): non sono nel capitale mostrato qui. Passa a quella modalità per vederle.`;
     const pb = $('#posBadge'); pb.classList.toggle('hidden', !s.positions.length); pb.textContent = s.positions.length;
     // regole
     const rules = Object.entries(s.counters.rules).sort((a, b) => b[1] - a[1]).slice(0, 10);

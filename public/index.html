@@ -74,8 +74,9 @@
   <main class="view" id="vHome" data-view="home">
     <div class="wrap">
       <div class="glass eq" id="eqCard">
-        <div class="eq-top"><span class="lbl" id="eqLbl">Capitale</span><span class="badge-m sim" id="eqMode">SIM</span></div>
+        <div class="eq-top"><span class="lbl" id="eqLbl">Capitale di trading</span><span class="badge-m sim" id="eqMode">SIM</span></div>
         <div class="eq-v" id="bal">—</div>
+        <div class="eq-eur" id="eqEur"></div>
         <div class="eq-p"><span id="pl">—</span><span class="pill" id="eqRoi">1,00x</span></div>
         <canvas id="eqSpark" aria-label="Andamento del capitale"></canvas>
         <div class="eq-g">
@@ -162,6 +163,7 @@
         </div>
       </div>
       <div class="meta" id="heroMeta"></div>
+      <div class="banner-in hidden" id="otherBook" role="status"></div>
       <div class="sec"><h3>Posizioni aperte</h3><span id="posN"></span></div>
       <div class="pos" id="pos"></div>
       <div class="sec"><h3>Storico operazioni</h3><span id="histN"></span></div>
@@ -176,8 +178,9 @@
         <div class="wh-glow" aria-hidden="true"></div>
         <div class="lbl" id="heroLbl">Saldo del bot</div>
         <div class="wh-bal" id="wBal">—</div>
+        <div class="eq-eur" id="wEur"></div>
         <div class="wh-pl"><span id="wPl">—</span><span class="pill" id="roi">1,00x</span></div>
-        <div class="wh-sol"><b id="hSol">◎ —</b><span id="hSolPx">SOL —</span></div>
+        <div class="wh-sol"><span class="wh-sl"><small id="hSolLbl">SOL</small><b id="hSol">◎ —</b></span><span id="hSolPx">SOL —</span></div>
       </div>
       <div class="wbig">
         <button class="btn pri wb" data-a="deposit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Deposita</button>

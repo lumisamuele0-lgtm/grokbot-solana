@@ -118,7 +118,7 @@ class Engine extends EventEmitter {
     const u = this.market.usd(mint), b = this.market.usd(this.base.mint);
     return u && b ? u / b : null;
   }
-  toUsd(xBase) { const b = this.market.usd(this.base.mint); return b ? xBase * b : null; }
+  toUsd(xBase) { const b = this.baseUsd(); return b ? xBase * b : null; }
   equity(book = this.book) {
     // capitale di trading: liquidità + valore posizioni − commissioni pagate in SOL fuori dalla valuta base
     return this.capital(book).total;
@@ -140,7 +140,9 @@ class Engine extends EventEmitter {
     this.log(kind === 'open' ? 'DIMENSIONE' : 'SORVEGLIANZA', text);
     this.emit('ev', { type: 'cash', kind, symbol: p.symbol, id: p.id, delta, after: b.cash, pnl, mode: this.cfg.mode });
   }
-  baseUsd() { return this.market.usd(this.base.mint) || (this.cfg.baseCurrency === 'USDC' ? 1 : null); }
+  // valore in $ di 1 unità della valuta base: USDC conta sempre 1 $ (il prezzo Jupiter di USDC oscilla di ±0,05% per rumore di quotazione,
+  // non è un guadagno né una perdita); con base SOL vale il prezzo di SOL
+  baseUsd() { return this.cfg.baseCurrency === 'USDC' ? 1 : this.market.usd(this.base.mint) || null; }
   // valore netto di uno short se chiuso ora (collaterale + PnL − prestito − commissione di chiusura), in valuta base
   shortValueBase(p, now = Date.now()) {
     const px = this.market.usd(p.mint), bu = this.baseUsd();
@@ -1133,7 +1135,7 @@ class Engine extends EventEmitter {
   // ---------- istantanea per l'interfaccia
   snapshot() {
     const b = this.book; const cfg = this.cfg; const eq = this.equity();
-    const baseUsd = this.market.usd(this.base.mint) || (cfg.baseCurrency === 'USDC' ? 1 : null);
+    const baseUsd = this.baseUsd();
     const eur = this.market.eurPerUsd;
     const toEur = (x) => (baseUsd ? x * baseUsd * eur : null);
     const positions = b.positions.map((p) => {
@@ -1172,6 +1174,11 @@ class Engine extends EventEmitter {
       equity: eq, equityEur: toEur(eq), startEquity: b.startEquity, pnl: eq - b.startEquity, pnlEur: toEur(eq - b.startEquity),
       roi: b.startEquity > 0 ? eq / b.startEquity : 1, realizedPnl: b.realizedPnl, fees: b.feesBase, cash: b.cash, solReserve: b.solReserve,
       capital: (({ positions: _ps, ...c }) => c)(this.capital(b)),
+      // SOL tenuti a parte (REALE: SOL nel wallet del bot per le commissioni; SIM: riserva simulata): NON fanno parte del capitale di trading
+      // quando la base è USDC, quindi il loro valore che varia col prezzo di SOL si mostra separato e non entra nel PnL
+      solHeld: (() => { const sol = cfg.mode === 'REAL' ? (this.bal ? this.bal.sol : null) : b.solReserve; const su = this.market.usd(SOL); return { sol, usd: sol != null && su ? sol * su : null, eur: sol != null && su ? sol * su * eur : null, inCapital: cfg.baseCurrency === 'SOL', real: cfg.mode === 'REAL' }; })(),
+      // posizioni aperte nell'altro conto (SIM/REALE): non sono nel capitale mostrato, ma non devono restare nascoste
+      otherBook: (() => { const om = cfg.mode === 'REAL' ? 'SIM' : 'REAL'; const ob = this.st.books[om]; return ob && ob.positions && ob.positions.length ? { mode: om, open: ob.positions.length, symbols: ob.positions.map((p) => p.symbol).slice(0, 8) } : null; })(),
       winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(), mentor: this.mentor.summary(), desk: this.desk.view(), universe: this.universe.status(),
       positions, trades: b.trades.slice(0, 60), equityHist: hist.filter((_, i) => i % step === 0 || i === hist.length - 1),
       counters: this.st.counters, agents: AGENTS.map((a) => ({ ...a, count: this.st.counters.agents[a.id] || 0, last: this.st.agents[a.id] || null })),

@@ -4,7 +4,7 @@ const N = require('../src/news');
 const { Research } = require('../src/research');
 
 const T0 = Date.UTC(2026, 10, 25, 12);
-const rss = (titles) => `<rss><channel>${titles.map((t, i) => `<item><title>${t}</title><pubDate>${new Date(T0 - (i + 1) * 60e3).toUTCString()}</pubDate></item>`).join('')}</channel></rss>`;
+const rss = (titles, base = T0) => `<rss><channel>${titles.map((t, i) => `<item><title>${t}</title><pubDate>${new Date(base - (i + 1) * 60e3).toUTCString()}</pubDate></item>`).join('')}</channel></rss>`;
 const hdr = (o) => ({ get: (k) => o[k.toLowerCase()] ?? null });
 function fakeFetch(script) {
   const calls = [];
@@ -56,13 +56,13 @@ test('notizie: timeout del singolo feed', async () => {
 
 test('ricerca: sentiment ricalcolato solo con titoli nuovi; log solo quando ce ne sono', async () => {
   const logs = []; const r = new Research({ dataDir: null, log: (a, t) => logs.push(t) });
-  let body = rss(['Solana hacked, funds drained']);
+  const now = Date.now(); // titoli datati rispetto a ora (prima erano fissi al 25/11/2026 e il test scadeva dopo 24 h)
+  let body = rss(['Solana hacked, funds drained'], now);
   r.reader = new N.NewsReader(null, { sources: [['F', 'https://f']], fetchImpl: fakeFetch(() => ({ body })) });
-  const now = Date.now();
   const a = await r.pollNews(now); assert.strictEqual(a.fresh, 1); assert.ok(r.st.news.agg.SOL.risk > 0);
   const t1 = r.st.news.t; const nLogs = logs.length;
   const b = await r.pollNews(now + 90e3); assert.strictEqual(b.fresh, 0); assert.strictEqual(r.st.news.t, t1, 'nessun ricalcolo'); assert.strictEqual(r.st.news.lastCheck, now + 90e3); assert.strictEqual(logs.length, nLogs);
-  body = rss(['Solana hacked, funds drained', 'Bitcoin surges']);
+  body = rss(['Solana hacked, funds drained', 'Bitcoin surges'], now);
   const c = await r.pollNews(now + 180e3); assert.strictEqual(c.fresh, 1); assert.ok(r.st.news.t > t1);
   const ps = r.publicStatus(); assert.strictEqual(ps.news.intervalSec, 90); assert.strictEqual(ps.news.checks, 3); assert.ok(ps.news.feeds.F.lastOk);
 });
