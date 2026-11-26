@@ -295,6 +295,11 @@ function createApp({ dataDir, env = process.env, engineOpts = {}, logger = conso
     const urls = lanUrls(env.PORT || 8787);
     return { urls, qr: urls[0] ? await QRCode.toDataURL(urls[0], { margin: 1, width: 220, color: { dark: '#000000', light: '#ffffff' } }) : null };
   }));
+  // indirizzo PUBBLICO del wallet del bot come QR (per ricevere fondi anche senza Phantom): nessun segreto
+  app.get('/api/wallet/qr', wrap(async () => {
+    const w = ks.info(); if (!w.exists) return { address: null, qr: null };
+    return { address: w.publicKey, qr: await QRCode.toDataURL(w.publicKey, { margin: 1, width: 240, color: { dark: '#000000', light: '#ffffff' } }) };
+  }));
   app.all('/api/*', (req, res) => res.status(404).json({ error: 'Non trovato' }));
 
   app.get('/vendor/web3.js', (req, res) => res.sendFile(require.resolve('@solana/web3.js/lib/index.iife.min.js')));

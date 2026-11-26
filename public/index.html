@@ -129,6 +129,38 @@
     </div>
   </main>
 
+  <!-- WALLET -->
+  <main class="view hidden" id="vWallet" data-view="wallet">
+    <div class="wrap">
+      <div class="glass whero" id="wHero">
+        <div class="wh-sun" aria-hidden="true"></div>
+        <div class="lbl" id="heroLbl">Saldo del bot</div>
+        <div class="wh-bal" id="wBal">—</div>
+        <div class="wh-pl"><span id="wPl">—</span><span class="pill" id="roi">1,00x</span></div>
+        <div class="wh-sol"><b id="hSol">◎ —</b><span id="hSolPx">SOL —</span></div>
+      </div>
+      <div class="wbig">
+        <button class="btn pri wb" data-a="deposit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Deposita</button>
+        <button class="btn wb wout" data-a="withdraw"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V9M7 14l5-5 5 5M5 4h14"/></svg>Preleva</button>
+      </div>
+      <div class="actions">
+        <button class="act glass" data-a="phantom"><span class="ai">👻</span><span id="navPh">Phantom</span></button>
+        <button class="act glass" data-a="budget"><span class="ai">☀︎</span><span>Budget</span></button>
+        <button class="act glass" data-a="botwallet"><span class="ai">🔑</span><span>Wallet bot</span></button>
+        <button class="act glass" data-a="guide"><span class="ai">🧭</span><span>Guida REALE</span></button>
+      </div>
+      <div class="sec"><h3>Ricevi sul wallet del bot</h3><span>indirizzo pubblico</span></div>
+      <div class="glass recv" id="recv">
+        <div class="rc-row"><img id="wQr" class="qr hidden" alt="QR dell'indirizzo del wallet del bot"><div class="rc-t"><div class="addr" id="wAddr">—</div>
+          <div class="row rc-b"><button class="chip" id="wCopy" type="button">📋 Copia indirizzo</button><a class="chip hidden" id="wScan" target="_blank" rel="noopener noreferrer">Solscan ↗</a></div></div></div>
+        <p class="note" id="wRecvNote">Il modo consigliato è «Deposita» (firmi in Phantom e l'indirizzo di prelievo viene fissato al tuo Phantom). Puoi anche inviare SOL/USDC a questo indirizzo da qualsiasi wallet.</p>
+      </div>
+      <div class="sec"><h3>Portafogli e saldi</h3></div>
+      <div class="glass wallet" id="wallet"></div>
+      <p class="fine">Prelievo: in REALE serve la password del wallet del bot e i fondi vanno solo al tuo Phantom (indirizzo fissato al primo deposito). Nessun guadagno è garantito.</p>
+    </div>
+  </main>
+
   <!-- MENTORE & NOTIZIE -->
   <main class="view hidden" id="vMentor" data-view="mentor">
     <div class="wrap">
@@ -158,16 +190,9 @@
   <!-- IMPOSTAZIONI & SICUREZZA -->
   <main class="view hidden" id="vSet" data-view="set">
     <div class="wrap">
-      <div class="sec"><h3>Portafogli</h3></div>
-      <div class="glass wallet" id="wallet"></div>
-      <div class="actions">
-        <button class="act glass" data-a="phantom"><span class="ai">👻</span><span id="navPh">Phantom</span></button>
-        <button class="act glass" data-a="deposit"><span class="ai">⬇︎</span><span>Deposita</span></button>
-        <button class="act glass" data-a="withdraw"><span class="ai">⬆︎</span><span>Preleva</span></button>
-        <button class="act glass" data-a="budget"><span class="ai">☀︎</span><span>Budget</span></button>
-      </div>
       <div class="sec"><h3>Impostazioni</h3></div>
       <button class="glass rowbtn" data-a="settings"><span>⚙️ Rischio, leva, memecoin, modalità</span><span class="chev">›</span></button>
+      <button class="glass rowbtn" data-a="botwallet"><span>🔑 Wallet del bot: crea, sblocca, esporta, backup</span><span class="chev">›</span></button>
       <div class="sec"><h3>Sicurezza</h3></div>
       <div class="glass secbox" id="secBox">
         <div class="kv"><span>Dati sul server</span><b>AES-256-GCM + HMAC-SHA256</b></div>
@@ -185,6 +210,7 @@
   <nav class="tabs" id="nav" aria-label="Sezioni">
     <button data-tab="sky" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><ellipse cx="12" cy="12" rx="9.5" ry="4.2" transform="rotate(-18 12 12)"/></svg><span>Cielo</span></button>
     <button data-tab="pos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 18l5-6 4 3 7-9"/><path d="M15 6h5v5"/></svg><span>Posizioni</span><i class="badge hidden" id="posBadge"></i></button>
+    <button data-tab="wallet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18M16 14.5h2"/><path d="M6 6l9-3 1.5 3"/></svg><span>Wallet</span></button>
     <button data-tab="mentor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 21l1.2-11h3.6L15 21z"/><path d="M8.5 10h7M10 6.5h4V10h-4zM12 3v3.5M4 5l4 2.5M20 5l-4 2.5"/></svg><span>Mentore</span></button>
     <button data-tab="set"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Sicurezza</span></button>
   </nav>

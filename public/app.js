@@ -360,7 +360,7 @@
 
 
   // ---------- OSSERVATORIO: schede, cielo, pianeti
-  const TABS = { sky: '#vSky', pos: '#vPos', mentor: '#vMentor', set: '#vSet' };
+  const TABS = { sky: '#vSky', pos: '#vPos', wallet: '#vWallet', mentor: '#vMentor', set: '#vSet' };
   function setTab(t) {
     if (!TABS[t]) t = 'sky'; tab = t;
     for (const [k, sel] of Object.entries(TABS)) $(sel).classList.toggle('hidden', k !== t);
@@ -375,7 +375,7 @@
   const botName = (id) => { const b = botOf(id); return b ? b.name : null; };
   function onSkyTap(t) {
     if (t.type === 'bot') botSheet(t.id);
-    else if (t.type === 'sun') setTab('pos');
+    else if (t.type === 'sun') setTab('wallet');
     else if (t.type === 'beacon') setTab('mentor');
     else if (t.type === 'coin') { const c = (S.galaxy.focus || []).find((x) => x.symbol === t.symbol); if (c) toast(`🔭 Focus del Mentore: ${c.symbol} · ${c.label}${c.phantom ? ' · nel tuo Phantom' : ''}`); }
   }
@@ -465,6 +465,39 @@
     }, true);
   }
 
+  // ---------- WALLET: saldo, SOL, indirizzo del bot (QR + copia)
+  function renderWallet(s) {
+    const real = s.mode === 'REAL';
+    $('#heroLbl').textContent = real ? 'Saldo di trading del bot' : 'Saldo simulato';
+    if (s.equityEur != null) tween('wBal', $('#wBal'), s.equityEur, eur); else tween('wBal', $('#wBal'), s.equity, (v) => nf(v, s.base === 'SOL' ? 4 : 2) + ' ' + s.base);
+    const pct = s.startEquity > 0 ? (s.pnl / s.startEquity) * 100 : 0;
+    if (s.pnlEur != null) tween('wPl', $('#wPl'), s.pnlEur, (v) => `${v >= 0 ? '+ ' : '− '}${eur(Math.abs(v))} (${nf(pct, 1)}%)`);
+    else tween('wPl', $('#wPl'), s.pnl, (v) => `${v >= 0 ? '+ ' : '− '}${nf(Math.abs(v), s.base === 'SOL' ? 4 : 2)} ${s.base} (${nf(pct, 1)}%)`);
+    $('#wPl').className = s.pnl >= 0 ? 'mint' : 'red';
+    $('#roi').textContent = nf(s.roi, 2) + 'x'; $('#roi').classList.toggle('neg', s.roi < 1);
+    $('#hSol').textContent = real ? `◎ ${nf(s.wallet.balances ? s.wallet.balances.sol : null, 4)}` : `◎ ${nf(s.solReserve, 4)} sim`;
+    $('#hSolPx').textContent = `SOL ${s.solUsd ? nf(s.solUsd, 2) + ' $' : '—'}`;
+    const pk = s.wallet.exists ? s.wallet.publicKey : null;
+    $('#wAddr').textContent = pk || 'Wallet del bot non ancora creato: tocca «Wallet bot» per crearlo (serve una password).';
+    $('#wCopy').classList.toggle('hidden', !pk);
+    const sc = $('#wScan'); sc.classList.toggle('hidden', !pk); if (pk) sc.href = `https://solscan.io/account/${encodeURIComponent(pk)}`;
+    if (pk !== qrFor) loadQr(pk);
+  }
+  let qrFor; let qrBusy = false;
+  async function loadQr(pk) {
+    if (qrBusy) return; qrFor = pk; const img = $('#wQr');
+    if (!pk) { img.classList.add('hidden'); img.removeAttribute('src'); return; }
+    qrBusy = true;
+    try { const r = await api('/api/wallet/qr'); if (r.qr && /^data:image\/png;base64,/.test(r.qr) && r.address === pk) { img.src = r.qr; img.classList.remove('hidden'); } }
+    catch { qrFor = undefined; } finally { qrBusy = false; }
+  }
+  async function copyText(t) {
+    try { await navigator.clipboard.writeText(t); return true; } catch {}
+    const ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch {} ta.remove(); return ok;
+  }
+  $('#wCopy').addEventListener('click', async () => { const pk = S && S.wallet.exists && S.wallet.publicKey; if (!pk) return; toast((await copyText(pk)) ? '📋 Indirizzo del bot copiato' : 'Copia non riuscita: tieni premuto sull\'indirizzo per copiarlo'); });
+
   // ---------- eventi live
   function onEv(e) {
     Sky.event(e);
@@ -526,6 +559,7 @@
     renderFocus(s); renderBeacon(s); renderBotList(s); renderMentorTab(s);
     if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; }
     $('#secSpot').textContent = s.cfg.realSpot ? 'ACCESO (swap veri)' : 'spento'; $('#secSpot').className = s.cfg.realSpot ? 'red' : 'mint';
+    renderWallet(s);
     const pb = $('#posBadge'); pb.classList.toggle('hidden', !s.positions.length); pb.textContent = s.positions.length;
     // regole
     const rules = Object.entries(s.counters.rules).sort((a, b) => b[1] - a[1]).slice(0, 10);
@@ -650,6 +684,8 @@
       }
       if (a === 'withdraw') withdrawSheet();
       if (a === 'settings') settingsSheet();
+      if (a === 'guide') realGuide();
+      if (a === 'botwallet') { settingsSheet(); setTimeout(() => { const pw = $('#sPw'); if (pw) pw.closest('.grp').scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 120); }
     } catch (er) { toast(er.message, 4500); }
   });
 
@@ -660,7 +696,7 @@
       ${S.user.balances ? `<div class="kv"><span>Saldo</span><span>${nf(S.user.balances.sol, 4)} SOL · ${nf(S.user.balances.usdc, 2)} USDC</span></div>` : ''}
       <div class="kv"><span>Prelievi verso</span><span class="addr">${esc(S.user.withdrawAddress || '— (al primo deposito)')}</span></div></div>
       <div class="btns"><button class="btn pri" id="phRe">Ricollega / cambia account</button><button class="btn ghost" data-close>Chiudi</button></div>
-      <p class="note">L'indirizzo di prelievo viene fissato al primo deposito. Per cambiarlo serve la password del wallet del bot (Impostazioni → Portafoglio).</p>`, (b) => {
+      <p class="note">L'indirizzo di prelievo viene fissato al primo deposito. Per cambiarlo serve la password del wallet del bot (Wallet → Wallet bot).</p>`, (b) => {
       $('#phRe', b).addEventListener('click', async () => { try { await connectPhantom(); closeSheet(); } catch (er) { toast(er.message); } });
     });
   }
@@ -682,7 +718,7 @@
       $('#dGo', b).addEventListener('click', async (e) => {
         e.target.disabled = true;
         try {
-          if (!S.wallet.exists) throw new Error('Crea prima il wallet del bot: Impostazioni → Portafoglio del bot');
+          if (!S.wallet.exists) throw new Error('Crea prima il wallet del bot: Wallet → Wallet bot');
           if (!S.user.address) { await connectPhantom(); if (!provider()) return; }
           await doDeposit(Number($('#dAmt', b).value), c, $('#dOut', b));
         } catch (er) { $('#dOut', b).innerHTML = `<span class="red">${esc(er.message)}</span>`; }
