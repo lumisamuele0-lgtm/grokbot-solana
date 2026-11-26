@@ -96,9 +96,9 @@ const ANALYST_IDS = ANALYSTS.map((a) => a.id);
 // ---------- i 2 trader: gli unici che aprono operazioni
 const EXECUTORS = [
   { id: 'alpha', name: 'Alpha', role: 'Aggressivo · momentum e leva', desc: 'Opera con leva (5x–10x) long e short su SOL, BTC ed ETH (Jupiter Perps). Dà più peso a trend, momentum, breakout e multi-timeframe; entra con un consenso più basso.',
-    domain: 'perp', thr: 0.28, minAgree: 3, maxPerTurn: 3, boost: { trend: 1.3, momentum: 1.3, breakout: 1.3, mtf: 1.2, funding: 1.1, news: 1.1, volatility: 1.1 }, hue: 190 },
+    domain: 'perp', thr: 0.22, minAgree: 2, maxPerTurn: 3, boost: { trend: 1.3, momentum: 1.3, breakout: 1.3, mtf: 1.2, funding: 1.1, news: 1.1, volatility: 1.1 }, hue: 190 },
   { id: 'omega', name: 'Omega', role: 'Selettivo · spot e memecoin', desc: 'Compra spot 1x (solo long) sulle altre cripto di Solana, memecoin comprese, solo dopo i controlli anti-truffa. Dà più peso a flusso, memecoin, balene e contropiede; chiede un consenso più alto.',
-    domain: 'spot', thr: 0.36, minAgree: 4, maxPerTurn: 3, boost: { meme: 1.4, flow: 1.3, whale: 1.3, reversion: 1.2, mtf: 1.1, macro: 1.1 }, hue: 280 },
+    domain: 'spot', thr: 0.3, minAgree: 3, maxPerTurn: 3, boost: { meme: 1.4, flow: 1.3, whale: 1.3, reversion: 1.2, mtf: 1.1, macro: 1.1 }, hue: 280 },
 ];
 const EXEC_IDS = EXECUTORS.map((x) => x.id);
 const BOT_IDS = [...EXEC_IDS, ...ANALYST_IDS];
@@ -259,35 +259,41 @@ class Desk {
     const perpBlk = e.perpBlock(), spotBlk = e.spotBlock();
     e.agent('SCANSIONE', `12 analisti su ${coins.length} cripto (${coins.filter((c) => c.perp).length} con leva, ${coins.filter((c) => !c.perp).length} spot)`, 'scan');
     const cands = [];
+    // diagnostica del giro: perché ogni cripto/trader è stato scartato (per il pannello «Perché non entra»)
+    const R = { candele: 0, verifica: 0, posizione: 0, cooldown: 0, trader: 0, blocco: 0, lato: 0 }; const loading = [];
     for (const coin of coins) {
-      const ctx = this.context(coin, cache); if (!ctx) continue;
-      if (!coin.perp && !e.watch.has(coin.mint)) continue; // spot: solo dopo i controlli di VERIFICA (RugCheck, autorità, liquidità)
+      const ctx = this.context(coin, cache); if (!ctx) { R.candele++; loading.push({ symbol: coin.symbol, n: (e.market.candles[coin.mint] || []).length }); continue; }
+      if (!coin.perp && !e.watch.has(coin.mint)) { R.verifica++; continue; } // spot: solo dopo i controlli di VERIFICA (RugCheck, autorità, liquidità)
       const votes = this.analyze(ctx); this.votes[coin.mint] = { t: now, symbol: coin.symbol, votes };
       this.record(ctx, votes, now);
-      if (!ctx.a.ok) continue;
+      if (!ctx.a.ok) { R.candele++; continue; }
       for (const X of EXECUTORS) {
-        if (this.isPaused(X.id)) continue; const xs = this.xState(X.id); if (xs.restUntil > now) continue;
         if ((X.domain === 'perp') !== !!coin.perp) continue;
-        if (coin.perp ? perpBlk : spotBlk) continue;
+        if (this.isPaused(X.id)) { R.trader++; continue; } const xs = this.xState(X.id); if (xs.restUntil > now) { R.trader++; continue; }
+        if (coin.perp ? perpBlk : spotBlk) { R.blocco++; continue; }
+        if (b.positions.some((p) => p.mint === coin.mint)) { R.posizione++; continue; } // una posizione per cripto (sui perps: mai long e short insieme, stesso conto on-chain)
         for (const side of coin.perp ? ['LONG', 'SHORT'] : ['LONG']) {
-          if (coin.perp && side === 'LONG' && !cfg.perpLongs) continue;
-          if (coin.perp && side === 'SHORT' && !cfg.shortsOn) continue;
-          if (!coin.perp && !cfg.spotLongs) continue;
-          if (b.positions.some((p) => p.mint === coin.mint)) continue; // una posizione per cripto (sui perps: mai long e short insieme, stesso conto on-chain)
-          const cdKey = `${X.id}:${coin.mint}:${side}`; if ((b.cooldown[cdKey] && b.cooldown[cdKey] > now) || (b.cooldown[coin.mint] && b.cooldown[coin.mint] > now)) continue;
+          if (coin.perp && side === 'LONG' && !cfg.perpLongs) { R.lato++; continue; }
+          if (coin.perp && side === 'SHORT' && !cfg.shortsOn) { R.lato++; continue; }
+          if (!coin.perp && !cfg.spotLongs) { R.lato++; continue; }
+          const cdKey = `${X.id}:${coin.mint}:${side}`; if ((b.cooldown[cdKey] && b.cooldown[cdKey] > now) || (b.cooldown[coin.mint] && b.cooldown[coin.mint] > now)) { R.cooldown++; continue; }
           const cs = this.consensus(votes, side, X); const thr = X.thr + xs.selectivity;
           const sym = ctx.symbol; const st = { ...ctx.st, symbol: coin.perp ? sym : coin.symbol };
           const feat = [...K.featuresOf({ s: st, a: ctx.a, f: ctx.f, core: !!coin.perp, solMom60: e.solMom60(), side: side === 'SHORT' ? 'short' : 'long' }), coin.perp ? `${side === 'SHORT' ? 'short.' : ''}leva:${e.leverage()}x` : 'spot:1x', ...cs.yes.map((id) => (side === 'SHORT' ? 'short.' : '') + 'analista:' + id)];
           const kn = K.assess(e.kb, feat);
           const x = { m: coin.mint, s: st, a: ctx.a, f: ctx.f, feat, kn, rs: { score: 0, against: 0, strategies: [], opposite: [], atrPct: null }, side, coin, X, cs, thr, conf: clamp(cs.score, 0, 1), total: cs.score + kn.adj * 0.1, votes };
-          e.mentorGate(x);
+          e.mentorGate(x); if (x.raise) x.thr = +(x.thr + x.raise).toFixed(2);
           cands.push(x);
         }
       }
     }
-    if (!cands.length) { e.agent('CAPO', 'nessun mercato libero per i trader (pausa, cooldown, posizioni o candele in caricamento)', 'idle'); return []; }
+    const why = (x) => (x.block ? 'mentore' : x.kn.skip ? 'memoria' : x.cs.score < x.thr ? 'consenso' : x.cs.yes.length < x.X.minAgree ? 'analisti' : x.cs.yes.length <= x.cs.no.length ? 'contrari' : null);
+    for (const x of cands) { const k = why(x); if (k) R[k] = (R[k] || 0) + 1; }
     cands.sort((p, q) => q.cs.score - p.cs.score);
-    const ok = cands.filter((x) => x.cs.score >= x.thr && x.cs.yes.length >= x.X.minAgree && x.cs.yes.length > x.cs.no.length && !x.kn.skip && !x.block);
+    this.scan = { t: now, coins: coins.length, evaluated: cands.length, reasons: R, loading: loading.slice(0, 6),
+      best: cands.slice(0, 5).map((x) => ({ bot: x.X.id, name: x.X.name, symbol: x.coin.symbol, side: x.side, score: +x.cs.score.toFixed(3), thr: x.thr, yes: x.cs.yes.length, need: x.X.minAgree, no: x.cs.no.length, block: x.block || (x.kn.skip ? 'la memoria dei trade sconsiglia questo setup' : null), why: why(x) })) };
+    if (!cands.length) { e.agent('CAPO', 'nessun mercato libero per i trader (pausa, cooldown, posizioni o candele in caricamento)', 'idle'); return []; }
+    const ok = cands.filter((x) => !why(x));
     const top = cands[0];
     if (!ok.length) {
       const blocked = cands.find((x) => x.block && x.cs.score >= x.thr);
@@ -322,6 +328,8 @@ class Desk {
       } finally { e.actx = prev; }
       if (b.killed) break;
     }
+    this.scan.opened = opened.length;
+    if (!opened.length) { const ag = e.st.agents || {}; const r = ['RISCHIO', 'DIMENSIONE', 'VERIFICA', 'ESECUZIONE'].map((k) => ag[k]).filter((x) => x && x.t >= now && ['block', 'reject', 'fail'].includes(x.action)).sort((p, q) => q.t - p.t)[0]; this.scan.refused = r ? r.text : null; }
     return opened;
   }
 

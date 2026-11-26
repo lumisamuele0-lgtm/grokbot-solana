@@ -621,6 +621,16 @@
   const money = (v, sign = true) => { const d = S && S.base === 'SOL' ? 4 : 2; return (sign ? (v >= 0 ? '+' : '−') : '') + nf(Math.abs(v || 0), d) + (S && S.base === 'SOL' ? ' ◎' : ' $'); };
   // ---------- render
   let firstRender = true;
+  // pannello «Perché non entra»: il blocco principale spiegato in italiano + i migliori candidati dell'ultimo giro
+  function renderWhy(s) {
+    const w = s.why; const box = $('#whyBox'); if (!box) return;
+    if (!w) { box.classList.add('hidden'); return; } box.classList.remove('hidden');
+    box.dataset.level = w.level; $('#whyT').textContent = w.level === 'ok' ? 'Stato: operativo' : 'Perché non entra';
+    $('#whyX').textContent = w.text;
+    const sc = w.scan || null; $('#whyAt').textContent = sc ? 'giro delle ' + hhmm(sc.t) : '';
+    $('#whyB').innerHTML = sc && sc.best && sc.best.length ? sc.best.slice(0, 3).map((x) => `<div class="why-r"><span>${esc(x.name)} · ${esc(x.symbol)} ${x.side === 'SHORT' ? '▼' : '▲'}</span><div class="cbar"><i style="width:${Math.max(0, Math.min(100, x.score * 100))}%"></i><b style="left:${Math.min(100, x.thr * 100)}%"></b></div><span class="mu small">${nf(Math.max(0, x.score) * 100, 0)}% / ${nf(x.thr * 100, 0)}% · ${x.yes}/${x.need} analisti</span></div>`).join('') : '';
+    $('#whyAct').innerHTML = w.action === 'start' ? '<button class="btn pri sm" data-a="toggle" type="button">▶ Avvia</button>' : w.action === 'rearm' ? '<button class="btn sm" data-a="rearm" type="button">Riarma il bot</button>' : '';
+  }
   function render(s) {
     if (!s) return;
     const real = s.mode === 'REAL';
@@ -655,6 +665,7 @@
     if (firstRender) { $('#console').innerHTML = s.log.map(logLine).join(''); lastLogT = s.log.length ? s.log[s.log.length - 1].t : 0; $('#console').scrollTop = 1e9; firstRender = false; }
     $('#secSpot').textContent = s.cfg.realSpot ? 'ACCESO (swap veri)' : 'spento'; $('#secSpot').className = s.cfg.realSpot ? 'red' : 'mint';
     renderWallet(s);
+    renderWhy(s);
     const ob = $('#otherBook'); ob.classList.toggle('hidden', !s.otherBook);
     if (s.otherBook) ob.textContent = `⚠️ ${s.otherBook.open} ${s.otherBook.open === 1 ? 'posizione aperta' : 'posizioni aperte'} nel conto ${s.otherBook.mode === 'REAL' ? 'REALE' : 'SIMULAZIONE'} (${s.otherBook.symbols.map((x) => '$' + x).join(', ')}): non sono nel capitale mostrato qui. Passa a quella modalità per vederle.`;
     const pb = $('#posBadge'); pb.classList.toggle('hidden', !s.positions.length); pb.textContent = s.positions.length;
@@ -765,6 +776,7 @@
           else { await api('/api/trading', { on: true }); toast('🚀 Sala operativa al lavoro: 12 analisti, Alpha e Omega'); }
         } finally { b.disabled = false; }
       }
+      if (a === 'rearm') { await api('/api/rearm', {}); toast('Bot riarmato: ora premi Avvia'); }
       if (a === 'withdraw') withdrawSheet();
       if (a === 'settings') settingsSheet();
       if (a === 'guide') realGuide();

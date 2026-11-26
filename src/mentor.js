@@ -79,7 +79,10 @@ class Mentor {
   params(symbol, side) { const t = this.tune(symbol, side); return { slMult: clamp(t.slMult, LIMITS.slMult), tpMult: clamp(t.tpMult, LIMITS.tpMult), level: clamp(t.level, LIMITS.level), ver: t.ver }; }
 
   // il MENTORE può solo rendere più selettivi: mai aumentare dimensione o leva
-  entryCheck({ symbol, side, regime = null, atrPct = null, funding = null, newsRisk = 0, conf = 1, flowStrict = true, rsScore = 0, now = Date.now() }) {
+  // consensus=true (sala operativa): «conf» è il consenso pesato degli analisti (di solito 0,2–0,6, quasi mai ≥ 0,83), quindi la
+  // selettività NON può chiedere conf ≥ 5/6 come per i vecchi segnali: alza invece la soglia di consenso di 4 punti per livello
+  // (max +12) e al livello 3 chiede anche il flusso a favore. Prima un solo livello bloccava per sempre quella cripto/direzione.
+  entryCheck({ symbol, side, regime = null, atrPct = null, funding = null, newsRisk = 0, conf = 1, flowStrict = true, rsScore = 0, consensus = false, now = Date.now() }) {
     const t = this.tune(symbol, side); const d = dirOf(side);
     t.blocks = t.blocks.filter((b) => b.until > now);
     for (const b of t.blocks) {
@@ -90,6 +93,10 @@ class Mentor {
     }
     if (newsRisk >= clamp(t.newsRiskMax, LIMITS.newsRiskMax)) return { ok: false, reason: `notizie ad alto rischio (${Math.round(newsRisk * 100)}%)` };
     const L = Math.floor(clamp(t.level, LIMITS.level));
+    if (consensus) {
+      if (L >= 3 && !flowStrict) return { ok: false, reason: 'il Mentore chiede il flusso degli ordini a favore (selettività 3/3)' };
+      return { ok: true, raise: +(0.04 * L).toFixed(2), level: L };
+    }
     const ok = L === 0 ? true : L === 1 ? (conf >= 5 / 6 && flowStrict) || rsScore >= 1 : L === 2 ? (conf >= 1 && flowStrict) || rsScore >= 1.2 : conf >= 1 && flowStrict && rsScore >= 0.5;
     if (!ok) return { ok: false, reason: `il Mentore chiede un segnale più forte (selettività ${L}/3)` };
     return { ok: true };

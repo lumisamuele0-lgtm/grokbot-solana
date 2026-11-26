@@ -393,3 +393,17 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 .eq-eur{font-size:12px;color:var(--mu);margin-top:2px;font-variant-numeric:tabular-nums}
 .wh-sl{display:flex;flex-direction:column}.wh-sl small{font-size:10.5px;color:var(--mu);font-weight:600}
 .banner-in{margin:12px 0 0;padding:9px 12px;border-radius:14px;font-size:12.5px;line-height:1.4;background:rgba(42,26,8,.85);border:1px solid #6a4a14;color:#ffd892}
+
+/* Perché non entra */
+.why{padding:12px 14px;margin-top:10px}
+.why-h{display:flex;align-items:center;gap:8px}.why-h .mu{margin-left:auto}
+.why-dot{width:9px;height:9px;border-radius:50%;background:#8aa0b8;flex:none}
+.why[data-level=ok] .why-dot{background:#2fd68a;box-shadow:0 0 8px #2fd68a}
+.why[data-level=info] .why-dot{background:#f5c451}
+.why[data-level=warn] .why-dot{background:#ff9f43}
+.why[data-level=stop] .why-dot{background:#ff5d6c;box-shadow:0 0 8px #ff5d6c}
+.why[data-level=stop]{border-color:rgba(255,93,108,.45)}
+.why-x{margin-top:6px;font-size:14px;line-height:1.4}
+.why-b{margin-top:6px}.why-r{display:grid;grid-template-columns:1fr;gap:2px;margin-top:6px;font-size:12px}
+.why-r .cbar{margin:0}
+#whyAct:not(:empty){margin-top:10px}

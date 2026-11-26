@@ -49,5 +49,5 @@ test('interfaccia: scheda Wallet con Deposita, Preleva, Phantom, Budget, Wallet 
     assert.ok(html.includes(sel), sel + ' manca in index.html');
   for (const f of ['function depositSheet', 'function withdrawSheet', 'function phantomSheet', 'function connectPhantom', 'function doDeposit', 'function realGuide', 'function settingsSheet', 'function renderWallet', "'/api/deposit/build'", "'/api/deposit/confirm'", "'/api/withdraw'", "'/api/wallet/create'", "'/api/wallet/unlock'", "'/api/wallet/lock'", "'/api/wallet/export'", "'/api/wallet/backup'", "'/api/withdraw-address'", "'/api/user-wallet'", "'/api/wallet/qr'", "id=\"wPw\""])
     assert.ok(js.includes(f), f + ' manca in app.js');
-  assert.match(sw, /grokbot-v22/); assert.ok(!/<script>/.test(html), 'nessuno script inline (CSP)');
+  assert.match(sw, /grokbot-v23/); assert.ok(!/<script>/.test(html), 'nessuno script inline (CSP)');
 });

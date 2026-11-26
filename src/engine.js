@@ -561,6 +561,44 @@ class Engine extends EventEmitter {
     if (!this.spotBlock()) return null; // lo spot (solo long, 1x) resta possibile
     return pb;
   }
+  // «Perché non entra»: il blocco principale in questo momento, in italiano semplice. code = chiave stabile, level: ok | info | warn | stop
+  whyIdle(now = Date.now()) {
+    const cfg = this.cfg; const b = this.book; const d = this.desk; const pct = (x) => `${Math.round(x * 100)}%`;
+    const R = (code, level, text, extra = {}) => ({ code, level, text, ...extra });
+    if (b.killed) return R('kill', 'stop', `Kill switch scattato${b.killReason ? ` (${b.killReason})` : ''}: nessuna operazione. Premi «Riarma» e poi «Avvia».`, { action: 'rearm' });
+    if (!cfg.trading) return R('paused', 'stop', 'In pausa: premi «Avvia» per far lavorare Alpha e Omega (dopo ogni aggiornamento dell\'app il bot riparte in pausa).', { action: 'start' });
+    if (cfg.mode === 'REAL' && !this.ks.kp) return R('locked', 'stop', 'REALE: portafoglio del bot bloccato. Sbloccalo con la password nella scheda Wallet.');
+    if (!this.lastPriceOk || now - this.lastPriceOk > 60000) return R('prices', 'warn', 'Prezzi non aggiornati (Jupiter/DexScreener non rispondono): riprovo da solo ogni pochi secondi.');
+    const eb = this.entryBlock(); if (eb) return R('real-block', 'stop', `REALE: spot disattivato e leva in attesa del test con 5-10 USDC. Nessuna operazione possibile: attiva «Spot REALE» in Impostazioni oppure torna in SIMULAZIONE.`);
+    const br = d.checkBreaker(now); if (br) return R('breaker', 'stop', `Limite perdita giornaliera raggiunto (−${br.pct}% ≥ ${br.limit}%): nessun nuovo ingresso fino a mezzanotte. Le posizioni aperte restano protette.`);
+    const lim = S.checkLimits({ equity: this.equity(), startEquity: b.startEquity, dayStartEquity: b.dayStartEquity, openCount: b.positions.length, cfg });
+    if (!lim.canOpen) return R(b.positions.length >= cfg.maxOpen ? 'max-open' : 'limits', 'info', b.positions.length >= cfg.maxOpen ? `Già ${b.positions.length} posizioni aperte (massimo ${cfg.maxOpen}): nuovi ingressi quando se ne chiude una. Puoi alzare il massimo in Impostazioni.` : lim.reason);
+    const minTrade = cfg.baseCurrency === 'SOL' ? 0.01 : 2; const cash = this.cash();
+    if (cash < minTrade) return R('cash', 'info', `Liquidità esaurita: tutto il capitale è già nelle ${b.positions.length} posizioni aperte. Nuovi ingressi quando se ne chiude una; con «Per operazione» al 12% circa ci stanno 8 o più posizioni.`);
+    const eq = this.equity(); const notional = b.positions.reduce((a, p) => a + p.costBase * (p.lev || 1), 0);
+    if (eq > 0 && notional >= eq * (cfg.maxExposurePct / 100) - minTrade) return R('exposure', 'info', `Esposizione massima raggiunta (${Math.round((notional / eq) * 100)}% su ${cfg.maxExposurePct}% del capitale).`);
+    const xs = ['alpha', 'omega'].map((id) => ({ id, x: d.xState(id), paused: d.isPaused(id) }));
+    const off = xs.filter((y) => y.paused || y.x.restUntil > now);
+    const pb = this.perpBlock(), sb = this.spotBlock();
+    if (off.length === 2) return R('traders', 'warn', `Alpha e Omega ${off.every((y) => y.paused) ? 'messi in pausa da te (scheda Trader)' : 'in pausa di ricalibrazione dopo 3 perdite di fila (2 minuti)'}.`);
+    const sc = d.scan; const last = (b.positions.map((p) => p.openedAt).sort((x, y) => y - x)[0]) || 0;
+    if (last && now - last < 3 * 60e3) return R('trading', 'ok', `Operativo: ultima entrata ${Math.max(0, Math.round((now - last) / 60e3))} min fa. ${b.positions.length}/${cfg.maxOpen} posizioni aperte.`);
+    if (!sc || now - sc.t > Math.max(60e3, cfg.cycleSec * 3000)) return R('starting', 'info', 'Avvio: gli analisti stanno caricando prezzi e candele (serve circa 1 minuto).');
+    if (!sc.evaluated) {
+      if (sc.loading.length && sc.reasons.candele >= sc.coins - sc.reasons.verifica) return R('candles', 'info', `Candele in caricamento (${sc.loading.map((l) => `${l.symbol} ${l.n}/60`).join(', ')}): entro qualche minuto gli analisti possono votare.`);
+      if (sc.reasons.cooldown) return R('cooldown', 'info', `Tutte le cripto libere sono in pausa di ${cfg.cooldownMin} min dopo l'ultima uscita (cooldown).`);
+      if (sc.reasons.posizione) return R('held', 'info', 'Tutte le cripto sul radar hanno già una posizione aperta.');
+      return R('no-market', 'info', `Nessun mercato disponibile in questo giro${pb ? ' (REALE: leva in attesa del test)' : sb ? ` (${sb})` : ''}.`);
+    }
+    const top = sc.best[0]; const x = top;
+    const extra = { scan: sc };
+    if (x.block) return R('mentor', 'info', `${x.name} su ${x.symbol} ${x.side}: ${x.block}.`, extra);
+    if (x.why === 'consenso') return R('consensus', 'info', `Consenso ${pct(x.score)} < ${pct(x.thr)} su ${x.symbol} ${x.side} (${x.name}, ${x.yes} analisti d'accordo). Mercato senza segnali forti: si entra appena il consenso sale.`, extra);
+    if (x.why === 'analisti') return R('agree', 'info', `${x.symbol} ${x.side}: consenso ${pct(x.score)} ok ma solo ${x.yes} analisti d'accordo (ne servono ${x.need} per ${x.name}).`, extra);
+    if (x.why === 'contrari') return R('against', 'info', `${x.symbol} ${x.side}: tanti analisti contro quanti a favore (${x.yes} sì, ${x.no} no).`, extra);
+    if (sc.refused) return R('refused', 'warn', `${x.name} voleva entrare su ${x.symbol} ma il controllo rischio ha detto no: ${sc.refused}`, extra);
+    return R('ready', 'ok', `${x.name} pronto su ${x.symbol} ${x.side} (consenso ${pct(x.score)} ≥ ${pct(x.thr)}): entra al prossimo giro.`, extra);
+  }
   leverage() { return Math.min(P.MAX_LEV, snapLeverage(this.cfg.leverage)); } // 2x / 5x / 10x, limite rigido 10x
   // leva di una singola operazione: mai sotto la leva impostata (minimo 5x), mai sopra il limite rigido 10x
   tradeLev(req) { const base = this.leverage(); if (req == null) return base; return Math.min(P.MAX_LEV, Math.max(base, snapLeverage(Number(req) || base))); }
@@ -1092,8 +1130,8 @@ class Engine extends EventEmitter {
     x.total += d * 0.5 * nw.sentiment - 0.5 * nw.risk + this.mentor.prefAdj(x.side, mc.regime);
     x.news = nw;
     const conf = x.conf != null ? x.conf : x.side === 'SHORT' ? x.a.short.confidence : x.a.confidence;
-    const chk = this.mentor.entryCheck({ symbol: sym, side: x.side, regime: mc.regime, atrPct: x.a.atrPct, funding: mc.funding, newsRisk: nw.risk, conf, flowStrict: d > 0 ? x.f.score > 0 : x.f.score < 0, rsScore: x.rs ? x.rs.score : 0 });
-    if (!chk.ok) x.block = chk.reason;
+    const chk = this.mentor.entryCheck({ symbol: sym, side: x.side, regime: mc.regime, atrPct: x.a.atrPct, funding: mc.funding, newsRisk: nw.risk, conf, flowStrict: d > 0 ? x.f.score > 0 : x.f.score < 0, rsScore: x.rs ? x.rs.score : 0, consensus: !!x.X });
+    if (!chk.ok) x.block = chk.reason; else if (chk.raise) { x.raise = chk.raise; x.mentorLevel = chk.level; }
   }
   mentorLearn(tr) {
     try { this.mentor.onClose(tr); } catch (e) { this.log('MENTORE', `post-mortem non riuscito: ${e.message}`, 'warn'); }
@@ -1179,7 +1217,7 @@ class Engine extends EventEmitter {
       solHeld: (() => { const sol = cfg.mode === 'REAL' ? (this.bal ? this.bal.sol : null) : b.solReserve; const su = this.market.usd(SOL); return { sol, usd: sol != null && su ? sol * su : null, eur: sol != null && su ? sol * su * eur : null, inCapital: cfg.baseCurrency === 'SOL', real: cfg.mode === 'REAL' }; })(),
       // posizioni aperte nell'altro conto (SIM/REALE): non sono nel capitale mostrato, ma non devono restare nascoste
       otherBook: (() => { const om = cfg.mode === 'REAL' ? 'SIM' : 'REAL'; const ob = this.st.books[om]; return ob && ob.positions && ob.positions.length ? { mode: om, open: ob.positions.length, symbols: ob.positions.map((p) => p.symbol).slice(0, 8) } : null; })(),
-      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(), mentor: this.mentor.summary(), desk: this.desk.view(), universe: this.universe.status(),
+      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(), mentor: this.mentor.summary(), desk: this.desk.view(), why: this.whyIdle(), universe: this.universe.status(),
       positions, trades: b.trades.slice(0, 60), equityHist: hist.filter((_, i) => i % step === 0 || i === hist.length - 1),
       counters: this.st.counters, agents: AGENTS.map((a) => ({ ...a, count: this.st.counters.agents[a.id] || 0, last: this.st.agents[a.id] || null })),
       log: this.st.log.slice(-80), watch: ws,
