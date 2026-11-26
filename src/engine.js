@@ -13,7 +13,6 @@ const P = require('./perps');
 const { capitalBreakdown, fmtMoney } = require('./capital');
 const { momentum, ema } = require('./indicators');
 const jup = require('./jupiter');
-const { Rocket, RK: ROCKET } = require('./rocket');
 const chain = require('./chain');
 const { Market } = require('./market');
 const { Research } = require('./research');
@@ -89,9 +88,6 @@ class Engine extends EventEmitter {
     this.desk = new Desk(this);
     // MENTE: cervello neurale, memoria di formazione, ricerca web e laboratorio campione/sfidanti per ognuno dei 14 bot
     this.mind = new Mind(this, BOT_IDS, { dataDir });
-    // RAZZO · Cacciatore di Razzi (memecoin su Jupiter): trader separato con secchiello, stop rigido e uscite a scaglioni
-    this.jup = jup; this.chainMintInfo = (m) => chain.mintInfo(this.conn, m);
-    this.rocket = new Rocket(this, { dataDir });
     // UNIVERSO: tutte le cripto scambiabili su Solana (Jupiter) + i token del tuo Phantom, con filtri di sicurezza
     this.universe = new Universe({ log: (a, t, l) => this.log(a, t, l), getCfg: () => this.cfg,
       phantomMints: () => (this.userBal && this.userBal.tokens ? Object.entries(this.userBal.tokens).filter(([, t]) => t.ui > 0).map(([m]) => m) : []) });
@@ -174,12 +170,6 @@ class Engine extends EventEmitter {
     every(3600000, () => this.market.refreshEur());
     if (process.env.NO_RESEARCH !== '1') this.research.start();
     every(1000, () => this.desk.tick());
-    if (process.env.NO_ROCKET !== '1') {
-      setTimeout(() => every(ROCKET.SCAN_MS, () => this.rocket.scan()), 6000);
-      every(ROCKET.FAST_MS, () => this.rocket.fast()); // stop rigido: prezzo delle memecoin aperte ogni 4 s
-      every(ROCKET.EMERG_MS, () => this.rocket.emergencyTick()); // liquidità ritirata, dev che vende, via di vendita assente
-      setTimeout(() => every(ROCKET.TRACK_MS, () => this.rocket.trackTick()), 60000); // esiti dei candidati (24 h) per imparare
-    }
     if (process.env.NO_MIND !== '1') { setTimeout(() => every(30000, () => this.mind.tick()), 25000); if (process.env.NO_RESEARCH !== '1') setTimeout(() => every(90000, () => this.mind.webTick().catch((e) => this.log('MENTORE', `ricerca web: ${e.message}`, 'warn'))), 45000); }
     // universo: al primo elenco pronto si sceglie subito il radar e si fa una VERIFICA immediata (senza aspettare il giro da 60 s)
     let uniFirst = true;
@@ -189,7 +179,7 @@ class Engine extends EventEmitter {
     }
     if (process.env.BOT_AUTOSTART === '1') { this.cfg.trading = true; this.log('SISTEMA', 'Avvio automatico del trading (BOT_AUTOSTART=1)'); }
   }
-  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); clearTimeout(this.scanTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); this.research.stop(); this.mentor.flush(); this.mind.flush(); this.rocket.flush(); }
+  stop() { this.timers.forEach(clearInterval); clearTimeout(this.loopTimer); clearTimeout(this.scanTimer); this.cfgWriter.flush(); this.stWriter.flush(); this.kbWriter.flush(); this.research.stop(); this.mentor.flush(); this.mind.flush(); }
   async cycleLoop() {
     try { await this.cycle(); } catch (e) { this.log('SISTEMA', `Errore ciclo: ${e.message}`, 'error'); }
     const sec = this.cfg.cycleSec;
@@ -427,7 +417,7 @@ class Engine extends EventEmitter {
     // RISCHIO: limiti globali
     await this.refreshBalances(true);
     const eq = this.equity();
-    const lim = S.checkLimits({ equity: eq, startEquity: b.startEquity, dayStartEquity: b.dayStartEquity, openCount: this.deskPositions().length, cfg });
+    const lim = S.checkLimits({ equity: eq, startEquity: b.startEquity, dayStartEquity: b.dayStartEquity, openCount: b.positions.length, cfg });
     if (lim.kill) return this.killSwitch(lim.reason);
     if (!lim.canOpen) { this.bump('RISCHIO'); this.agent('RISCHIO', lim.reason, 'block'); return; }
     if (this.cfg.mode === 'REAL' && this.bal && this.bal.sol < Math.max(0.01, cfg.feeReserveSol * 0.5)) {
@@ -437,7 +427,7 @@ class Engine extends EventEmitter {
     // DIMENSIONE
     const capital = capIn != null ? Math.min(capIn, eq) : Math.min(b.budget + b.realizedPnl, eq);
     const minTrade = this.cfg.baseCurrency === 'SOL' ? 0.01 : 2;
-    const sz = S.sizePosition({ capital, cash: cashIn != null ? Math.min(cashIn, this.deskCash()) : this.deskCash(), cfg, confidence: conf, atr: a.atrPct, core, minTrade, frac });
+    const sz = S.sizePosition({ capital, cash: cashIn != null ? Math.min(cashIn, this.cash()) : this.cash(), cfg, confidence: conf, atr: a.atrPct, core, minTrade, frac });
     this.bump('DIMENSIONE');
     if (!sz.size) { this.agent('DIMENSIONE', sz.reason, 'block'); return; }
     let size = round(sz.size, this.base.decimals);
@@ -488,7 +478,6 @@ class Engine extends EventEmitter {
     const cfg = this.cfg;
     if (best.side === 'SHORT') { this.bump('RISCHIO'); this.agent('RISCHIO', `$${sym}: short solo su SOL/BTC/ETH (Jupiter Perps)`, 'block', { token: sym }); return; }
     const blk = this.spotBlock(); if (blk) { this.bump('RISCHIO'); this.agent('RISCHIO', blk, 'block', { token: sym }); return; }
-    if (this.book.positions.some((p) => p.mint === best.m && p.bot !== bot)) { this.agent('RISCHIO', `$${sym}: già in mano a un altro trader`, 'block', { token: sym }); return; }
     // sicurezza: autorità mint/freeze, RugCheck, Token-2022 rischioso (stesse regole di VERIFICA)
     const sf = await this.market.checkSafety(best.m, (x) => chain.mintInfo(this.conn, x)).catch(() => null);
     const bad = S.safetyRules(sf, cfg, false);
@@ -512,16 +501,6 @@ class Engine extends EventEmitter {
     return this.openPosition({ ...best, bot }, size, plan);
   }
 
-  // posizioni della sala operativa (Alpha/Omega): le memecoin di Razzo hanno un limite e un secchiello separati
-  deskPositions(b = this.book) { return b.positions.filter((p) => p.bot !== ROCKET.ID); }
-  limitsCheck(openCount = this.deskPositions().length) { const b = this.book; return S.checkLimits({ equity: this.equity(), startEquity: b.startEquity, dayStartEquity: b.dayStartEquity, openCount, cfg: this.cfg }); }
-  // liquidità tenuta da parte per la prossima memecoin (al massimo una puntata e mai oltre lo spazio del secchiello)
-  rocketReserve() {
-    const cfg = this.cfg; if (cfg.rocketOn === false) return 0; const eq = this.equity();
-    const used = this.book.positions.filter((p) => p.bot === ROCKET.ID).reduce((a, p) => a + (p.costBase || 0), 0);
-    return Math.max(0, Math.min(eq * (cfg.rocketTradePct / 100), eq * (cfg.rocketBucketPct / 100) - used));
-  }
-  deskCash() { return Math.max(0, this.cash() - this.rocketReserve()); }
   cash() {
     const b = this.book;
     if (this.cfg.mode === 'SIM') return b.cash;
@@ -537,9 +516,8 @@ class Engine extends EventEmitter {
     try { q = await jup.quote(this.base.mint, c.m, sizeRaw, cfg.slippageBps); }
     catch (e) { this.agent('ESECUZIONE', `quote fallita: ${e.message}`, 'fail', { token: sym }); b.cooldown[c.m] = Date.now() + 5 * 60000; return; }
     const impact = Number(q.priceImpactPct || 0) * 100;
-    const maxImp = c.maxImpact || cfg.maxPriceImpactPct;
-    if (impact > maxImp) {
-      const l = `Impatto > ${maxImp}%`; this.rule(l); this.bump('RISCHIO');
+    if (impact > cfg.maxPriceImpactPct) {
+      const l = `Impatto > ${cfg.maxPriceImpactPct}%`; this.rule(l); this.bump('RISCHIO');
       this.agent('RISCHIO', `bloccato $${sym}: impatto prezzo ${impact.toFixed(2)}%`, 'block', { token: sym });
       b.cooldown[c.m] = Date.now() + 10 * 60000; return;
     }
@@ -603,9 +581,9 @@ class Engine extends EventEmitter {
     if (!this.lastPriceOk || now - this.lastPriceOk > 60000) return R('prices', 'warn', 'Prezzi non aggiornati (Jupiter/DexScreener non rispondono): riprovo da solo ogni pochi secondi.');
     const eb = this.entryBlock(); if (eb) return R('real-block', 'stop', `REALE: spot disattivato e leva in attesa del test con 5-10 USDC. Nessuna operazione possibile: attiva «Spot REALE» in Impostazioni oppure torna in SIMULAZIONE.`);
     const br = d.checkBreaker(now); if (br) return R('breaker', 'stop', `Limite perdita giornaliera raggiunto (−${br.pct}% ≥ ${br.limit}%): nessun nuovo ingresso fino a mezzanotte. Le posizioni aperte restano protette.`);
-    const lim = S.checkLimits({ equity: this.equity(), startEquity: b.startEquity, dayStartEquity: b.dayStartEquity, openCount: this.deskPositions().length, cfg });
-    if (!lim.canOpen) return R(this.deskPositions().length >= cfg.maxOpen ? 'max-open' : 'limits', 'info', this.deskPositions().length >= cfg.maxOpen ? `Già ${this.deskPositions().length} posizioni aperte (massimo ${cfg.maxOpen}): nuovi ingressi quando se ne chiude una. Puoi alzare il massimo in Impostazioni.` : lim.reason);
-    const minTrade = cfg.baseCurrency === 'SOL' ? 0.01 : 2; const cash = this.deskCash();
+    const lim = S.checkLimits({ equity: this.equity(), startEquity: b.startEquity, dayStartEquity: b.dayStartEquity, openCount: b.positions.length, cfg });
+    if (!lim.canOpen) return R(b.positions.length >= cfg.maxOpen ? 'max-open' : 'limits', 'info', b.positions.length >= cfg.maxOpen ? `Già ${b.positions.length} posizioni aperte (massimo ${cfg.maxOpen}): nuovi ingressi quando se ne chiude una. Puoi alzare il massimo in Impostazioni.` : lim.reason);
+    const minTrade = cfg.baseCurrency === 'SOL' ? 0.01 : 2; const cash = this.cash();
     if (cash < minTrade) return R('cash', 'info', `Liquidità esaurita: tutto il capitale è già nelle ${b.positions.length} posizioni aperte. Nuovi ingressi quando se ne chiude una; con «Per operazione» al 12% circa ci stanno 8 o più posizioni.`);
     const eq = this.equity(); const notional = b.positions.reduce((a, p) => a + p.costBase * (p.lev || 1), 0);
     if (eq > 0 && notional >= eq * (cfg.maxExposurePct / 100) - minTrade) return R('exposure', 'info', `Esposizione massima raggiunta (${Math.round((notional / eq) * 100)}% su ${cfg.maxExposurePct}% del capitale).`);
@@ -614,7 +592,7 @@ class Engine extends EventEmitter {
     const pb = this.perpBlock(), sb = this.spotBlock();
     if (off.length === 2) return R('traders', 'warn', `Alpha e Omega ${off.every((y) => y.paused) ? 'messi in pausa da te (scheda Trader)' : 'in pausa di ricalibrazione dopo 3 perdite di fila (2 minuti)'}.`);
     const sc = d.scan; const last = (b.positions.map((p) => p.openedAt).sort((x, y) => y - x)[0]) || 0;
-    if (last && now - last < 3 * 60e3) return R('trading', 'ok', `Operativo: ultima entrata ${Math.max(0, Math.round((now - last) / 60e3))} min fa. ${this.deskPositions().length}/${cfg.maxOpen} posizioni aperte.`);
+    if (last && now - last < 3 * 60e3) return R('trading', 'ok', `Operativo: ultima entrata ${Math.max(0, Math.round((now - last) / 60e3))} min fa. ${b.positions.length}/${cfg.maxOpen} posizioni aperte.`);
     if (!sc || now - sc.t > Math.max(60e3, cfg.cycleSec * 3000)) return R('starting', 'info', 'Avvio: gli analisti stanno caricando prezzi e candele (serve circa 1 minuto).');
     if (!sc.evaluated) {
       if (sc.loading.length && sc.reasons.candele >= sc.coins - sc.reasons.verifica) return R('candles', 'info', `Candele in caricamento (${sc.loading.map((l) => `${l.symbol} ${l.n}/60`).join(', ')}): entro qualche minuto gli analisti possono votare.`);
@@ -746,7 +724,6 @@ class Engine extends EventEmitter {
         if (k >= 0.8) { await this.closeShort(p, 1, `Vicino alla liquidazione (${(((px - p.entryPrice) / p.entryPrice) * 100).toFixed(2)}%)`); continue; }
       }
       { const mv = ((p.side === 'SHORT' ? -1 : 1) * (px - p.entryPrice) / p.entryPrice) * 100; p.mfe = Math.max(p.mfe || 0, mv); p.mae = Math.min(p.mae || 0, mv); } // per il post-mortem
-      if (p.rocket) { lines.push(`🚀$${p.symbol} ${((px / p.entryPrice - 1) * 100).toFixed(1)}%`); await this.rocket.check(p, px, now); continue; } // memecoin: stop rigido + scaglioni di Razzo
       const r = S.exitPlan(p, px, now, this.cfg, this.exitCtx(p));
       lines.push(`$${p.symbol}${p.side === 'SHORT' ? '▼' : ''}${isPerp(p) ? ' ' + p.lev + 'x' : ''} ${r.change != null ? (r.change >= 0 ? '+' : '') + r.change.toFixed(2) + '%' : ''}`);
       for (const ev of r.events || []) this.onTrail(p, ev);
@@ -798,7 +775,7 @@ class Engine extends EventEmitter {
       }
       const cashBefore = b.cash;
       let q;
-      const slip = Math.min(p.rocket ? 1500 : 1000, (p.rocket ? cfg.rocketSlipBps : cfg.slippageBps) * (1 + (p.failCount || 0))); // memecoin: margine di slippage più ampio per uscire subito
+      const slip = Math.min(1000, cfg.slippageBps * (1 + (p.failCount || 0)));
       try { q = await jup.quote(p.mint, out, qtyRaw, slip); } catch (e) {
         if (cfg.mode === 'SIM' && !partial && (p.failCount || 0) >= 2) { estimated = true; } else { p.failCount = (p.failCount || 0) + 1; p.closing = false; this.log('SORVEGLIANZA', `vendita $${p.symbol} rinviata: ${e.message}`, 'warn'); return; }
       }
@@ -867,8 +844,6 @@ class Engine extends EventEmitter {
   markStage(p, stage) {
     if (stage === 1) { p.tp1Done = true; const be = p.entryPrice * (1 + this.cfg.beBufferPct / 100); p.beStop = Math.max(p.beStop || 0, be); }
     if (stage === 2) p.tp2Done = true;
-    if (stage === 'R1') p.r1Done = true;
-    if (stage === 'R2') p.r2Done = true;
   }
 
   async killSwitch(reason) {
@@ -1227,7 +1202,6 @@ class Engine extends EventEmitter {
       brains: { on: this.mind.on(), bots },
       lab: { today: { runs: runsToday.length, promotions: runsToday.filter((x) => x.promoted).length, rejections: runsToday.filter((x) => !x.promoted).length }, totals: { ...lab.totals } },
       why: { code: why.code, level: why.level, text: why.text },
-      rockets: (({ on, open, max, used, cap, ready, scored, top, trades, winRate }) => ({ on, open, max, used: r2(used), cap: r2(cap), ready, scored, top, trades, winRate }))(this.rocket.summary()),
     };
   }
   snapshot() {
@@ -1276,7 +1250,7 @@ class Engine extends EventEmitter {
       solHeld: (() => { const sol = cfg.mode === 'REAL' ? (this.bal ? this.bal.sol : null) : b.solReserve; const su = this.market.usd(SOL); return { sol, usd: sol != null && su ? sol * su : null, eur: sol != null && su ? sol * su * eur : null, inCapital: cfg.baseCurrency === 'SOL', real: cfg.mode === 'REAL' }; })(),
       // posizioni aperte nell'altro conto (SIM/REALE): non sono nel capitale mostrato, ma non devono restare nascoste
       otherBook: (() => { const om = cfg.mode === 'REAL' ? 'SIM' : 'REAL'; const ob = this.st.books[om]; return ob && ob.positions && ob.positions.length ? { mode: om, open: ob.positions.length, symbols: ob.positions.map((p) => p.symbol).slice(0, 8) } : null; })(),
-      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(), mentor: this.mentor.summary(), desk: this.desk.view(), why: this.whyIdle(), mind: this.mind.view(this.book.trades), rockets: this.rocket.summary(), universe: this.universe.status(),
+      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(), mentor: this.mentor.summary(), desk: this.desk.view(), why: this.whyIdle(), mind: this.mind.view(this.book.trades), universe: this.universe.status(),
       positions, trades: b.trades.slice(0, 60), equityHist: hist.filter((_, i) => i % step === 0 || i === hist.length - 1),
       counters: this.st.counters, agents: AGENTS.map((a) => ({ ...a, count: this.st.counters.agents[a.id] || 0, last: this.st.agents[a.id] || null })),
       log: this.st.log.slice(-80), watch: ws,

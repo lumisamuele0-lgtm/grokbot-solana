@@ -58,10 +58,8 @@ const ANALYSTS = [
   { id: 'flow', name: 'Flusso ordini', icon: '🌊', desc: 'Acquisti contro vendite dell\'ultima ora e accelerazione del volume (dati on-chain DexScreener).',
     fn(c) { const f = c.f; if (!(f.buys + f.sells)) return NONE('nessun dato di flusso'); if (Math.abs(f.score) < 0.3) return NONE('flusso bilanciato');
       return V(sgn(f.score), 0.3 + Math.abs(f.score) * 0.6, `${f.buys} acquisti / ${f.sells} vendite`); } },
-  { id: 'meme', name: 'Cacciatore meme', icon: '🐸', desc: 'Lo scanner di Razzo: ogni 90 s esamina centinaia di memecoin su Jupiter (volume, holder, acquisti, social, tendenza) con filtri anti-rug rigidi; nella sala vota con il punteggio razzo e il momentum.', spotOnly: true,
-    fn(c) { if (c.perp) return NONE('non è una memecoin');
-      if (c.rocket && c.rocket.score != null) { const r = c.rocket; if (r.status === 'scartato') return V(-1, 0.5, `scanner Razzo: ${r.why || 'scartata dai filtri anti-rug'}`); if (r.score >= 60) return V(1, Math.min(0.9, r.score / 100), `punteggio razzo ${r.score}/100`); }
-      if (!c.coin.meme) return NONE('non è una memecoin'); const ch1 = c.ch1, ch5 = c.ch5, f = c.f;
+  { id: 'meme', name: 'Cacciatore meme', icon: '🐸', desc: 'Solo memecoin che hanno passato i filtri anti-truffa: momentum, flusso e crescita sana (niente pump estremi).', spotOnly: true,
+    fn(c) { if (c.perp || !c.coin.meme) return NONE('non è una memecoin'); const ch1 = c.ch1, ch5 = c.ch5, f = c.f;
       if (ch1 != null && ch1 < -8) return V(-1, 0.55, `${ch1.toFixed(0)}% in 1h: evitare`);
       if (ch1 != null && ch1 >= 1.5 && ch1 <= 30 && (ch5 == null || ch5 > -1) && f.ratio > 0.05) return V(1, 0.45 + Math.min(0.3, ch1 / 40) + Math.min(0.2, f.ratio), `+${ch1.toFixed(1)}% in 1h con acquisti`);
       return NONE('memecoin senza spinta'); } },
@@ -104,7 +102,7 @@ const ANALYST_IDS = ANALYSTS.map((a) => a.id);
 const EXECUTORS = [
   { id: 'alpha', name: 'Alpha', role: 'Aggressivo · momentum e leva', desc: 'Opera con leva (5x–10x) long e short su SOL, BTC ed ETH (Jupiter Perps). Dà più peso a trend, momentum, breakout e multi-timeframe; entra con un consenso più basso.',
     domain: 'perp', thr: 0.22, minAgree: 2, maxPerTurn: 3, boost: { trend: 1.3, momentum: 1.3, breakout: 1.3, mtf: 1.2, funding: 1.1, news: 1.1, volatility: 1.1 }, hue: 190 },
-  { id: 'omega', name: 'Omega', role: 'Selettivo · spot verificati', desc: 'Compra spot 1x (solo long) sulle cripto verificate di Solana (major e mid-cap), solo dopo i controlli anti-truffa; le memecoin giovani sono il lavoro di Razzo. Dà più peso a flusso, memecoin, balene e contropiede; chiede un consenso più alto.',
+  { id: 'omega', name: 'Omega', role: 'Selettivo · spot e memecoin', desc: 'Compra spot 1x (solo long) sulle altre cripto di Solana, memecoin comprese, solo dopo i controlli anti-truffa. Dà più peso a flusso, memecoin, balene e contropiede; chiede un consenso più alto.',
     domain: 'spot', thr: 0.3, minAgree: 3, maxPerTurn: 3, boost: { meme: 1.4, flow: 1.3, whale: 1.3, reversion: 1.2, mtf: 1.1, macro: 1.1 }, hue: 280 },
 ];
 const EXEC_IDS = EXECUTORS.map((x) => x.id);
@@ -215,8 +213,7 @@ class Desk {
     let mc = {}, news = null; try { mc = coin.perp ? r.marketContext(symbol) : {}; news = coin.perp ? r.newsFor(symbol) : null; } catch { /* ricerca non pronta */ }
     const x = { coin, perp: !!coin.perp, symbol, mint, c1, a: S.analyze(c1), rev: S.reversion(c1), st, f: st.buys1h != null ? S.flowScore(st) : { score: 0, ratio: 0, volAccel: num(uc.volAccel) || 1, buys: 0, sells: 0 },
       ch1: pick('change1h'), ch5: pick('change5m'), ch6: pick('change6h'), liq: pick('liquidityUsd'), mc, news, macro: cache.__macro,
-      rs: coin.perp ? (side, ids) => { try { return r.signalFor(symbol, side, ids); } catch { return { score: 0, against: 0, strategies: [] }; } } : null,
-      rocket: !coin.perp && e.rocket ? e.rocket.scoreOf(mint) : null };
+      rs: coin.perp ? (side, ids) => { try { return r.signalFor(symbol, side, ids); } catch { return { score: 0, against: 0, strategies: [] }; } } : null };
     cache[mint] = x; return x;
   }
   macro() {
@@ -325,7 +322,7 @@ class Desk {
     const opened = []; const per = {};
     for (const best of ok) {
       if (opened.length >= this.pace().maxEntries) break;
-      if (e.deskPositions().length >= cfg.maxOpen) break;
+      if (b.positions.length >= cfg.maxOpen) break;
       if ((per[best.X.id] || 0) >= best.XP.maxPerTurn) continue;
       if (b.positions.some((p) => p.mint === best.m)) continue;
       const prev = e.actx; e.actx = { bot: best.X.id };
@@ -400,7 +397,7 @@ class Desk {
     const block = e.entryBlock(); const pb = e.perpBlock(); const sb = e.spotBlock(); const br = this.checkBreaker(now);
     const notional = b.positions.reduce((a, p) => a + p.costBase * (p.lev || 1), 0); const eq = e.equity();
     return { execs, analysts, coins: s.coins || [], coinsAt: s.coinsAt || null, maxCoins: this.pace().coins, pace: { id: this.e.cfg.pace || 'aggressivo', label: this.pace().label, cycleSec: this.e.cfg.cycleSec, maxEntries: this.pace().maxEntries }, feed: s.feed.slice(0, 40), insight: s.insight || null, corrections: this.corrections(now), breaker: br,
-      risk: { maxTradePct: e.cfg.maxTradePct, maxOpen: e.cfg.maxOpen, dailyLossPct: e.cfg.dailyLossPct, maxExposurePct: e.cfg.maxExposurePct, open: e.deskPositions().length, exposure: notional, exposurePct: eq > 0 ? (notional / eq) * 100 : 0, margin: b.positions.reduce((a, p) => a + p.costBase, 0),
+      risk: { maxTradePct: e.cfg.maxTradePct, maxOpen: e.cfg.maxOpen, dailyLossPct: e.cfg.dailyLossPct, maxExposurePct: e.cfg.maxExposurePct, open: b.positions.length, exposure: notional, exposurePct: eq > 0 ? (notional / eq) * 100 : 0, margin: b.positions.reduce((a, p) => a + p.costBase, 0),
         dayPnl: eq - (b.dayStartEquity || eq), dayPnlPct: b.dayStartEquity > 0 ? ((eq - b.dayStartEquity) / b.dayStartEquity) * 100 : 0 },
       realWaiting: block && e.cfg.mode === 'REAL' ? `REALE in attesa del test con 5-10 USDC: nessun ordine reale finché non approvi il test.${e.cfg.spotLongs ? ' Lo spot reale (solo long, 1x) è spento: si può attivare in Impostazioni.' : ''}` : null,
       realNote: !block && e.cfg.mode === 'REAL' && (pb || sb) ? (pb ? 'REALE: opera solo Omega (spot 1x long con swap veri su Jupiter). Leva e short (Alpha) in attesa del test con 5-10 USDC.' : 'REALE: opera solo Alpha (perps); spot reale spento.') : null,
