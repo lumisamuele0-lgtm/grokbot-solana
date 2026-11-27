@@ -56,7 +56,7 @@ const ANALYSTS = [
       if (r.LONG.conf >= 0.75) return V(1, 0.5, 'vendite eccessive'); if (r.SHORT.conf >= 0.75) return V(-1, 0.5, 'acquisti eccessivi');
       return NONE('nessun eccesso'); } },
   { id: 'flow', name: 'Flusso ordini', icon: '🌊', desc: 'Acquisti contro vendite dell\'ultima ora e accelerazione del volume (dati on-chain DexScreener).',
-    fn(c) { const f = c.f; if (!(f.buys + f.sells)) return NONE('nessun dato di flusso'); if (f.buys + f.sells < 20) return NONE(`troppo pochi scambi (${f.buys + f.sells})`); if (Math.abs(f.score) < 0.3) return NONE('flusso bilanciato');
+    fn(c) { const f = c.f; if (!(f.buys + f.sells)) return NONE('nessun dato di flusso'); if (Math.abs(f.score) < 0.3) return NONE('flusso bilanciato');
       return V(sgn(f.score), 0.3 + Math.abs(f.score) * 0.6, `${f.buys} acquisti / ${f.sells} vendite`); } },
   { id: 'meme', name: 'Cacciatore meme', icon: '🐸', desc: 'Solo memecoin che hanno passato i filtri anti-truffa: momentum, flusso e crescita sana (niente pump estremi).', spotOnly: true,
     fn(c) { if (c.perp || !c.coin.meme) return NONE('non è una memecoin'); const ch1 = c.ch1, ch5 = c.ch5, f = c.f;
@@ -289,8 +289,6 @@ class Desk {
         for (const side of coin.perp ? ['LONG', 'SHORT'] : ['LONG']) {
           if (coin.perp && side === 'LONG' && !cfg.perpLongs) { R.lato++; continue; }
           if (coin.perp && side === 'SHORT' && !cfg.shortsOn) { R.lato++; continue; }
-          // TREND 4H: con edgeOn Alpha entra SOLO sul segnale a 4 ore (gli analisti a 1 minuto restano come informazione: da soli erano in perdita)
-          let edge = null; if (coin.perp && cfg.edgeOn) { edge = e.edge ? e.edge.signal(ctx.symbol, now) : null; if (!edge || edge.side !== side) { R.trend4h = (R.trend4h || 0) + 1; continue; } }
           if (!coin.perp && !cfg.spotLongs) { R.lato++; continue; }
           const cdKey = `${X.id}:${coin.mint}:${side}`; if ((b.cooldown[cdKey] && b.cooldown[cdKey] > now) || (b.cooldown[coin.mint] && b.cooldown[coin.mint] > now)) { R.cooldown++; continue; }
           const cs = this.consensus(votes, side, X); const XP = this.params(X); const thr = +(XP.thr + xs.selectivity).toFixed(2);
@@ -298,20 +296,17 @@ class Desk {
           const feat = [...K.featuresOf({ s: st, a: ctx.a, f: ctx.f, core: !!coin.perp, solMom60: e.solMom60(), side: side === 'SHORT' ? 'short' : 'long' }), coin.perp ? `${side === 'SHORT' ? 'short.' : ''}leva:${e.leverage()}x` : 'spot:1x', ...cs.yes.map((id) => (side === 'SHORT' ? 'short.' : '') + 'analista:' + id)];
           const kn = K.assess(e.kb, feat);
           const x = { m: coin.mint, s: st, a: ctx.a, f: ctx.f, feat, kn, rs: { score: 0, against: 0, strategies: [], opposite: [], atrPct: null }, side, coin, X, XP, cs, thr, conf: clamp(cs.score, 0, 1), total: cs.score + kn.adj * 0.1, votes, news: ctx.news, macro: ctx.macro, mc: ctx.mc };
-          if (edge) { x.edge = edge; x.kn = { ...x.kn, skip: false }; }
           if (mind) { try { mind.trader(X, x, now); x.conf = clamp(x.cs.score, 0, 1); } catch { /* */ } } // cervello del trader: consenso ±5 punti al massimo
           e.mentorGate(x); if (x.raise) x.thr = +(x.thr + x.raise).toFixed(2);
           cands.push(x);
         }
       }
     }
-    // TREND 4H: il segnale a 4 ore sostituisce consenso/analisti/memoria/mentore (tutti tarati sui trade a 1 minuto, in perdita); restano kill switch, limite giornaliero, blocchi REALE, margine ed esposizione
-    const why = (x) => (x.edge ? null : x.block ? 'mentore' : x.kn.skip ? 'memoria' : x.cs.score < x.thr ? 'consenso' : x.cs.yes.length < x.XP.minAgree ? 'analisti' : x.cs.yes.length <= x.cs.no.length ? 'contrari' : null);
+    const why = (x) => (x.block ? 'mentore' : x.kn.skip ? 'memoria' : x.cs.score < x.thr ? 'consenso' : x.cs.yes.length < x.XP.minAgree ? 'analisti' : x.cs.yes.length <= x.cs.no.length ? 'contrari' : null);
     for (const x of cands) { const k = why(x); if (k) R[k] = (R[k] || 0) + 1; }
-    cands.sort((p, q) => (q.edge ? 1 : 0) - (p.edge ? 1 : 0) || q.cs.score - p.cs.score);
+    cands.sort((p, q) => q.cs.score - p.cs.score);
     this.scan = { t: now, coins: coins.length, evaluated: cands.length, reasons: R, loading: loading.slice(0, 6),
       best: cands.slice(0, 5).map((x) => ({ bot: x.X.id, name: x.X.name, symbol: x.coin.symbol, side: x.side, score: +x.cs.score.toFixed(3), thr: x.thr, yes: x.cs.yes.length, need: x.XP.minAgree, no: x.cs.no.length, block: x.block || (x.kn.skip ? 'la memoria dei trade sconsiglia questo setup' : null), why: why(x) })) };
-    if (!cands.length && cfg.edgeOn && R.trend4h) { const t = 'Alpha aspetta un segnale TREND 4H su SOL/BTC/ETH (incrocio EMA 20/100 a 4 ore: pochi al mese, è voluto)'; e.agent('CAPO', t, 'idle'); this.st.decisions.alpha = { t: now, kind: 'wait', text: t }; return []; }
     if (!cands.length) { e.agent('CAPO', 'nessun mercato libero per i trader (pausa, cooldown, posizioni o candele in caricamento)', 'idle'); return []; }
     const ok = cands.filter((x) => !why(x));
     const top = cands[0];
@@ -333,9 +328,9 @@ class Desk {
       const prev = e.actx; e.actx = { bot: best.X.id };
       try {
         const lev = best.coin.perp ? e.tradeLev(null) : 1; // leva scelta da te (5x o 10x), mai oltre il limite rigido 10x
-        const frac = best.edge ? require('./edge').riskFrac(e.cfg, Math.min(best.edge.slPct, P.liqDistancePct(lev) * 0.4), lev) : clamp(0.4 + best.cs.score, 0.4, 1); // TREND 4H: rischio fisso allo stop; altrimenti forza del consenso
+        const frac = clamp(0.4 + best.cs.score, 0.4, 1); // forza del consenso → dimensione (fino al 100% del massimo per operazione)
         const yesN = best.cs.yes.map((id) => this.analyst(id).name);
-        e.agent('CAPO', best.edge ? `${best.X.name} entra ${best.side === 'SHORT' ? 'SHORT ▼' : 'LONG ▲'} ${lev}x su $${best.coin.symbol}: segnale TREND 4H (EMA20 ${best.side === 'SHORT' ? 'sotto' : 'sopra'} EMA100, prezzo ${best.side === 'SHORT' ? 'sotto' : 'sopra'} EMA200) · stop ${best.edge.slPct.toFixed(1)}% · rischio ~${e.cfg.riskPerTradePct}% del capitale` : `${best.X.name} entra ${best.side === 'SHORT' ? 'SHORT ▼' : 'LONG ▲'}${best.coin.perp ? ` ${lev}x` : ' spot 1x'} su $${best.coin.symbol}: consenso ${(best.cs.score * 100).toFixed(0)}% · ${yesN.length} analisti (${yesN.join(', ')})`, 'pick', { token: best.coin.symbol, side: best.side });
+        e.agent('CAPO', `${best.X.name} entra ${best.side === 'SHORT' ? 'SHORT ▼' : 'LONG ▲'}${best.coin.perp ? ` ${lev}x` : ' spot 1x'} su $${best.coin.symbol}: consenso ${(best.cs.score * 100).toFixed(0)}% · ${yesN.length} analisti (${yesN.join(', ')})`, 'pick', { token: best.coin.symbol, side: best.side });
         e.log('SALA', `${best.X.name} sceglie $${best.coin.symbol} ${best.side} · consenso ${(best.cs.score * 100).toFixed(0)}% · a favore: ${yesN.join(', ')}${best.cs.no.length ? ' · contro: ' + best.cs.no.map((id) => this.analyst(id).name).join(', ') : ''}`);
         const before = new Set(b.positions.map((p) => p.id));
         const ret = await e.enterTrade(best, { conf: best.conf, bot: best.X.id, perp: best.coin.perp, lev: best.coin.perp ? lev : null, frac });

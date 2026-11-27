@@ -20,8 +20,6 @@ function mkEngine(cfg = {}) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sbuni-'));
   fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ budget: 1000, baseCurrency: 'USDC', cfgVersion: 8, ...cfg }));
   const e = new Engine({ dataDir: d, keystore: new Keystore(path.join(d, 'w.json')) });
-  // test della logica a consenso 1 minuto (ancora disponibile con edgeOn=false): TREND 4H spento salvo richiesta
-  e.cfg.edgeOn = cfg.edgeOn ?? false; e.cfg.spotLongs = cfg.spotLongs ?? true;
   const now = Date.now(); e.market.prices[USDC] = { usd: 1, ts: now }; e.market.prices[SOL] = { usd: 100, ts: now }; e.lastPriceOk = now; e.refreshBalances = async () => {};
   return e;
 }
@@ -116,7 +114,7 @@ test('REALE: perps sempre bloccati; spot reale solo se lo attivi (e allora usa l
 
 test('migrazione v8: spot solo long attivo, spot reale spento, filtri più severi, leva invariata', () => {
   const r = migrateConfig({ cfgVersion: 7, leverage: 10, minVolume24hUsd: 3000, minLiquidityUsd: 40000, minPairAgeMin: 1, budget: 77 });
-  assert.strictEqual(r.cfg.spotLongs, false, 'v15: Omega spot in pausa'); assert.strictEqual(r.cfg.realSpot, false);
+  assert.strictEqual(r.cfg.spotLongs, true); assert.strictEqual(r.cfg.realSpot, false);
   assert.strictEqual(r.cfg.minVolume24hUsd, 100000); assert.strictEqual(r.cfg.minLiquidityUsd, 100000); assert.strictEqual(r.cfg.minPairAgeMin, 1440);
   assert.strictEqual(r.cfg.leverage, 10); assert.strictEqual(r.cfg.budget, 77); assert.strictEqual(migrateConfig(r.cfg).changed, false);
 });

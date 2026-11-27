@@ -427,5 +427,3 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 #repKey .kv{display:flex;justify-content:space-between;font-size:13px;margin-top:8px}
 #repKey .card{margin-top:10px}
 code.tok{display:block;margin-top:6px;padding:10px;border-radius:10px;background:#000;border:1px solid #00ff8855;color:var(--mint);font-size:12px;word-break:break-all;overflow-wrap:anywhere;user-select:all;-webkit-user-select:all}
-
-.risk-warn{margin-top:8px;padding:10px 12px;border-radius:12px;background:#ff3b5c22;border:1px solid #ff5d7a;color:#ffb3c0;font-size:13px;line-height:1.35;font-weight:600}.risk-warn[hidden]{display:none}

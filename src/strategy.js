@@ -88,9 +88,7 @@ function flowScore(s) {
   const b = s.buys1h || 0, se = s.sells1h || 0, tot = b + se;
   const ratio = tot ? (b - se) / tot : 0;
   const volAccel = s.volume6h > 0 ? (s.volume1h * 6) / s.volume6h : 1;
-  // il volume amplifica (o smorza) lo squilibrio acquisti/vendite ma non sceglie una direzione: prima un volume in calo
-  // spingeva il punteggio verso il negativo anche con flusso neutro → voti SHORT in più (bias ribassista)
-  const score = clamp(ratio * 1.5 * (1 + clamp(volAccel - 1, -0.5, 0.8) * 0.5), -1, 1);
+  const score = clamp(ratio * 1.5 + clamp(volAccel - 1, -0.5, 0.8) * 0.5, -1, 1);
   return { score, ratio, volAccel, buys: b, sells: se };
 }
 
@@ -105,10 +103,8 @@ function riskPlan(atr, cfg, core) {
 // capitale = budget + PnL realizzato, limitato dal valore effettivo.
 // Rischio per operazione: si investe esattamente maxTradePct% del capitale (× memeSizeMult per i meme),
 // mai più del contante disponibile. Lo stop-loss resta calcolato sulla volatilità (riskPlan).
-// DIMENSIONE: margine = capitale × maxTradePct% (predefinito 20%, regolabile fino al 100%) × frac (forza del consenso dei trader, 0–1),
-// mai oltre il contante disponibile; poi esposizione massima, perdita giornaliera, kill switch e stop restano attivi.
-const MAX_TRADE_PCT = 100;
-const SAFE_TRADE_PCT = 20; // oltre questo valore l'interfaccia mostra l'avviso rosso
+// DIMENSIONE: margine = capitale × maxTradePct% (tetto rigido 20%) × frac (forza del consenso dei trader, 0–1)
+const MAX_TRADE_PCT = 20;
 function sizePosition({ capital, cash, cfg, core, minTrade, frac = 1 }) {
   const pct = Math.min(MAX_TRADE_PCT, Math.max(0, Number(cfg.maxTradePct) || 0));
   let size = capital * (pct / 100) * Math.min(1, Math.max(0, Number(frac) || 0));
@@ -185,7 +181,6 @@ function shortStopCap(slPct, entry, liqPrice) {
   return Math.max(0.5, Math.min(slPct, liqDist * 0.4));
 }
 function exitPlanCore(pos, price, now, cfg, ctx = {}) {
-  if (pos.edge) return require('./edge').exitEdge(pos, price, now); // posizioni TREND 4H: solo stop, trailing dopo +1R, tempo massimo
   if (!cfg.smartExits) { const r = exitCheck(pos, price, now, cfg); return { action: r.exit ? 'close' : 'none', reason: r.reason, change: r.change, events: [] }; }
   const events = [];
   pos.highest = Math.max(pos.highest || pos.entryPrice, price);
@@ -254,4 +249,4 @@ function reversion(c1) {
   return { ok: true, LONG: mk(1), SHORT: mk(-1), rsi: r, mid: m, lo, hi };
 }
 
-module.exports = { MAX_TRADE_PCT, SAFE_TRADE_PCT, exposureFit, reversion, effectiveStop, shortStopCap, exitLevels, exitPlan, filterRules, safetyRules, analyze, flowScore, riskPlan, sizePosition, checkLimits, exitCheck };
+module.exports = { MAX_TRADE_PCT, exposureFit, reversion, effectiveStop, shortStopCap, exitLevels, exitPlan, filterRules, safetyRules, analyze, flowScore, riskPlan, sizePosition, checkLimits, exitCheck };

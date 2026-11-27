@@ -403,7 +403,7 @@
     const dl = Math.max(0, -(r.dayPnlPct || 0));
     const h = m('Posizioni', `${r.open || 0}/${c.maxOpen}`, r.open || 0, c.maxOpen, 'aperte ora')
       + m('Esposizione', pct0(r.exposurePct), r.exposurePct || 0, c.maxExposurePct, `max ${c.maxExposurePct}% (margine × leva)`)
-      + m('Per operazione', `≤ ${c.maxTradePct}%`, c.maxTradePct, 100, c.maxTradePct > 20 ? '⚠️ rischio molto alto (sopra il 20%)' : 'del capitale, scala col consenso', c.maxTradePct > 20)
+      + m('Per operazione', `≤ ${c.maxTradePct}%`, c.maxTradePct, 20, 'del capitale, scala col consenso', false)
       + m('Perdita oggi', `${nf(dl, 1)}%`, dl, c.dailyLossPct, `limite ${c.dailyLossPct}%`, !!br);
     setH($('#riskStrip'), h + (br ? `<div class="rbrk">⛔ Limite di perdita giornaliera raggiunto (−${nf(br.pct, 1)}%): nessun nuovo ingresso fino a domani. Le posizioni aperte restano protette da stop e target.</div>` : ''));
   }
@@ -460,17 +460,9 @@
         ${mindHtml(x.id, true)}
         <div class="grp"><span class="lbl">Posizioni di ${esc(x.name)}</span><div class="hpos">${ps.map((p) => posCard(p, s, true)).join('') || '<div class="empty">Nessuna posizione aperta.</div>'}</div></div>
         ${x.history.length ? `<div class="grp"><span class="lbl">Ultime chiuse</span>${x.history.slice(0, 5).map((t) => `<div class="kv"><span>${hhmm(t.closedAt)} <b>$${esc(t.symbol)}</b> <small class="mu">${t.side === 'SHORT' ? '▼' : '▲'}${t.lev > 1 ? ' ' + t.lev + 'x' : ''} · ${esc(t.reason || '')}</small></span><b class="${pnlCls(t.pnl)}">${t.pnl >= 0 ? '+' : ''}${nf(t.pnl, d)}</b></div>`).join('')}</div>` : ''}
-        ${x.id === 'alpha' && s.cfg.edgeOn ? trend4hHtml(s) : ''}
-        <p class="note">${x.id === 'alpha' && s.cfg.edgeOn ? `Alpha entra solo sui segnali TREND 4H (incrocio EMA 20/100 a 4 ore nel verso della EMA 200): stop a 3 ATR, trailing a 5 ATR dopo +1R, nessuno stop a tempo. Dimensione a rischio fisso: allo stop perdi circa il ${s.cfg.riskPerTradePct}% del capitale (mai oltre il margine massimo del ${s.cfg.maxTradePct}%). Pochi trade al mese: è voluto.` : x.id === 'omega' && !s.cfg.spotLongs ? 'Omega (spot 1x) è in pausa: nei trade reali 4 su 4 in perdita e non è verificabile su dati storici. Puoi riattivarlo in Impostazioni → Radar.' : `${esc(x.desc)} Entra con almeno ${x.minAgree} analisti d'accordo e consenso ≥ ${nf(x.thr * 100, 0)}%. Margine = fino al ${s.cfg.maxTradePct}% del capitale × forza del consenso (40–100%).`}</p>
+        <p class="note">${esc(x.desc)} Entra con almeno ${x.minAgree} analisti d'accordo e consenso ≥ ${nf(x.thr * 100, 0)}%. Margine = fino al ${s.cfg.maxTradePct}% del capitale × forza del consenso (40–100%).</p>
       </section>`; }).join('');
     setH($('#execs'), h);
-  }
-  // TREND 4H: trend a 4 ore per SOL/BTC/ETH e segnale attivo (dal server: trend4h.assets)
-  function trend4hHtml(s) {
-    const t = s.trend4h; const as = (t && t.assets) || [];
-    const row = (q) => !q.ready ? `<div class="kv"><span><b>${esc(q.asset)}</b></span><span class="mu">${esc(q.err || 'in caricamento')}</span></div>`
-      : `<div class="kv"><span><b>${esc(q.asset)}</b> <small class="mu">ATR 4h ${nf(q.atrPct, 2)}%</small></span><span class="${/rialzo/.test(q.trend) ? 'mint' : 'red'}">${q.signal ? `<b>segnale ${q.signal === 'SHORT' ? 'SHORT ▼' : 'LONG ▲'}</b>` : esc(q.trend)}</span></div>`;
-    return `<div class="grp"><span class="lbl">TREND 4H · segnali di Alpha</span>${as.map(row).join('') || '<div class="empty">Candele a 4 ore in caricamento.</div>'}</div>`;
   }
   function renderAnalysts(s) {
     const h = desk().analysts.map((a) => { const g = a.signal; const w = a.weight || 1;
@@ -497,14 +489,12 @@
   }
   // rischio regolabile direttamente (cursori): margine max per operazione, posizioni, esposizione, perdita giornaliera
   const RISK = [
-    { k: 'maxTradePct', l: 'Margine massimo per operazione', min: 1, max: 100, step: 1, f: (v) => v + '% del capitale', n: 'Predefinito 20%, regolabile fino al 100%. Alpha (TREND 4H) ne usa la parte che serve per il rischio per operazione; Omega dal 40% al 100% in base al consenso. Mai oltre il contante disponibile.' },
-    { k: 'riskPerTradePct', l: 'Rischio per operazione (TREND 4H)', min: 0.5, max: 5, step: 0.5, f: (v) => '≈ ' + String(v).replace('.', ',') + '% del capitale allo stop', n: 'Predefinito 2%. Alpha dimensiona ogni trade TREND 4H così che, se tocca lo stop, perdi circa questa quota del capitale (mai oltre il margine massimo per operazione). Più alto = guadagni e perdite più grandi.' },
+    { k: 'maxTradePct', l: 'Margine massimo per operazione', min: 1, max: 20, step: 1, f: (v) => v + '% del capitale', n: 'Tetto rigido 20%. Il trader usa dal 40% al 100% di questo valore in base alla forza del consenso.' },
     { k: 'maxOpen', l: 'Posizioni aperte insieme', min: 1, max: 15, step: 1, f: (v) => v + ' posizioni', n: 'Leva e short solo su SOL/BTC/ETH (una per mercato); le altre sono spot 1x long.' },
     { k: 'maxExposurePct', l: 'Esposizione totale massima', min: 50, max: 1000, step: 50, f: (v) => v + '% del capitale', n: 'Somma di margine × leva di tutte le posizioni. Oltre, il trade viene ridotto o bloccato.' },
     { k: 'dailyLossPct', l: 'Limite di perdita giornaliera', min: 1, max: 50, step: 1, f: (v) => '−' + v + '% in un giorno', n: 'Raggiunto il limite, nessun nuovo ingresso fino a domani (le posizioni aperte restano protette dagli stop).' },
   ];
   let riskDirty = false;
-  const TRADE_WARN = '⚠️ Rischio molto alto: una sola operazione può azzerare il capitale. Sopra il 20% ogni trade impegna una grossa parte dei tuoi soldi; con la leva bastano pochi punti percentuali contro per perdere tutto il margine. Esposizione massima, limite giornaliero, kill switch e stop restano attivi.';
   function riskNote(c) {
     const lev = c.leverage || 5; const dist = (S.shorts && S.shorts.liqDist && S.shorts.liqDist[lev]) || 100 / lev; const stop = Math.min(6, dist * 0.4); // stop ATR, mai oltre il 6% né oltre il 40% della distanza dalla liquidazione
     return `Esempio con ${lev}x: margine ${c.maxTradePct}% → esposizione ${c.maxTradePct * lev}% del capitale; lo stop resta entro ${nf(stop, 1)}% (max 6% e mai oltre il 40% della distanza dalla liquidazione), quindi il rischio massimo per operazione è circa ${nf((c.maxTradePct * lev * stop) / 100, 1)}% del capitale (di solito meno: lo stop dipende dalla volatilità). Con ${c.maxOpen} posizioni il rischio si somma.`;
@@ -513,14 +503,13 @@
     const box = $('#riskForm'); if (!box || (riskDirty && !force)) return;
     if (force) riskDirty = false;
     const c = s.cfg;
-    const h = RISK.map((r) => `<label class="rs"><span class="rs-l">${r.l}<b data-rv="${r.k}">${r.f(c[r.k])}</b></span><input type="range" data-rk="${r.k}" min="${r.min}" max="${r.max}" step="${r.step}" value="${c[r.k]}" aria-label="${esc(r.l)}"><small>${r.n}</small>${r.k === 'maxTradePct' ? `<div class="risk-warn" id="tradeWarn"${c.maxTradePct > 20 ? '' : ' hidden'}>${TRADE_WARN}</div>` : ''}</label>`).join('')
+    const h = RISK.map((r) => `<label class="rs"><span class="rs-l">${r.l}<b data-rv="${r.k}">${r.f(c[r.k])}</b></span><input type="range" data-rk="${r.k}" min="${r.min}" max="${r.max}" step="${r.step}" value="${c[r.k]}" aria-label="${esc(r.l)}"><small>${r.n}</small></label>`).join('')
       + `<p class="note" id="riskEx">${riskNote(c)}</p><div class="btns"><button class="btn pri" id="riskSave" type="button" disabled>Salva rischio</button></div><div class="err" id="riskErr"></div>`;
     if (box.dataset.h !== h) { box.dataset.h = h; box.innerHTML = h; }
   }
   $('#riskForm').addEventListener('input', (e) => {
     const i = e.target.closest('[data-rk]'); if (!i) return; riskDirty = true;
     const r = RISK.find((x) => x.k === i.dataset.rk); $(`[data-rv="${r.k}"]`).textContent = r.f(Number(i.value));
-    if (r.k === 'maxTradePct') { const w = $('#tradeWarn'); if (w) w.hidden = !(Number(i.value) > 20); }
     const c = { ...S.cfg }; $$('[data-rk]').forEach((x) => { c[x.dataset.rk] = Number(x.value); }); $('#riskEx').textContent = riskNote(c);
     $('#riskSave').disabled = false;
   });
@@ -551,7 +540,7 @@
   function renderPace(s) {
     const box = $('#paceBox'); if (!box || !s) return; const cur = s.cfg.pace || 'aggressivo'; const P = PACES.find((x) => x[0] === cur) || PACES[2];
     const h = `<div class="chips" role="radiogroup" aria-label="Ritmo">${PACES.map(([k, l]) => `<button type="button" class="chip ${k === cur ? 'on' : ''}" data-pace="${k}" role="radio" aria-checked="${k === cur}">${l}</button>`).join('')}</div>
-      <p class="note">${esc(P[2])}.</p><p class="note">Più veloce = più operazioni, non più sicure: stop, margine massimo per operazione, limite di perdita giornaliera, kill switch e controlli anti-truffa restano identici in ogni Ritmo.</p>`;
+      <p class="note">${esc(P[2])}.</p><p class="note">Più veloce = più operazioni, non più sicure: stop, tetto 20% per operazione, limite di perdita giornaliera, kill switch e controlli anti-truffa restano identici in ogni Ritmo.</p>`;
     if (box.dataset.h !== h) { box.dataset.h = h; box.innerHTML = h; }
   }
   $('#paceBox').addEventListener('click', async (e) => {
@@ -993,9 +982,6 @@
         ${num('maxPriceImpactPct', 'Impatto prezzo max %')}${num('cooldownMin', 'Pausa dopo un token (min)', '1')}
         ${num('maxHoldMin', 'Durata max posizione (min)', '1')}${num('feeReserveSol', 'Riserva SOL commissioni')}</div>
         <p class="note">Margine per operazione, posizioni max, esposizione e limite giornaliero si regolano con i cursori in Impostazioni → Rischio della sala (ora: ${c.maxTradePct}% · ${c.maxOpen} posizioni · ${c.maxExposurePct}% · −${c.dailyLossPct}%/giorno). Stop-loss e target sono calcolati sulla volatilità (ATR).</p></div>
-      <div class="grp"><span class="lbl">Strategia di Alpha</span>
-        <div class="switch"><span>TREND 4H (consigliato): entra solo sui segnali a 4 ore</span><span class="toggle ${c.edgeOn ? 'on' : ''}" data-t="edgeOn"></span></div>
-        <p class="note">Scelta con backtest su 2 anni di candele reali (commissioni, slippage e prestito inclusi): fuori campione profit factor 1,52 contro 0,53 della vecchia logica a 1 minuto. Pochi trade (circa 3–4 al mese) e drawdown possibili; nessun guadagno è garantito. Spento = vecchia logica a consenso 1 minuto (in perdita nei test).</p></div>
       <div class="grp"><span class="lbl">Short (LONG + SHORT)</span>
         <div class="switch"><span>Short su SOL, BTC, ETH (Jupiter Perps, collaterale USDC)</span><span class="toggle ${c.shortsOn ? 'on' : ''}" data-t="shortsOn"></span></div>
         <div class="switch"><span>Long con leva su SOL, BTC, ETH (spento = solo short)</span><span class="toggle ${c.perpLongs ? 'on' : ''}" data-t="perpLongs"></span></div>

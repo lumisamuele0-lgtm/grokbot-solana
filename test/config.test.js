@@ -9,9 +9,9 @@ test('default: fino al 20% per operazione, 8 posizioni, giro 10 s, limite giorna
   assert.strictEqual(DEFAULTS.maxTradePct, 20); assert.strictEqual(DEFAULTS.maxOpen, 8); assert.strictEqual(DEFAULTS.cycleSec, 10); assert.strictEqual(DEFAULTS.dailyLossPct, 15); assert.strictEqual(DEFAULTS.maxExposurePct, 400); assert.strictEqual(DEFAULTS.maxLossPct, 20, 'kill switch invariato');
   assert.strictEqual(DEFAULTS.minVolume24hUsd, 100000);
   assert.strictEqual(DEFAULTS.minPairAgeMin, 1440);
-  assert.strictEqual(DEFAULTS.spotLongs, false, 'v15: Omega spot spento di base'); assert.strictEqual(DEFAULTS.edgeOn, true); assert.strictEqual(DEFAULTS.riskPerTradePct, 2); assert.strictEqual(DEFAULTS.realSpot, false, 'spot reale spento finché non lo attivi');
+  assert.strictEqual(DEFAULTS.spotLongs, true); assert.strictEqual(DEFAULTS.realSpot, false, 'spot reale spento finché non lo attivi');
   assert.ok(!('minPairAgeHours' in DEFAULTS));
-  assert.deepStrictEqual(LIMITS.maxTradePct, [1, 100], 'regolabile fino al 100% per operazione'); assert.deepStrictEqual(LIMITS.maxOpen, [1, 15]); assert.strictEqual(sanitize({ maxTradePct: 50, maxOpen: 40 }, DEFAULTS).maxTradePct, 50); assert.strictEqual(sanitize({ maxTradePct: 250 }, DEFAULTS).maxTradePct, 100); assert.strictEqual(sanitize({ maxTradePct: 0 }, DEFAULTS).maxTradePct, 1); assert.strictEqual(sanitize({ maxOpen: 40 }, DEFAULTS).maxOpen, 15);
+  assert.deepStrictEqual(LIMITS.maxTradePct, [1, 20], 'mai oltre il 20% per operazione'); assert.deepStrictEqual(LIMITS.maxOpen, [1, 15]); assert.strictEqual(sanitize({ maxTradePct: 50, maxOpen: 40 }, DEFAULTS).maxTradePct, 20); assert.strictEqual(sanitize({ maxOpen: 40 }, DEFAULTS).maxOpen, 15);
   assert.strictEqual(sanitize({ maxTradePct: 7 }, DEFAULTS).maxTradePct, 7);
   assert.strictEqual(sanitize({ cfgVersion: 1 }, DEFAULTS).cfgVersion, CFG_VERSION);
 });

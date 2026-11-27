@@ -1,6 +1,6 @@
 'use strict';
 const { CORE, OLD_MEMES } = require('./tokens');
-const CFG_VERSION = 15; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
+const CFG_VERSION = 14; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
 const DEFAULTS = {
   cfgVersion: CFG_VERSION,
   mode: 'SIM', // SIM | REAL
@@ -11,7 +11,7 @@ const DEFAULTS = {
   maxLossPct: 20, // kill switch: perdita totale %
   maxLossAbs: 0, // kill switch: perdita assoluta in valuta base (0 = disattivato)
   dailyLossPct: 15, // limite di perdita giornaliera: oltre, nessun nuovo ingresso fino a domani
-  maxTradePct: 20, // margine massimo per operazione: % del capitale (predefinito 20%, regolabile fino al 100%; i trader usano 40–100% di questo in base al consenso)
+  maxTradePct: 20, // margine massimo per operazione: % del capitale (tetto rigido 20%; i trader usano 40–100% di questo in base al consenso)
   maxExposurePct: 400, // esposizione totale massima: somma di margine × leva di tutte le posizioni, in % del capitale
   memeSizeMult: 1, // moltiplicatore per i meme (1 = stessa dimensione dei token principali)
   maxOpen: 8,
@@ -31,7 +31,7 @@ const DEFAULTS = {
   shortsOn: true, leverage: 5, perpLongs: true,
   // SALA OPERATIVA: radar con SOL/BTC/ETH + fino a 12 cripto di Solana/Phantom. Leva e short solo dove ci sono i perps (SOL/BTC/ETH);
   // sulle altre spot 1x solo long. In REALE lo spot vero (swap Jupiter) parte solo se lo attivi tu (realSpot).
-  spotLongs: false, realSpot: false, // spot (Omega) spento di base dalla v15: in perdita nei trade reali, non verificabile su dati storici
+  spotLongs: true, realSpot: false,
   // MEMECOIN: filtri allentati per avere molte più memecoin (anti-truffa sempre attivi: via di vendita, niente mint/freeze, RugCheck, holder, pump/crolli)
   memeLoose: true, memeMinLiqUsd: 50000, memeMinVol24hUsd: 100000, memeMinMcapUsd: 1000000, memeMinAgeHours: 24, memeMinOrganic: 20, memeMaxTopHoldersPct: 60,
   uniMinLiqUsd: 250000, uniMinVol24hUsd: 500000, uniMinMcapUsd: 10000000, uniMinAgeDays: 7, uniMinOrganic: 50, uniMaxTopHoldersPct: 50,
@@ -50,10 +50,8 @@ const DEFAULTS = {
   // MENTE dei bot: cervello neurale (aggiusta fiducia/consenso entro limiti stretti) e ricerca web su fonti pubbliche gratuite
   brainOn: true, webResearch: true,
   // RITMO della sala operativa: prudente | normale | aggressivo (velocità di scansione, soglie di consenso, ingressi per giro,
-  // cooldown, radar). NON cambia stop, margine massimo per operazione, limite di perdita giornaliera, kill switch, anti-truffa, REALE.
+  // cooldown, radar). NON cambia stop, tetto 20% per operazione, limite di perdita giornaliera, kill switch, anti-truffa, REALE.
   pace: 'aggressivo',
-  // TREND 4H (Alpha): ingressi solo sul segnale a 4 ore e rischio fisso per operazione (perdita allo stop ≈ riskPerTradePct% del capitale)
-  edgeOn: true, riskPerTradePct: 2,
 };
 // preset del Ritmo (cycleSec, cooldownMin e maxWatch vengono copiati nella configurazione quando scegli il Ritmo; il resto è letto al volo)
 const PACE = {
@@ -65,7 +63,7 @@ const paceOf = (c) => PACE[c && c.pace] || PACE.aggressivo;
 function applyPace(c, pace) { const P = PACE[pace]; if (!P) return c; c.pace = pace; c.cycleSec = P.cycleSec; c.cooldownMin = P.cooldownMin; c.maxWatch = P.maxWatch; return c; }
 // limiti di validazione [min, max]
 const LIMITS = {
-  budget: [0, 1e9], feeReserveSol: [0.01, 1], maxLossPct: [1, 90], maxLossAbs: [0, 1e9], dailyLossPct: [1, 50], maxTradePct: [1, 100], riskPerTradePct: [0.5, 5], maxExposurePct: [50, 1000],
+  budget: [0, 1e9], feeReserveSol: [0.01, 1], maxLossPct: [1, 90], maxLossAbs: [0, 1e9], dailyLossPct: [1, 50], maxTradePct: [1, 20], maxExposurePct: [50, 1000],
   memeSizeMult: [0, 1], maxOpen: [1, 15], slippageBps: [10, 1000], maxPriceImpactPct: [0.1, 10], slAtrMult: [0.5, 6], slMinPct: [0.5, 20],
   slMaxPct: [1, 40], rewardRisk: [0.8, 6], maxHoldMin: [5, 10080], tp1R: [0.3, 10], tp1Pct: [5, 90], tp2R: [0.5, 20], tp2Pct: [0, 90], beBufferPct: [0, 5], trailActR: [0.2, 10], trailAtrMult: [0.3, 6], memeExitMult: [0.3, 1.5], timeStopMin: [5, 10080], timeStopMinGainPct: [-20, 50], reversalPct: [0.5, 50], leverage: [1, 10], cooldownMin: [0, 1440], cycleSec: [3, 600], minLiquidityUsd: [0, 1e9],
   minVolume24hUsd: [0, 1e10], minPairAgeMin: [0, 600000], minMcapUsd: [0, 1e12], maxPump1hPct: [1, 1000], maxDump24hPct: [1, 100],
@@ -122,14 +120,18 @@ const MIGRATIONS = {
   // v14: Ritmo «Aggressivo» (scelta di Samuele: ingressi più veloci): giro ogni 5 s, cooldown 2 min, radar fino a 30 cripto verificate.
   // Stop, tetto 20%, perdita giornaliera, kill switch, anti-truffa, leva, REALE, PIN e wallet invariati.
   14: (c) => { applyPace(c, 'aggressivo'); },
-  // v15: TREND 4H per Alpha (unica logica con valore atteso positivo nei backtest fuori campione) con rischio fisso 2% per operazione;
-  // Omega (spot/memecoin) in pausa: 4 trade su 4 in perdita e nessun modo di provarlo su dati storici. Riattivabile da Impostazioni.
-  // Leva, margine massimo, stop entro la liquidazione, perdita giornaliera, kill switch, REALE, PIN e wallet invariati.
-  15: (c) => { c.edgeOn = true; c.riskPerTradePct = 2; c.spotLongs = false; },
   4: (c) => { c.scanMemes = false; const extra = (Array.isArray(c.tokens) ? c.tokens : []).filter((m) => !OLD_MEMES.includes(m) && !CORE.some((t) => t.mint === m)); c.tokens = [...CORE.map((t) => t.mint), ...extra]; if ((c.maxWatch || 0) < CORE.length + 1) c.maxWatch = CORE.length + 1; },
 };
+// Ripristino alla versione «Ritmo» (cfg v14): una configurazione salvata da versioni successive poi annullate (v15: TREND 4H,
+// rischio per operazione, Omega in pausa, margine fino al 100%) viene riportata a com'era: campi nuovi tolti, Omega riattivato,
+// ogni valore numerico entro i limiti di questa versione (margine per operazione max 20%). Wallet, PIN e storico non sono qui.
+function restoreFromNewer(c) {
+  if ((Number(c.cfgVersion) || 0) > CFG_VERSION) { delete c.edgeOn; delete c.riskPerTradePct; c.spotLongs = true; c.cfgVersion = CFG_VERSION; }
+  for (const [k, [lo, hi]] of Object.entries(LIMITS)) if (k in c) { const n = Number(c[k]); c[k] = Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : DEFAULTS[k]; }
+  return c;
+}
 function migrateConfig(saved) {
-  const c = { ...(saved || {}) };
+  const c = restoreFromNewer({ ...(saved || {}) });
   const from = Number(c.cfgVersion) || 1;
   for (let v = from + 1; v <= CFG_VERSION; v++) if (MIGRATIONS[v]) MIGRATIONS[v](c);
   delete c.minPairAgeHours;
