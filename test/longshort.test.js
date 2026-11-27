@@ -12,6 +12,8 @@ function mkEngine(sign, cfg = {}, stats = {}) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sbls-'));
   fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ budget: 1000, baseCurrency: 'USDC', cfgVersion: C.CFG_VERSION, spotLongs: false, ...cfg }));
   const e = new Engine({ dataDir: d, keystore: new Keystore(path.join(d, 'w.json')) });
+  // test della logica a consenso 1 minuto (ancora disponibile con edgeOn=false): TREND 4H spento salvo richiesta
+  e.cfg.edgeOn = cfg.edgeOn ?? false; e.cfg.spotLongs = cfg.spotLongs ?? false;
   const now = Date.now(); e.market.prices[USDC] = { usd: 1, ts: now }; e.lastPriceOk = now; e.refreshBalances = async () => {};
   for (const m of Object.keys(P.SHORT_MARKETS)) { const c = series(400, sign); e.market.candles[m] = c; e.market.prices[m] = { usd: c[c.length - 1].c, ts: now };
     e.market.stats[m] = { change1h: sign * 2.4, change6h: sign * 5, change5m: sign * 0.3, liquidityUsd: 5e7, volume24h: 1e9, ...stats }; }

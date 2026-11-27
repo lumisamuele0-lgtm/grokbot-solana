@@ -460,9 +460,17 @@
         ${mindHtml(x.id, true)}
         <div class="grp"><span class="lbl">Posizioni di ${esc(x.name)}</span><div class="hpos">${ps.map((p) => posCard(p, s, true)).join('') || '<div class="empty">Nessuna posizione aperta.</div>'}</div></div>
         ${x.history.length ? `<div class="grp"><span class="lbl">Ultime chiuse</span>${x.history.slice(0, 5).map((t) => `<div class="kv"><span>${hhmm(t.closedAt)} <b>$${esc(t.symbol)}</b> <small class="mu">${t.side === 'SHORT' ? '▼' : '▲'}${t.lev > 1 ? ' ' + t.lev + 'x' : ''} · ${esc(t.reason || '')}</small></span><b class="${pnlCls(t.pnl)}">${t.pnl >= 0 ? '+' : ''}${nf(t.pnl, d)}</b></div>`).join('')}</div>` : ''}
-        <p class="note">${esc(x.desc)} Entra con almeno ${x.minAgree} analisti d'accordo e consenso ≥ ${nf(x.thr * 100, 0)}%. Margine = fino al ${s.cfg.maxTradePct}% del capitale × forza del consenso (40–100%).</p>
+        ${x.id === 'alpha' && s.cfg.edgeOn ? trend4hHtml(s) : ''}
+        <p class="note">${x.id === 'alpha' && s.cfg.edgeOn ? `Alpha entra solo sui segnali TREND 4H (incrocio EMA 20/100 a 4 ore nel verso della EMA 200): stop a 3 ATR, trailing a 5 ATR dopo +1R, nessuno stop a tempo. Dimensione a rischio fisso: allo stop perdi circa il ${s.cfg.riskPerTradePct}% del capitale (mai oltre il margine massimo del ${s.cfg.maxTradePct}%). Pochi trade al mese: è voluto.` : x.id === 'omega' && !s.cfg.spotLongs ? 'Omega (spot 1x) è in pausa: nei trade reali 4 su 4 in perdita e non è verificabile su dati storici. Puoi riattivarlo in Impostazioni → Radar.' : `${esc(x.desc)} Entra con almeno ${x.minAgree} analisti d'accordo e consenso ≥ ${nf(x.thr * 100, 0)}%. Margine = fino al ${s.cfg.maxTradePct}% del capitale × forza del consenso (40–100%).`}</p>
       </section>`; }).join('');
     setH($('#execs'), h);
+  }
+  // TREND 4H: trend a 4 ore per SOL/BTC/ETH e segnale attivo (dal server: trend4h.assets)
+  function trend4hHtml(s) {
+    const t = s.trend4h; const as = (t && t.assets) || [];
+    const row = (q) => !q.ready ? `<div class="kv"><span><b>${esc(q.asset)}</b></span><span class="mu">${esc(q.err || 'in caricamento')}</span></div>`
+      : `<div class="kv"><span><b>${esc(q.asset)}</b> <small class="mu">ATR 4h ${nf(q.atrPct, 2)}%</small></span><span class="${/rialzo/.test(q.trend) ? 'mint' : 'red'}">${q.signal ? `<b>segnale ${q.signal === 'SHORT' ? 'SHORT ▼' : 'LONG ▲'}</b>` : esc(q.trend)}</span></div>`;
+    return `<div class="grp"><span class="lbl">TREND 4H · segnali di Alpha</span>${as.map(row).join('') || '<div class="empty">Candele a 4 ore in caricamento.</div>'}</div>`;
   }
   function renderAnalysts(s) {
     const h = desk().analysts.map((a) => { const g = a.signal; const w = a.weight || 1;
@@ -489,7 +497,8 @@
   }
   // rischio regolabile direttamente (cursori): margine max per operazione, posizioni, esposizione, perdita giornaliera
   const RISK = [
-    { k: 'maxTradePct', l: 'Margine massimo per operazione', min: 1, max: 100, step: 1, f: (v) => v + '% del capitale', n: 'Predefinito 20%, regolabile fino al 100%. Il trader usa dal 40% al 100% di questo valore in base alla forza del consenso; mai oltre il contante disponibile.' },
+    { k: 'maxTradePct', l: 'Margine massimo per operazione', min: 1, max: 100, step: 1, f: (v) => v + '% del capitale', n: 'Predefinito 20%, regolabile fino al 100%. Alpha (TREND 4H) ne usa la parte che serve per il rischio per operazione; Omega dal 40% al 100% in base al consenso. Mai oltre il contante disponibile.' },
+    { k: 'riskPerTradePct', l: 'Rischio per operazione (TREND 4H)', min: 0.5, max: 5, step: 0.5, f: (v) => '≈ ' + String(v).replace('.', ',') + '% del capitale allo stop', n: 'Predefinito 2%. Alpha dimensiona ogni trade TREND 4H così che, se tocca lo stop, perdi circa questa quota del capitale (mai oltre il margine massimo per operazione). Più alto = guadagni e perdite più grandi.' },
     { k: 'maxOpen', l: 'Posizioni aperte insieme', min: 1, max: 15, step: 1, f: (v) => v + ' posizioni', n: 'Leva e short solo su SOL/BTC/ETH (una per mercato); le altre sono spot 1x long.' },
     { k: 'maxExposurePct', l: 'Esposizione totale massima', min: 50, max: 1000, step: 50, f: (v) => v + '% del capitale', n: 'Somma di margine × leva di tutte le posizioni. Oltre, il trade viene ridotto o bloccato.' },
     { k: 'dailyLossPct', l: 'Limite di perdita giornaliera', min: 1, max: 50, step: 1, f: (v) => '−' + v + '% in un giorno', n: 'Raggiunto il limite, nessun nuovo ingresso fino a domani (le posizioni aperte restano protette dagli stop).' },
@@ -984,6 +993,9 @@
         ${num('maxPriceImpactPct', 'Impatto prezzo max %')}${num('cooldownMin', 'Pausa dopo un token (min)', '1')}
         ${num('maxHoldMin', 'Durata max posizione (min)', '1')}${num('feeReserveSol', 'Riserva SOL commissioni')}</div>
         <p class="note">Margine per operazione, posizioni max, esposizione e limite giornaliero si regolano con i cursori in Impostazioni → Rischio della sala (ora: ${c.maxTradePct}% · ${c.maxOpen} posizioni · ${c.maxExposurePct}% · −${c.dailyLossPct}%/giorno). Stop-loss e target sono calcolati sulla volatilità (ATR).</p></div>
+      <div class="grp"><span class="lbl">Strategia di Alpha</span>
+        <div class="switch"><span>TREND 4H (consigliato): entra solo sui segnali a 4 ore</span><span class="toggle ${c.edgeOn ? 'on' : ''}" data-t="edgeOn"></span></div>
+        <p class="note">Scelta con backtest su 2 anni di candele reali (commissioni, slippage e prestito inclusi): fuori campione profit factor 1,52 contro 0,53 della vecchia logica a 1 minuto. Pochi trade (circa 3–4 al mese) e drawdown possibili; nessun guadagno è garantito. Spento = vecchia logica a consenso 1 minuto (in perdita nei test).</p></div>
       <div class="grp"><span class="lbl">Short (LONG + SHORT)</span>
         <div class="switch"><span>Short su SOL, BTC, ETH (Jupiter Perps, collaterale USDC)</span><span class="toggle ${c.shortsOn ? 'on' : ''}" data-t="shortsOn"></span></div>
         <div class="switch"><span>Long con leva su SOL, BTC, ETH (spento = solo short)</span><span class="toggle ${c.perpLongs ? 'on' : ''}" data-t="perpLongs"></span></div>

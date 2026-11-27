@@ -191,6 +191,35 @@ In Aggressivo le pause del Mentore dopo le perdite durano la metà e un trader i
 
 Long e short usano le stesse regole, speculari: con mercato in salita (EMA, momentum, breakout, multi-timeframe, BTC in rialzo) Alpha apre LONG con leva, in discesa SHORT. Se per ore il prezzo di SOL/BTC/ETH scende, vedrai solo short; non è un errore. Omega (spot, solo long) compra solo quando almeno 2 analisti sono d'accordo su una cripto verificata. Il flusso ordini non vota più SHORT solo perché il volume cala (correzione di novembre 2026) e ignora i token con meno di 20 scambi nell'ultima ora.
 
+## 9e. TREND 4H: la nuova strategia di Alpha (dalla versione con cache v29)
+
+**Perché.** I trade reali (21 in simulazione) erano quasi tutti in perdita: profit factor 0,05. I segnali a 1 minuto non avevano vantaggio. Il prezzo in 90 minuti si muove meno delle commissioni, quindi la maggior parte dei trade chiudeva con «Ferma da 90 min» in leggera perdita, più le commissioni (circa 0,7% del margine a trade con leva 5x). Il backtest della vecchia logica su 90 giorni di candele reali Binance a 1 minuto (con commissioni, slippage e prestito) conferma il problema: profit factor fuori campione 0,53, rendimento −86%.
+
+**Cosa fa ora Alpha** (SOL, BTC, ETH con leva):
+- Usa candele a 4 ore. Entra **LONG** quando la EMA 20 incrocia sopra la EMA 100 e il prezzo è sopra la EMA 200. Lo **SHORT** è specchiato.
+- Entra solo entro 4 ore dal segnale e solo se il prezzo non si è già allontanato (al massimo 0,5 ATR).
+- Lo stop è a **3 × ATR a 4 ore**, e resta sempre entro il 40% della distanza di liquidazione.
+- Non c'è target fisso. Dopo un guadagno pari al rischio (+1R) parte un **trailing a 5 × ATR**. Non ci sono stop a tempo né uscite sul rumore a 1 minuto. La durata massima è 21 giorni.
+- La dimensione è a **rischio fisso**: se il trade tocca lo stop perdi circa il 2% del capitale. Si regola con «Rischio per operazione», da 0,5% a 5%. Non supera mai il margine massimo per operazione, l'esposizione massima o il contante.
+- Gli analisti a 1 minuto restano visibili come informazione, ma non decidono più gli ingressi di Alpha.
+
+**Omega (spot)** è in pausa di base: nei trade reali 4 su 4 erano in perdita, e lo spot non si può verificare su dati storici. Si riattiva in Impostazioni → Radar. TREND 4H si può spegnere in Impostazioni → Strategia di Alpha, ma la vecchia logica era in perdita nei test.
+
+**Backtest** (`tools/deskbt.js`, stesse regole di uscita del bot; scelta fatta solo sulla prima parte dei dati, verifica sulla parte mai vista; 2 anni di candele a 15 minuti):
+
+| | Trade | Vincenti | Profit factor | Rendimento | Drawdown max |
+|---|---|---|---|---|---|
+| Vecchia logica, fuori campione (90 giorni, 1 min) | 1367 | 33% | 0,53 | −86% | 87% |
+| TREND 4H, in campione | 62 | 45% | 2,01 | +85% | 16% |
+| TREND 4H, fuori campione | 32 | 34% | 1,52 | +21% | 18% |
+
+**Limiti onesti:**
+- I trade sono pochi: circa 3–4 al mese in totale. Per giorni Alpha può restare fermo, ed è voluto.
+- Vince circa 1 trade su 3: guadagna poche volte ma più di quanto perde.
+- Alcuni periodi di 4 mesi sono stati negativi: per esempio marzo–luglio 2026 ha avuto profit factor 0,63 e −11%. Gli ultimi 90 giorni hanno avuto solo 5 segnali, con un piccolo saldo negativo.
+- Il backtest non contiene flusso, notizie né funding storici. Con base SOL il valore in SOL cambia anche con il prezzo di SOL.
+- Nessun guadagno è garantito: i risultati passati non promettono quelli futuri.
+
 ## 10. Limiti e rischi (onesti)
 
 - **Nessun profitto garantito.** Le strategie con indicatori tecnici perdono spesso, soprattutto nei mercati laterali. Commissioni e slippage pesano sulle operazioni piccole. In simulazione le prime operazioni di prova sono state sia in guadagno sia in perdita.
