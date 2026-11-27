@@ -1206,6 +1206,13 @@ class Engine extends EventEmitter {
       brains: { on: this.mind.on(), bots },
       lab: { today: { runs: runsToday.length, promotions: runsToday.filter((x) => x.promoted).length, rejections: runsToday.filter((x) => !x.promoted).length }, totals: { ...lab.totals } },
       why: { code: why.code, level: why.level, text: why.text },
+      // ultimi trade chiusi (solo dati di mercato: niente indirizzi, firme, chiavi o mint)
+      trades: (b.trades || []).slice(0, 100).map((t) => ({ bot: t.bot || null, symbol: t.symbol, side: t.side || 'LONG', lev: t.lev || 1, perp: !!t.perp, mode: t.mode,
+        openedAt: t.openedAt || null, closedAt: t.closedAt || null, holdMin: t.openedAt && t.closedAt ? r2((t.closedAt - t.openedAt) / 60e3, 1) : null,
+        entry: t.entryPrice != null ? +Number(t.entryPrice).toPrecision(8) : null, exit: t.exitPrice != null ? +Number(t.exitPrice).toPrecision(8) : null,
+        cost: r2(t.costBase, 6), pnl: r2(t.pnl, 6), pnlPct: r2(t.pnlPct), fees: r2(t.fees, 6), perpFeesUsd: r2(t.perpFeesUsd, 4), reason: t.reason ? String(t.reason).slice(0, 140) : null,
+        consensus: r2(t.consensus, 3), slPct: r2(t.slPct), atrPct: r2(t.atrPct, 3), mfe: r2(t.mfe), mae: r2(t.mae), partials: (t.partials || []).length,
+        votes: Array.isArray(t.votes) ? t.votes.map((v) => `${v.id}${v.dir > 0 ? '+' : '-'}`).join(' ') : null })),
     };
   }
   snapshot() {

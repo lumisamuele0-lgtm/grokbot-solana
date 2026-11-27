@@ -29,6 +29,11 @@ test('chiave resoconto: creata solo con il PIN, mostrata una volta, salvata solo
     assert.ok(['today', 'total'].every((k) => k in r.json.pnl)); assert.ok(['count', 'winRate'].every((k) => k in r.json.tradesToday)); assert.ok(['promotions', 'rejections'].every((k) => k in r.json.lab.today));
     assert.ok(Object.keys(r.json.brains.bots).length >= 2); for (const b of Object.values(r.json.brains.bots)) assert.ok('valAcc' in b && 'baseline' in b);
     assert.ok(!/publicKey|walletEncJson|secret|pinHash|salt|sessions|rpcUrl|"mint"|withdraw|csrf/.test(r.text), 'nessun dato sensibile nel resoconto');
+    // storico dei trade chiusi: solo dati di mercato (niente mint, firme, indirizzi)
+    s.engine.book.trades.unshift({ id: 'x1', bot: 'alpha', symbol: 'SOL', side: 'SHORT', lev: 5, perp: true, mint: 'So11111111111111111111111111111111111111112', sigOpen: 'SIGOPEN123', sigClose: 'SIGCLOSE456', openedAt: 1, closedAt: 600001, entryPrice: 100, exitPrice: 101, costBase: 0.05, pnl: -0.003, pnlPct: -6, fees: 0.0002, reason: 'Stop-loss', consensus: 0.3, slPct: 1.2, atrPct: 0.4, mfe: 0.1, mae: -1.3, votes: [{ id: 'trend', dir: -1, conf: 1 }], feat: ['a'] });
+    const r2 = await req(s.base, '/api/report', bearer(tok)); const t0 = r2.json.trades[0];
+    assert.deepStrictEqual([t0.bot, t0.side, t0.lev, t0.holdMin, t0.reason, t0.votes], ['alpha', 'SHORT', 5, 10, 'Stop-loss', 'trend-']);
+    assert.ok(!/So1111|SIGOPEN|SIGCLOSE|"mint"|"sig/.test(r2.text), 'niente mint né firme nello storico');
     assert.ok(!r.setCookie, 'nessun cookie di sessione dalla chiave');
     // sola lettura: la chiave non apre nessun'altra rotta né i POST
     assert.strictEqual((await req(s.base, '/api/state', bearer(tok))).status, 401);
