@@ -11,6 +11,7 @@ function mkEngine(cfg = {}) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sbpace-'));
   fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ budget: 1000, baseCurrency: 'USDC', cfgVersion: 12, spotLongs: false, ...cfg }));
   const e = new Engine({ dataDir: d, keystore: new Keystore(path.join(d, 'w.json')) });
+  e.cfg.trendOn = cfg.trendOn ?? false; // test della logica a consenso 1 minuto (con TREND 2–4H spento)
   const now = Date.now(); e.market.prices[USDC] = { usd: 1, ts: now }; e.market.prices[SOL] = { usd: 100, ts: now }; e.lastPriceOk = now; e.refreshBalances = async () => {};
   for (const m of Object.keys(P.SHORT_MARKETS)) { e.market.candles[m] = candles(200, 0.0004, 100); e.market.prices[m] = { usd: 100, ts: now }; }
   return e;
@@ -19,7 +20,7 @@ const vote = (id, dir, conf = 0.8) => ({ id, dir, conf, why: 'test' });
 
 test('Ritmo: preset, default Aggressivo e migrazione v14 (giro 5 s, cooldown 2 min, radar 30); rischio invariato', () => {
   assert.deepStrictEqual(Object.keys(C.PACE), ['prudente', 'normale', 'aggressivo']);
-  assert.strictEqual(C.DEFAULTS.pace, 'aggressivo'); assert.strictEqual(C.CFG_VERSION, 14);
+  assert.strictEqual(C.DEFAULTS.pace, 'aggressivo'); assert.strictEqual(C.CFG_VERSION, 16);
   const A = C.PACE.aggressivo; assert.deepStrictEqual([A.cycleSec, A.cooldownMin, A.maxEntries, A.perTrader, A.alpha, A.omega], [5, 2, 6, 4, [0.18, 2], [0.25, 2]]);
   const { cfg } = C.migrateConfig({ cfgVersion: 13, cycleSec: 10, cooldownMin: 5, maxWatch: 16, maxTradePct: 20, dailyLossPct: 15, maxLossPct: 20, leverage: 5 });
   assert.deepStrictEqual([cfg.pace, cfg.cycleSec, cfg.cooldownMin, cfg.maxWatch], ['aggressivo', 5, 2, 30]);

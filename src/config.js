@@ -1,6 +1,6 @@
 'use strict';
 const { CORE, OLD_MEMES } = require('./tokens');
-const CFG_VERSION = 14; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
+const CFG_VERSION = 16; // aumenta quando cambiano i default da applicare anche alle installazioni esistenti
 const DEFAULTS = {
   cfgVersion: CFG_VERSION,
   mode: 'SIM', // SIM | REAL
@@ -52,6 +52,8 @@ const DEFAULTS = {
   // RITMO della sala operativa: prudente | normale | aggressivo (velocità di scansione, soglie di consenso, ingressi per giro,
   // cooldown, radar). NON cambia stop, tetto 20% per operazione, limite di perdita giornaliera, kill switch, anti-truffa, REALE.
   pace: 'aggressivo',
+  // TREND 2–4H (Alpha perps + Omega spot): ingressi solo sui segnali a 4 ore, rischio fisso per operazione (perdita allo stop ≈ riskPerTradePct% del capitale)
+  trendOn: true, riskPerTradePct: 1,
 };
 // preset del Ritmo (cycleSec, cooldownMin e maxWatch vengono copiati nella configurazione quando scegli il Ritmo; il resto è letto al volo)
 const PACE = {
@@ -63,7 +65,7 @@ const paceOf = (c) => PACE[c && c.pace] || PACE.aggressivo;
 function applyPace(c, pace) { const P = PACE[pace]; if (!P) return c; c.pace = pace; c.cycleSec = P.cycleSec; c.cooldownMin = P.cooldownMin; c.maxWatch = P.maxWatch; return c; }
 // limiti di validazione [min, max]
 const LIMITS = {
-  budget: [0, 1e9], feeReserveSol: [0.01, 1], maxLossPct: [1, 90], maxLossAbs: [0, 1e9], dailyLossPct: [1, 50], maxTradePct: [1, 20], maxExposurePct: [50, 1000],
+  budget: [0, 1e9], feeReserveSol: [0.01, 1], maxLossPct: [1, 90], maxLossAbs: [0, 1e9], dailyLossPct: [1, 50], maxTradePct: [1, 20], riskPerTradePct: [0.5, 3], maxExposurePct: [50, 1000],
   memeSizeMult: [0, 1], maxOpen: [1, 15], slippageBps: [10, 1000], maxPriceImpactPct: [0.1, 10], slAtrMult: [0.5, 6], slMinPct: [0.5, 20],
   slMaxPct: [1, 40], rewardRisk: [0.8, 6], maxHoldMin: [5, 10080], tp1R: [0.3, 10], tp1Pct: [5, 90], tp2R: [0.5, 20], tp2Pct: [0, 90], beBufferPct: [0, 5], trailActR: [0.2, 10], trailAtrMult: [0.3, 6], memeExitMult: [0.3, 1.5], timeStopMin: [5, 10080], timeStopMinGainPct: [-20, 50], reversalPct: [0.5, 50], leverage: [1, 10], cooldownMin: [0, 1440], cycleSec: [3, 600], minLiquidityUsd: [0, 1e9],
   minVolume24hUsd: [0, 1e10], minPairAgeMin: [0, 600000], minMcapUsd: [0, 1e12], maxPump1hPct: [1, 1000], maxDump24hPct: [1, 100],
@@ -120,13 +122,16 @@ const MIGRATIONS = {
   // v14: Ritmo «Aggressivo» (scelta di Samuele: ingressi più veloci): giro ogni 5 s, cooldown 2 min, radar fino a 30 cripto verificate.
   // Stop, tetto 20%, perdita giornaliera, kill switch, anti-truffa, leva, REALE, PIN e wallet invariati.
   14: (c) => { applyPace(c, 'aggressivo'); },
+  // v16: TREND 2–4H (scelta di Samuele) per Alpha e Omega, rischio 1% per operazione; Omega attivo (opera solo sui segnali spot a 4h).
+  // Toglie i campi della versione TREND 4H annullata (v15). Margine massimo 20%, leva, limiti, kill switch, REALE, PIN e wallet invariati.
+  16: (c) => { delete c.edgeOn; c.trendOn = true; c.riskPerTradePct = 1; c.spotLongs = true; },
   4: (c) => { c.scanMemes = false; const extra = (Array.isArray(c.tokens) ? c.tokens : []).filter((m) => !OLD_MEMES.includes(m) && !CORE.some((t) => t.mint === m)); c.tokens = [...CORE.map((t) => t.mint), ...extra]; if ((c.maxWatch || 0) < CORE.length + 1) c.maxWatch = CORE.length + 1; },
 };
-// Ripristino alla versione «Ritmo» (cfg v14): una configurazione salvata da versioni successive poi annullate (v15: TREND 4H,
-// rischio per operazione, Omega in pausa, margine fino al 100%) viene riportata a com'era: campi nuovi tolti, Omega riattivato,
+// Protezione al caricamento: una configurazione salvata da una versione più nuova poi annullata viene riportata a questa versione
+// (campi sconosciuti tolti, Omega riattivato, versione allineata); la v15 annullata (TREND 4H) la converte la migrazione v16;
 // ogni valore numerico entro i limiti di questa versione (margine per operazione max 20%). Wallet, PIN e storico non sono qui.
 function restoreFromNewer(c) {
-  if ((Number(c.cfgVersion) || 0) > CFG_VERSION) { delete c.edgeOn; delete c.riskPerTradePct; c.spotLongs = true; c.cfgVersion = CFG_VERSION; }
+  if ((Number(c.cfgVersion) || 0) > CFG_VERSION) { delete c.edgeOn; c.spotLongs = true; c.cfgVersion = CFG_VERSION; }
   for (const [k, [lo, hi]] of Object.entries(LIMITS)) if (k in c) { const n = Number(c[k]); c[k] = Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : DEFAULTS[k]; }
   return c;
 }

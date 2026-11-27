@@ -181,6 +181,7 @@ function shortStopCap(slPct, entry, liqPrice) {
   return Math.max(0.5, Math.min(slPct, liqDist * 0.4));
 }
 function exitPlanCore(pos, price, now, cfg, ctx = {}) {
+  if (pos.edge) return require('./trend').exitTrend(pos, price, now); // TREND 2–4H: stop, trailing dopo +1R, durata massima (niente uscite a 1 minuto)
   if (!cfg.smartExits) { const r = exitCheck(pos, price, now, cfg); return { action: r.exit ? 'close' : 'none', reason: r.reason, change: r.change, events: [] }; }
   const events = [];
   pos.highest = Math.max(pos.highest || pos.entryPrice, price);

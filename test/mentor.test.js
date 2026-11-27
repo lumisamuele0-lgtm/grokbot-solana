@@ -97,6 +97,7 @@ function mkEngine() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sbm-'));
   fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ budget: 1000, baseCurrency: 'USDC', cfgVersion: 7 }));
   const e = new Engine({ dataDir: d, keystore: new Keystore(path.join(d, 'w.json')) });
+  e.cfg.trendOn = false; // logica a consenso 1 minuto
   const now = Date.now(); e.market.prices[USDC] = { usd: 1, ts: now }; e.market.prices[SOL] = { usd: 100, ts: now }; e.lastPriceOk = now; e.refreshBalances = async () => {};
   return e;
 }

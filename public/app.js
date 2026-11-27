@@ -446,6 +446,17 @@
     setH($('#feed'), f.slice(0, 30).map(feedItem).join('') || '<div class="empty">Nessun segnale ancora.</div>');
     $('#feedN').textContent = f.length ? `ultimi ${Math.min(30, f.length)}` : '';
   }
+  // TREND 2–4H: scheda della strategia (timeframe, segnale/trend per cripto, prossimo controllo)
+  function trendCard(s) {
+    const t = s.trend; if (!t) return ''; const as = t.assets || [];
+    const hm = (ms) => (ms ? new Date(ms).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '—');
+    const row = (q) => !q.ready ? `<div class="kv"><span><b>${esc(q.asset)}</b> <small class="mu">${q.kind === 'perp' ? 'Alpha' : 'Omega'}</small></span><span class="mu">${esc(q.err || 'in caricamento')}</span></div>`
+      : `<div class="kv"><span><b>${esc(q.asset)}</b> <small class="mu">${q.kind === 'perp' ? 'Alpha · perps' : 'Omega · spot'} · ATR ${nf(q.atrPct, 1)}%</small></span><span class="${q.signal ? 'mint' : q.trend === 'rialzo' ? 'mint' : q.trend === 'ribasso' ? 'red' : 'mu'}">${q.signal ? `<b>segnale ${q.signal === 'SHORT' ? 'SHORT ▼' : 'LONG ▲'}</b>` : esc(q.trend)}</span></div>`;
+    return `<section class="glass xc" id="trendCard"><div class="row"><b>📈 Strategia TREND 2–4H</b><span class="sp"></span><small class="mu">candele a 4h</small></div>
+      <p class="note">Alpha: incrocio EMA 20/100 · Omega: EMA 10/30, sempre nel verso della EMA 200. Rischio ~${s.cfg.riskPerTradePct}% del capitale per operazione. Prossimo controllo: <b>${hm(t.nextCheck)}</b> (alla chiusura della candela a 4h).</p>
+      <div class="grp">${as.map(row).join('') || '<div class="empty">Candele a 4 ore in caricamento.</div>'}</div>
+      <p class="note">Backtest fuori campione (walk-forward, costi inclusi): profit factor 1,11, +7,6% in 12 mesi, drawdown 22%, 2 trimestri su 4 in perdita. Strategia rischiosa: nessun guadagno è garantito.</p></section>`;
+  }
   function renderExecs(s) {
     const d = s.base === 'SOL' ? 4 : 2;
     const h = desk().execs.map((x) => { const st = execStatus(x); const ps = s.positions.filter((p) => p.bot === x.id);
@@ -460,9 +471,9 @@
         ${mindHtml(x.id, true)}
         <div class="grp"><span class="lbl">Posizioni di ${esc(x.name)}</span><div class="hpos">${ps.map((p) => posCard(p, s, true)).join('') || '<div class="empty">Nessuna posizione aperta.</div>'}</div></div>
         ${x.history.length ? `<div class="grp"><span class="lbl">Ultime chiuse</span>${x.history.slice(0, 5).map((t) => `<div class="kv"><span>${hhmm(t.closedAt)} <b>$${esc(t.symbol)}</b> <small class="mu">${t.side === 'SHORT' ? '▼' : '▲'}${t.lev > 1 ? ' ' + t.lev + 'x' : ''} · ${esc(t.reason || '')}</small></span><b class="${pnlCls(t.pnl)}">${t.pnl >= 0 ? '+' : ''}${nf(t.pnl, d)}</b></div>`).join('')}</div>` : ''}
-        <p class="note">${esc(x.desc)} Entra con almeno ${x.minAgree} analisti d'accordo e consenso ≥ ${nf(x.thr * 100, 0)}%. Margine = fino al ${s.cfg.maxTradePct}% del capitale × forza del consenso (40–100%).</p>
+        <p class="note">${s.cfg.trendOn ? (x.id === 'alpha' ? `Alpha entra solo sui segnali TREND 4h di SOL, BTC, ETH (long e short con leva). Stop a 4 ATR, trailing a 8 ATR dopo +1R, nessuno stop a tempo. Allo stop perdi circa il ${s.cfg.riskPerTradePct}% del capitale (margine mai oltre il ${s.cfg.maxTradePct}%). Gli analisti a 1 minuto sono solo informativi.` : `Omega compra spot (solo long) le cripto CORE sui segnali TREND 4h. Stop a 1,5 ATR, trailing a 8 ATR dopo +1R. Allo stop perdi circa il ${s.cfg.riskPerTradePct}% del capitale (spot: mai oltre il ${s.cfg.maxTradePct}% del capitale); anti-truffa sempre attivi.`) : `${esc(x.desc)} Entra con almeno ${x.minAgree} analisti d'accordo e consenso ≥ ${nf(x.thr * 100, 0)}%. Margine = fino al ${s.cfg.maxTradePct}% del capitale × forza del consenso (40–100%).`}</p>
       </section>`; }).join('');
-    setH($('#execs'), h);
+    setH($('#execs'), (s.cfg.trendOn ? trendCard(s) : '') + h);
   }
   function renderAnalysts(s) {
     const h = desk().analysts.map((a) => { const g = a.signal; const w = a.weight || 1;
@@ -489,7 +500,8 @@
   }
   // rischio regolabile direttamente (cursori): margine max per operazione, posizioni, esposizione, perdita giornaliera
   const RISK = [
-    { k: 'maxTradePct', l: 'Margine massimo per operazione', min: 1, max: 20, step: 1, f: (v) => v + '% del capitale', n: 'Tetto rigido 20%. Il trader usa dal 40% al 100% di questo valore in base alla forza del consenso.' },
+    { k: 'maxTradePct', l: 'Margine massimo per operazione', min: 1, max: 20, step: 1, f: (v) => v + '% del capitale', n: 'Tetto rigido 20%. Con TREND 2–4H il trader ne usa la parte che serve per il rischio per operazione; senza, dal 40% al 100% in base al consenso.' },
+    { k: 'riskPerTradePct', l: 'Rischio per operazione (TREND 2–4H)', min: 0.5, max: 3, step: 0.5, f: (v) => '≈ ' + String(v).replace('.', ',') + '% del capitale allo stop', n: 'Predefinito 1%. Alpha e Omega dimensionano ogni trade così che, se tocca lo stop, perdi circa questa quota del capitale (mai oltre il margine massimo del 20%).' },
     { k: 'maxOpen', l: 'Posizioni aperte insieme', min: 1, max: 15, step: 1, f: (v) => v + ' posizioni', n: 'Leva e short solo su SOL/BTC/ETH (una per mercato); le altre sono spot 1x long.' },
     { k: 'maxExposurePct', l: 'Esposizione totale massima', min: 50, max: 1000, step: 50, f: (v) => v + '% del capitale', n: 'Somma di margine × leva di tutte le posizioni. Oltre, il trade viene ridotto o bloccato.' },
     { k: 'dailyLossPct', l: 'Limite di perdita giornaliera', min: 1, max: 50, step: 1, f: (v) => '−' + v + '% in un giorno', n: 'Raggiunto il limite, nessun nuovo ingresso fino a domani (le posizioni aperte restano protette dagli stop).' },
@@ -982,6 +994,9 @@
         ${num('maxPriceImpactPct', 'Impatto prezzo max %')}${num('cooldownMin', 'Pausa dopo un token (min)', '1')}
         ${num('maxHoldMin', 'Durata max posizione (min)', '1')}${num('feeReserveSol', 'Riserva SOL commissioni')}</div>
         <p class="note">Margine per operazione, posizioni max, esposizione e limite giornaliero si regolano con i cursori in Impostazioni → Rischio della sala (ora: ${c.maxTradePct}% · ${c.maxOpen} posizioni · ${c.maxExposurePct}% · −${c.dailyLossPct}%/giorno). Stop-loss e target sono calcolati sulla volatilità (ATR).</p></div>
+      <div class="grp"><span class="lbl">Strategia</span>
+        <div class="switch"><span>TREND 2–4H: Alpha e Omega entrano solo sui segnali a 4 ore</span><span class="toggle ${c.trendOn ? 'on' : ''}" data-t="trendOn"></span></div>
+        <p class="note">Scelta di Samuele. Backtest fuori campione: profit factor 1,11, +7,6% in 12 mesi, drawdown 22%, 2 trimestri su 4 in perdita: rischiosa, nessun guadagno garantito. Spento = vecchia logica a consenso 1 minuto (in perdita nei test).</p></div>
       <div class="grp"><span class="lbl">Short (LONG + SHORT)</span>
         <div class="switch"><span>Short su SOL, BTC, ETH (Jupiter Perps, collaterale USDC)</span><span class="toggle ${c.shortsOn ? 'on' : ''}" data-t="shortsOn"></span></div>
         <div class="switch"><span>Long con leva su SOL, BTC, ETH (spento = solo short)</span><span class="toggle ${c.perpLongs ? 'on' : ''}" data-t="perpLongs"></span></div>

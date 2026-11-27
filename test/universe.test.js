@@ -20,6 +20,7 @@ function mkEngine(cfg = {}) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sbuni-'));
   fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ budget: 1000, baseCurrency: 'USDC', cfgVersion: 8, ...cfg }));
   const e = new Engine({ dataDir: d, keystore: new Keystore(path.join(d, 'w.json')) });
+  e.cfg.trendOn = cfg.trendOn ?? false; // test della logica a consenso 1 minuto (con TREND 2–4H spento)
   const now = Date.now(); e.market.prices[USDC] = { usd: 1, ts: now }; e.market.prices[SOL] = { usd: 100, ts: now }; e.lastPriceOk = now; e.refreshBalances = async () => {};
   return e;
 }

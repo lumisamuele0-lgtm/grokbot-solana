@@ -86,6 +86,7 @@ class Engine extends EventEmitter {
     Object.defineProperty(this.mentor, 'blockScale', { get: () => require('./config').paceOf(this.cfg).mentorScale, configurable: true });
     // SALA OPERATIVA: 12 analisti emettono segnali, 2 trader (Alpha, Omega) li sommano con un consenso pesato e sono gli unici che operano
     this.desk = new Desk(this);
+    this.trend = new (require('./trend').Trend)(this); // TREND 2–4H: segnali di ingresso di Alpha e Omega
     // MENTE: cervello neurale, memoria di formazione, ricerca web e laboratorio campione/sfidanti per ognuno dei 14 bot
     this.mind = new Mind(this, BOT_IDS, { dataDir });
     // UNIVERSO: tutte le cripto scambiabili su Solana (Jupiter) + i token del tuo Phantom, con filtri di sicurezza
@@ -169,6 +170,7 @@ class Engine extends EventEmitter {
     every(20000, () => this.refreshBalances());
     every(3600000, () => this.market.refreshEur());
     if (process.env.NO_RESEARCH !== '1') this.research.start();
+    if (process.env.NO_RESEARCH !== '1') setTimeout(() => every(60000, () => this.trend.refresh()), 3000); // candele 4h: scaricate una volta per candela
     every(1000, () => this.desk.tick());
     if (process.env.NO_MIND !== '1') { setTimeout(() => every(30000, () => this.mind.tick()), 25000); if (process.env.NO_RESEARCH !== '1') setTimeout(() => every(90000, () => this.mind.webTick().catch((e) => this.log('MENTORE', `ricerca web: ${e.message}`, 'warn'))), 45000); }
     // universo: al primo elenco pronto si sceglie subito il radar e si fa una VERIFICA immediata (senza aspettare il giro da 60 s)
@@ -452,8 +454,10 @@ class Engine extends EventEmitter {
 
     // RISCHIO: piano
     const plan = S.riskPlan(fromLib && best.rs.atrPct ? best.rs.atrPct : a.atrPct, cfg, core);
+    // TREND 2–4H: stop e trailing dal segnale a 4h (niente target fisso; il target mostrato è solo +2R indicativo)
+    if (best.trend) { plan.slPct = best.trend.slPct; plan.tpPct = best.trend.slPct * 2; plan.trailPct = best.trend.trailPct; }
     // correzioni del MENTORE: stop e target leggermente più larghi/stretti (0,8–1,3 / 1–1,4), sempre entro i limiti
-    const tp = this.mentor.params(sym, sideTxt);
+    const tp = best.trend ? { slMult: 1, tpMult: 1, ver: 0 } : this.mentor.params(sym, sideTxt);
     if (tp.slMult !== 1 || tp.tpMult !== 1) {
       const hi = Math.min(cfg.slMaxPct, 6);
       plan.slPct = Math.max(Math.min(cfg.slMinPct, hi), Math.min(hi, plan.slPct * tp.slMult)); plan.tpPct = plan.slPct * cfg.rewardRisk * tp.tpMult; plan.trailPct = plan.slPct * 0.7;
@@ -463,7 +467,7 @@ class Engine extends EventEmitter {
     if (usePerp) {
       const px = this.market.usd(best.m) || a.last;
       const liq = P.liquidationPrice({ entryPrice: px, side: sideTxt, ...P.openShortModel({ marginUsd: 100, lev, priceUsd: px }) });
-      plan.slPct = S.shortStopCap(plan.slPct, px, liq); plan.tpPct = plan.slPct * cfg.rewardRisk * tp.tpMult;
+      plan.slPct = S.shortStopCap(plan.slPct, px, liq); plan.tpPct = best.trend ? plan.slPct * 2 : plan.slPct * cfg.rewardRisk * tp.tpMult;
       const sg = isShort ? ['+', '-'] : ['-', '+'];
       this.agent('RISCHIO', `${sideTxt.toLowerCase()} ${lev}x · stop ${sg[0]}${plan.slPct.toFixed(2)}% · target ${sg[1]}${plan.tpPct.toFixed(2)}% · liquidazione ~${sg[0]}${(Math.abs(liq - px) / px * 100).toFixed(1)}% (stop entro il 40%)`, 'plan', { token: sym, side: sideTxt });
     } else this.agent('RISCHIO', `spot 1x · stop -${plan.slPct.toFixed(2)}% · target +${plan.tpPct.toFixed(2)}% · trailing ${plan.trailPct.toFixed(2)}%`, 'plan', { token: sym });
@@ -493,7 +497,8 @@ class Engine extends EventEmitter {
     this.agent('DIMENSIONE', `${this.fmtBase(size)} su $${sym} spot 1x (${((size / capital) * 100).toFixed(1)}% del capitale) · solo long`, 'size', { token: sym, size });
     await sleep(300);
     const plan = S.riskPlan(best.a.atrPct, cfg, false);
-    const tp = this.mentor.params(sym, 'LONG');
+    if (best.trend) { plan.slPct = best.trend.slPct; plan.tpPct = best.trend.slPct * 2; plan.trailPct = best.trend.trailPct; }
+    const tp = best.trend ? { slMult: 1, tpMult: 1, ver: 0 } : this.mentor.params(sym, 'LONG');
     if (tp.slMult !== 1 || tp.tpMult !== 1) { const hi = Math.min(cfg.slMaxPct, 6); plan.slPct = Math.max(Math.min(cfg.slMinPct, hi), Math.min(hi, plan.slPct * tp.slMult)); plan.tpPct = plan.slPct * cfg.rewardRisk * tp.tpMult; plan.trailPct = plan.slPct * 0.7; }
     best.ctx = { atrPct: best.a.atrPct, conf, rs: 0, strategies: [], fromLib, tpMult: tp.tpMult, tuneVer: tp.ver, spot: true };
     this.agent('RISCHIO', `spot 1x · stop -${plan.slPct.toFixed(2)}% · target +${plan.tpPct.toFixed(2)}% · trailing ${plan.trailPct.toFixed(2)}%`, 'plan', { token: sym });
@@ -544,7 +549,7 @@ class Engine extends EventEmitter {
     const entry = spent / qty;
     const pos = { id: uid(), mint: c.m, symbol: sym, decimals, qtyRaw: qtyRaw.toString(), qty, costBase: spent, entryPrice: entry, highest: entry,
       slPct: plan.slPct, tpPct: plan.tpPct, trailPct: plan.trailPct, openedAt: Date.now(), feesBase: feeBase, sigOpen: sig, impactPct: impact, core: coreMints.has(c.m), feat: c.feat || [], atrPct: plan.atrPct != null ? plan.atrPct : (c.a && c.a.atrPct), initQty: qty, origCost: spent, origFees: feeBase,
-      ctx: c.ctx || null, tpMult: (c.ctx && c.ctx.tpMult) || 1, side: 'LONG', lev: 1, bot: c.bot || null };
+      ctx: c.ctx || null, tpMult: (c.ctx && c.ctx.tpMult) || 1, side: 'LONG', lev: 1, bot: c.bot || null, edge: c.trend ? { kind: 'trend', tf: c.trend.tf, trailPct: c.trend.trailPct, atrPct: c.trend.atrPct, barT: c.trend.barT, act: 1, maxHoldDays: 21 } : null };
     b.positions.push(pos); b.feesBase += feeBase;
     this.bump('ESECUZIONE');
     const t = `comprato $${sym} per ${this.fmtBase(spent)}`;
@@ -594,6 +599,12 @@ class Engine extends EventEmitter {
     const sc = d.scan; const last = (b.positions.map((p) => p.openedAt).sort((x, y) => y - x)[0]) || 0;
     if (last && now - last < 3 * 60e3) return R('trading', 'ok', `Operativo: ultima entrata ${Math.max(0, Math.round((now - last) / 60e3))} min fa. ${b.positions.length}/${cfg.maxOpen} posizioni aperte.`);
     if (!sc || now - sc.t > Math.max(60e3, cfg.cycleSec * 3000)) return R('starting', 'info', 'Avvio: gli analisti stanno caricando prezzi e candele (serve circa 1 minuto).');
+    if (cfg.trendOn && sc.trend && !sc.trend.cands) {
+      const v = this.trendView(now); const ready = v.assets.filter((q) => q.ready); const hhmm = new Date(v.nextCheck).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' });
+      const tx = ready.length ? ready.map((q) => `${q.asset} ${q.trend}`).join(', ') : 'candele a 4h in caricamento';
+      return R('trend', 'info', `TREND 2–4H: nessun segnale nuovo (incrocio delle medie a 4 ore nel verso della EMA 200). Prossima candela a 4h alle ${hhmm}. Ora: ${tx}.${sc.trend.blocked ? ` ${sc.trend.blocked}` : ''}`, { scan: sc });
+    }
+    if (cfg.trendOn && sc.trend && sc.trend.cands && !sc.refused) { const x = sc.best[0]; return R('ready', 'ok', `${x.name} ha un segnale TREND su ${x.symbol} ${x.side}: entra al prossimo giro.`, { scan: sc }); }
     if (!sc.evaluated) {
       if (sc.loading.length && sc.reasons.candele >= sc.coins - sc.reasons.verifica) return R('candles', 'info', `Candele in caricamento (${sc.loading.map((l) => `${l.symbol} ${l.n}/60`).join(', ')}): entro qualche minuto gli analisti possono votare.`);
       if (sc.reasons.cooldown) return R('cooldown', 'info', `Tutte le cripto libere sono in pausa di ${cfg.cooldownMin} min dopo l'ultima uscita (cooldown).`);
@@ -629,7 +640,7 @@ class Engine extends EventEmitter {
       costBase: margin, origCost: margin, feesBase: feeBase, origFees: feeBase, entryPrice: px, highest: px, sizeUsd: m.sizeUsd, initSizeUsd: m.sizeUsd, collateralUsd: m.collateralUsd,
       openFeeUsd: m.openFeeUsd, perpFeesUsd: m.openFeeUsd, borrowUsd: 0, lastAccrual: now, slPct: plan.slPct, tpPct: plan.tpPct, trailPct: plan.trailPct, openedAt: now, sigOpen: null,
       core: true, feat: c.feat || [], atrPct: c.a && c.a.atrPct, ctx: c.ctx || null, tpMult: (c.ctx && c.ctx.tpMult) || 1, mfe: 0, mae: 0,
-      bot: c.bot || null };
+      bot: c.bot || null, edge: c.trend ? { kind: 'trend', tf: c.trend.tf, trailPct: c.trend.trailPct, atrPct: c.trend.atrPct, barT: c.trend.barT, act: 1, maxHoldDays: 21 } : null };
     pos.liqPrice = P.liquidationPrice(pos);
     pos.slPct = S.shortStopCap(pos.slPct, px, pos.liqPrice);
     b.positions.push(pos); b.feesBase += feeBase;
@@ -694,7 +705,7 @@ class Engine extends EventEmitter {
     const nParts = (p.partials || []).length;
     const tr = { id: p.id, side: p.side, perp: true, lev: p.lev, symbol: p.symbol, mint: p.mint, openedAt: p.openedAt, closedAt: now, costBase: origCost, outBase: valueBase + (p.partOut || 0), pnl: totalPnl, pnlPct: (totalPnl / origCost) * 100,
       fees: (p.origFees != null ? p.origFees : p.feesBase) + (p.partFees || 0) + feeBase + p.perpFeesUsd / bu, perpFeesUsd: p.perpFeesUsd, entryPrice: p.entryPrice, exitPrice: px,
-      reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [], sigOpen: null, sigClose: null, mode: cfg.mode, estimated: false, feat: p.feat || [], ...this.postFields(p), votes: p.votes || null, consensus: p.consensus != null ? p.consensus : null, bot: p.bot || null, brainVer: p.brainVer != null ? p.brainVer : null };
+      reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [], sigOpen: null, sigClose: null, mode: cfg.mode, estimated: false, feat: p.feat || [], ...this.postFields(p), strat: p.edge ? 'trend' : null, votes: p.votes || null, consensus: p.consensus != null ? p.consensus : null, bot: p.bot || null, brainVer: p.brainVer != null ? p.brainVer : null };
     b.trades.unshift(tr); if (b.trades.length > 500) b.trades.pop();
     this.mentorLearn(tr);
     try { this.desk.onClose(tr); } catch (e) { this.log('MENTORE', `pesi analisti: ${e.message}`, 'warn'); }
@@ -826,7 +837,7 @@ class Engine extends EventEmitter {
       const nParts = (p.partials || []).length;
       const tr = { id: p.id, symbol: p.symbol, mint: p.mint, openedAt: p.openedAt, closedAt: Date.now(), costBase: origCost, outBase: valueBase + (p.partOut || 0), pnl: totalPnl, pnlPct: (totalPnl / origCost) * 100,
         fees: (p.origFees != null ? p.origFees : p.feesBase) + (p.partFees || 0) + feeBase, reason: nParts ? `${reason} · ${nParts} ${nParts === 1 ? 'presa parziale' : 'prese parziali'}` : reason, partials: p.partials || [],
-        sigOpen: p.sigOpen, sigClose: sig, mode: cfg.mode, estimated, feat: p.feat || [], side: 'LONG', lev: 1, entryPrice: p.entryPrice, exitPrice: this.priceBase(p.mint) || p.entryPrice, ...this.postFields(p), votes: p.votes || null, consensus: p.consensus != null ? p.consensus : null, bot: p.bot || null, brainVer: p.brainVer != null ? p.brainVer : null };
+        sigOpen: p.sigOpen, sigClose: sig, mode: cfg.mode, estimated, feat: p.feat || [], side: 'LONG', lev: 1, entryPrice: p.entryPrice, exitPrice: this.priceBase(p.mint) || p.entryPrice, ...this.postFields(p), strat: p.edge ? 'trend' : null, votes: p.votes || null, consensus: p.consensus != null ? p.consensus : null, bot: p.bot || null, brainVer: p.brainVer != null ? p.brainVer : null };
       b.trades.unshift(tr); if (b.trades.length > 500) b.trades.pop();
       this.mentorLearn(tr);
       try { this.desk.onClose(tr); } catch (e) { this.log('MENTORE', `pesi analisti: ${e.message}`, 'warn'); }
@@ -1098,6 +1109,7 @@ class Engine extends EventEmitter {
       else if (cfg.partialTp && !p.tp2Done && cfg.tp2Pct > 0) { next = p.entryPrice * (1 + Math.max(L.tp2, L.tp1) / 100); nextLabel = `TP2 ${cfg.tp2Pct}%`; }
       else if (cfg.trailOn) { next = Math.max(p.highest || p.entryPrice, p.entryPrice * (1 + L.trailAct / 100)); nextLabel = p.trailStop ? 'massimo' : 'attiva trailing'; }
     }
+    if (p.edge) { next = Math.max(p.highest || p.entryPrice, p.entryPrice * (1 + p.slPct / 100)); nextLabel = p.trailStop ? 'massimo (trailing 4h)' : 'trailing a +1R'; }
     return { stop, stopPct: ((stop - p.entryPrice) / p.entryPrice) * 100, stopKind, next, nextPct: ((next - p.entryPrice) / p.entryPrice) * 100, nextLabel,
       partialsN: (p.partials || []).length, realizedPart: p.realizedPart || 0, soldPct: p.initQty ? Math.round((1 - p.qty / p.initQty) * 100) : 0 };
   }
@@ -1113,6 +1125,7 @@ class Engine extends EventEmitter {
       else if (cfg.partialTp && !p.tp2Done && cfg.tp2Pct > 0) { next = e * (1 - Math.max(L.tp2, L.tp1) / 100); nextLabel = `TP2 ${cfg.tp2Pct}%`; }
       else if (cfg.trailOn) { next = Math.min(mir(p.highest || e), e * (1 - L.trailAct / 100)); nextLabel = p.trailStop ? 'minimo' : 'attiva trailing'; }
     }
+    if (p.edge) { next = Math.min(mir(p.highest || e), e * (1 - p.slPct / 100)); nextLabel = p.trailStop ? 'minimo (trailing 4h)' : 'trailing a +1R'; }
     return { stop, stopPct: ((stop - e) / e) * 100, stopKind, next, nextPct: ((next - e) / e) * 100, nextLabel,
       partialsN: (p.partials || []).length, realizedPart: p.realizedPart || 0, soldPct: p.initSizeUsd ? Math.round((1 - p.sizeUsd / p.initSizeUsd) * 100) : 0 };
   }
@@ -1182,6 +1195,9 @@ class Engine extends EventEmitter {
 
   // ---------- istantanea per l'interfaccia
   // Resoconto in sola lettura per la chiave «resoconto» (GET /api/report): niente indirizzi, chiavi, mint o configurazione sensibile
+  // TREND 2–4H: stato per app e report (parametri, trend e segnale per cripto, prossima candela a 4h); nessun dato sensibile
+  trendView(now = Date.now()) { const T = require('./trend'); let assets = []; try { assets = this.trend.view(now); } catch { /* */ }
+    return { on: !!this.cfg.trendOn, riskPerTradePct: this.cfg.riskPerTradePct, params: T.PARAMS, nextCheck: this.trend.nextCheck(now), lastRun: this.trend.lastRun || null, assets }; }
   report(now = Date.now()) {
     const b = this.book; const cfg = this.cfg; const eq = this.equity(); const today = dayKey(); const r2 = (x, d = 2) => (x == null || !Number.isFinite(x) ? null : +x.toFixed(d));
     const isToday = (t) => t && new Date(t).toISOString().slice(0, 10) === today;
@@ -1194,6 +1210,7 @@ class Engine extends EventEmitter {
     return {
       t: now, mode: cfg.mode, running: !!cfg.trading && !b.killed, paused: !cfg.trading, killed: !!b.killed, killReason: b.killed ? b.killReason || null : null,
       pace: { id: cfg.pace || 'aggressivo', label: P.label, cycleSec: cfg.cycleSec },
+      trend: this.trendView(now),
       base: cfg.baseCurrency, equity: r2(eq), startEquity: r2(b.startEquity),
       pnl: { today: r2(b.dayKey === today ? eq - b.dayStartEquity : null), total: r2(eq - b.startEquity), realized: r2(b.realizedPnl) },
       tradesToday: { count: tr.length, wins: w, losses: tr.length - w, winRate: tr.length ? r2((w / tr.length) * 100, 1) : null, pnl: r2(tr.reduce((a, x) => a + (x.pnl || 0), 0)) },
@@ -1250,7 +1267,7 @@ class Engine extends EventEmitter {
       solHeld: (() => { const sol = cfg.mode === 'REAL' ? (this.bal ? this.bal.sol : null) : b.solReserve; const su = this.market.usd(SOL); return { sol, usd: sol != null && su ? sol * su : null, eur: sol != null && su ? sol * su * eur : null, inCapital: cfg.baseCurrency === 'SOL', real: cfg.mode === 'REAL' }; })(),
       // posizioni aperte nell'altro conto (SIM/REALE): non sono nel capitale mostrato, ma non devono restare nascoste
       otherBook: (() => { const om = cfg.mode === 'REAL' ? 'SIM' : 'REAL'; const ob = this.st.books[om]; return ob && ob.positions && ob.positions.length ? { mode: om, open: ob.positions.length, symbols: ob.positions.map((p) => p.symbol).slice(0, 8) } : null; })(),
-      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(), mentor: this.mentor.summary(), desk: this.desk.view(), why: this.whyIdle(), mind: this.mind.view(this.book.trades), universe: this.universe.status(),
+      winRate: closed ? (b.wins / closed) * 100 : null, wins: b.wins, losses: b.losses, pnlBox, knowledge: K.summary(this.kb, 3), research: this.research.summary(), mentor: this.mentor.summary(), trend: this.trendView(), desk: this.desk.view(), why: this.whyIdle(), mind: this.mind.view(this.book.trades), universe: this.universe.status(),
       positions, trades: b.trades.slice(0, 60), equityHist: hist.filter((_, i) => i % step === 0 || i === hist.length - 1),
       counters: this.st.counters, agents: AGENTS.map((a) => ({ ...a, count: this.st.counters.agents[a.id] || 0, last: this.st.agents[a.id] || null })),
       log: this.st.log.slice(-80), watch: ws,

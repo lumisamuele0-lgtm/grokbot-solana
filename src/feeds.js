@@ -5,6 +5,8 @@
 const { fetchJson, sleep } = require('./util');
 
 const ASSETS = { SOL: { bn: 'SOLUSDT', okx: 'SOL-USDT', cb: 'SOL-USD', kr: 'SOLUSD' }, BTC: { bn: 'BTCUSDT', okx: 'BTC-USDT', cb: 'BTC-USD', kr: 'XBTUSD' }, ETH: { bn: 'ETHUSDT', okx: 'ETH-USDT', cb: 'ETH-USD', kr: 'ETHUSD' } };
+// cripto CORE di Solana per Omega (TREND 2–4H): candele da Binance/Bybit/OKX (Coinbase e Kraken non le hanno tutte)
+for (const a of ['JUP', 'RAY', 'JTO', 'PYTH', 'RENDER', 'W', 'ORCA', 'KMNO']) ASSETS[a] = { bn: `${a}USDT`, okx: `${a}-USDT`, cb: null, kr: null };
 const TF_MIN = { '5m': 5, '15m': 15, '1h': 60 };
 const norm = (arr) => { const m = new Map(); for (const k of arr) if (k && Number.isFinite(k.c) && k.c > 0) m.set(k.t, k); return [...m.values()].sort((a, b) => a.t - b.t); };
 
@@ -41,6 +43,7 @@ const CANDLE_SOURCES = {
     return out;
   },
   'Coinbase': async (a, tf, bars) => {
+    if (!ASSETS[a].cb) return [];
     const g = TF_MIN[tf] * 60; let end = Math.floor(Date.now() / 1000); const out = [];
     for (let i = 0; i < 40 && out.length < bars; i++) {
       const start = end - g * 300;
@@ -52,6 +55,7 @@ const CANDLE_SOURCES = {
     return out;
   },
   'Kraken': async (a, tf) => { // solo le ultime 720 candele
+    if (!ASSETS[a].kr) return [];
     const r = await fetchJson(`https://api.kraken.com/0/public/OHLC?pair=${ASSETS[a].kr}&interval=${TF_MIN[tf]}`, { retries: 1 });
     const res = r && r.result; const k = res && Object.keys(res).find((x) => x !== 'last'); if (!k) return [];
     return res[k].map((x) => ({ t: x[0] * 1000, o: +x[1], h: +x[2], l: +x[3], c: +x[4], v: +x[6] }));

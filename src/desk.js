@@ -269,6 +269,7 @@ class Desk {
     if (b.killed) return [];
     if (this.checkBreaker(now)) { e.agent('RISCHIO', `limite di perdita giornaliera (${cfg.dailyLossPct}%): nessun nuovo ingresso fino a domani`, 'block'); return []; }
     if (!s.coins || !s.coins.length) this.pickCoins(now, false);
+    if (cfg.trendOn) return this.trendTurn(now); // TREND 2–4H: gli analisti a 1 minuto restano solo informativi
     const coins = s.coins || []; const cache = { __macro: this.macro() }; const mind = this.e.mind; if (mind) mind.beginTurn();
     const perpBlk = e.perpBlock(), spotBlk = e.spotBlock();
     e.agent('SCANSIONE', `12 analisti su ${coins.length} cripto (${coins.filter((c) => c.perp).length} con leva, ${coins.filter((c) => !c.perp).length} spot)`, 'scan');
@@ -346,6 +347,69 @@ class Desk {
         }
       } finally { e.actx = prev; }
       if (b.killed) break;
+    }
+    this.scan.opened = opened.length;
+    if (!opened.length) { const ag = e.st.agents || {}; const r = ['RISCHIO', 'DIMENSIONE', 'VERIFICA', 'ESECUZIONE'].map((k) => ag[k]).filter((x) => x && x.t >= now && ['block', 'reject', 'fail'].includes(x.action)).sort((p, q) => q.t - p.t)[0]; this.scan.refused = r ? r.text : null; }
+    return opened;
+  }
+
+  // ---------- giro TREND 2–4H: Alpha (perps SOL/BTC/ETH, long e short) e Omega (spot CORE, solo long) entrano solo sui segnali a 4 ore.
+  // Restano tutti i controlli: kill switch e perdita giornaliera (prima), blocchi REALE, trader in pausa, lati disattivati, una posizione
+  // per cripto, cooldown, posizioni max, ingressi per giro; poi in enterTrade margine ≤ 20%, esposizione, contante, anti-truffa spot.
+  async trendTurn(now = Date.now()) {
+    const e = this.e; const cfg = e.cfg; const b = e.book; const s = this.st; const T = require('./trend');
+    const coins = s.coins || []; const cache = { __macro: this.macro() };
+    for (const coin of coins) { const ctx = this.context(coin, cache); if (!ctx) continue; const votes = this.analyze(ctx); this.votes[coin.mint] = { t: now, symbol: coin.symbol, votes }; this.record(ctx, votes, now); } // solo informazione
+    const perpBlk = e.perpBlock(), spotBlk = e.spotBlock();
+    const R = { trend: 0, trader: 0, blocco: 0, lato: 0, posizione: 0, cooldown: 0 }; const cands = []; const sigs = []; const why = [];
+    for (const X of EXECUTORS) {
+      const perp = X.domain === 'perp';
+      for (const a of perp ? T.PERP_ASSETS : T.SPOT_ASSETS) {
+        const sg = e.trend.signal(a, now); if (!sg) { R.trend++; continue; }
+        sigs.push({ bot: X.id, symbol: a, side: sg.side });
+        const no = (k, t) => { R[k]++; why.push(`${X.name} ${a} ${sg.side}: ${t}`); };
+        if (this.isPaused(X.id) || this.xState(X.id).restUntil > now) { no('trader', 'trader in pausa'); continue; }
+        if (perp ? perpBlk : spotBlk) { no('blocco', perp ? perpBlk : spotBlk); continue; }
+        if (!perp && !cfg.spotLongs) { no('lato', 'spot di Omega spento in Impostazioni'); continue; }
+        if (perp && sg.side === 'LONG' && !cfg.perpLongs) { no('lato', 'long con leva spenti'); continue; }
+        if (perp && sg.side === 'SHORT' && !cfg.shortsOn) { no('lato', 'short spenti'); continue; }
+        if (b.positions.some((p) => p.mint === sg.mint)) { no('posizione', 'posizione già aperta'); continue; }
+        const cdKey = `${X.id}:${sg.mint}:${sg.side}`; if ((b.cooldown[cdKey] && b.cooldown[cdKey] > now) || (b.cooldown[sg.mint] && b.cooldown[sg.mint] > now)) { no('cooldown', 'pausa dopo l\'ultima uscita'); continue; }
+        cands.push({ m: sg.mint, s: { symbol: a }, a: { ok: true, atrPct: sg.atrPct, last: e.market.usd(sg.mint) }, feat: [`trend:${sg.tf}`, perp ? `leva:${e.leverage()}x` : 'spot:1x'], kn: { adj: 0, skip: false },
+          rs: { score: 0, against: 0, strategies: [], opposite: [], atrPct: null }, side: sg.side, coin: { mint: sg.mint, symbol: a, perp, market: perp ? a : null }, X, XP: this.params(X), cs: { score: 1, yes: [], no: [] }, thr: 0, conf: 0.5,
+          votes: (this.votes[sg.mint] && this.votes[sg.mint].votes) || [], trend: sg });
+      }
+    }
+    this.scan = { t: now, coins: coins.length, evaluated: cands.length, reasons: R, loading: [], trend: { cands: cands.length, signals: sigs, blocked: why.slice(0, 3).join(' · ') || null },
+      best: cands.slice(0, 5).map((x) => ({ bot: x.X.id, name: x.X.name, symbol: x.coin.symbol, side: x.side, score: 1, thr: 0, yes: 0, need: 0, no: 0, block: null, why: null, trend: true })) };
+    if (!cands.length) {
+      const t = sigs.length ? `segnale TREND 2–4H bloccato: ${why[0] || ''}` : 'nessun segnale TREND 2–4H nuovo: Alpha e Omega aspettano la prossima candela a 4 ore';
+      e.agent('CAPO', t, 'idle'); for (const X of EXECUTORS) this.st.decisions[X.id] = { t: now, kind: 'wait', text: t }; return [];
+    }
+    const opened = []; const per = {};
+    for (const best of cands) {
+      if (opened.length >= this.pace().maxEntries) break;
+      if (b.positions.length >= cfg.maxOpen) break;
+      if ((per[best.X.id] || 0) >= best.XP.maxPerTurn) continue;
+      if (b.positions.some((p) => p.mint === best.m)) continue;
+      const prev = e.actx; e.actx = { bot: best.X.id };
+      try {
+        const perp = best.coin.perp; const lev = perp ? e.tradeLev(null) : 1; const sg = best.trend;
+        const sl = perp ? Math.min(sg.slPct, P.liqDistancePct(lev) * 0.4) : sg.slPct; const frac = T.riskFrac(cfg, sl, lev);
+        const t = `${best.X.name} entra ${best.side === 'SHORT' ? 'SHORT ▼' : 'LONG ▲'}${perp ? ` ${lev}x` : ' spot 1x'} su $${best.coin.symbol}: segnale TREND ${sg.tf} (EMA ${T.PARAMS[sg.kind].fast}/${T.PARAMS[sg.kind].slow} nel verso della EMA 200) · stop ${sl.toFixed(1)}% · rischio ~${cfg.riskPerTradePct}% del capitale`;
+        e.agent('CAPO', t, 'pick', { token: best.coin.symbol, side: best.side }); e.log('SALA', t);
+        const before = new Set(b.positions.map((p) => p.id));
+        const ret = await e.enterTrade(best, { conf: best.conf, bot: best.X.id, perp, lev: perp ? lev : null, frac });
+        const p = (ret && ret.mint ? ret : null) || b.positions.find((q) => !before.has(q.id) && q.bot === best.X.id);
+        if (p) {
+          p.votes = best.votes.filter((v) => v.dir).map((v) => ({ id: v.id, dir: v.dir, conf: +v.conf.toFixed(2) })); p.consensus = null;
+          opened.push(p); per[best.X.id] = (per[best.X.id] || 0) + 1;
+          const d = { t: now, kind: 'open', symbol: p.symbol, side: p.side || 'LONG', lev: p.lev || 1, score: null, yes: [], no: [], size: p.costBase, text: `aperto ${p.side || 'LONG'} su $${p.symbol} (TREND ${sg.tf})` };
+          this.st.decisions[best.X.id] = d; this.feed({ ...d, who: best.X.id });
+          e.emit('ev', { type: 'open', bot: best.X.id, symbol: p.symbol, side: p.side || 'LONG' });
+          e.save();
+        }
+      } finally { e.actx = prev; }
     }
     this.scan.opened = opened.length;
     if (!opened.length) { const ag = e.st.agents || {}; const r = ['RISCHIO', 'DIMENSIONE', 'VERIFICA', 'ESECUZIONE'].map((k) => ag[k]).filter((x) => x && x.t >= now && ['block', 'reject', 'fail'].includes(x.action)).sort((p, q) => q.t - p.t)[0]; this.scan.refused = r ? r.text : null; }

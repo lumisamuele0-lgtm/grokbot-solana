@@ -185,6 +185,42 @@ In Aggressivo le pause del Mentore dopo le perdite durano la metà e un trader i
 
 **Chiave resoconto** (Impostazioni → Chiave resoconto → «Genera chiave resoconto»): un token `sbr_…` mostrato una sola volta; sul server resta solo un'impronta HMAC cifrata. Serve solo a leggere `GET /api/report` con l'header `Authorization: Bearer sbr_…` (30 letture ogni 10 minuti; 10 chiavi sbagliate bloccano quell'IP per 10 minuti). Non può comprare, vendere, prelevare o cambiare impostazioni e non contiene wallet né chiavi. «Revoca» la disattiva subito; generarne una nuova sostituisce la vecchia.
 
+## 9e. TREND 2–4H: strategia di Alpha e Omega (dalla cache v31)
+
+**Scelta di Samuele, consapevole del rischio.** Il vecchio consenso a 1 minuto era in perdita (profit factor 0,05 nei 21 trade reali; −86% nel backtest). TREND 4H rendeva meglio ma faceva solo 3–4 trade al mese. Su 1h e 15m nessuna delle 432 varianti testate guadagnava dopo i costi. Questa via di mezzo usa candele a 4 ore anche sulle cripto CORE di Solana, per avere più operazioni.
+
+**Regole** (identiche nella ricerca `tools/trend-research/`):
+- **Alpha** (perps SOL, BTC, ETH, long e short):
+  - entra quando la EMA 20 incrocia la EMA 100 a 4 ore, nel verso della EMA 200;
+  - stop a 4 × ATR, sempre entro il 40% della distanza di liquidazione;
+  - trailing a 8 × ATR dopo +1R.
+- **Omega** (spot solo long su JUP, RAY, JTO, PYTH, RENDER, W, ORCA, KMNO):
+  - entra quando la EMA 10 incrocia sopra la EMA 30 a 4 ore e il prezzo è sopra la EMA 200;
+  - stop a 1,5 × ATR, trailing a 8 × ATR dopo +1R;
+  - anti-truffa e controllo della via di vendita su Jupiter sempre attivi.
+- Ingresso solo entro la candela a 4 ore successiva al segnale. Nessun target fisso, nessuno stop a tempo, durata massima 21 giorni.
+- **Rischio per operazione**: allo stop perdi circa l'1% del capitale (regolabile da 0,5% a 3%). Il margine non supera mai il 20% del capitale; restano anche esposizione massima e contante.
+- Gli analisti a 1 minuto continuano a votare, ma solo come informazione.
+- Restano invariati kill switch, perdita giornaliera, REALE (perps reali bloccati, Spot REALE spento), PIN e wallet.
+- Si spegne in Impostazioni → Strategia.
+
+**Come sono stati scelti i parametri:** con la stessa regola di ogni passo del walk-forward, cioè il profit factor più alto sugli ultimi 12 mesi con almeno 2 trade al mese. Negli ultimi 12 mesi questi parametri hanno fatto circa 2,5 trade al mese su Alpha e 7,8 su Omega. Questi numeri sono in campione, quindi ottimistici.
+
+**Risultato fuori campione del metodo** (walk-forward su 4 trimestri, commissioni e slittamento inclusi, rischio 1%):
+
+| | Trade al mese | Vincenti | Profit factor | Rendimento | Drawdown max |
+|---|---|---|---|---|---|
+| Alpha perps | 3,0 | 46% | 1,30 | +5,1% | 9,6% |
+| Omega spot | 10,6 | 37% | 1,10 | +5,7% | 18,3% |
+| Insieme | 13,4 | 39% | 1,11 | +7,6% | 22,4% |
+
+**Rischi:**
+- 2 trimestri su 4 sono stati in perdita: −1,7% e −7,7%.
+- Il vantaggio è piccolo: profit factor 1,11. Bastano costi un po' più alti per annullarlo.
+- I costi spot su Jupiter sono stimati in 0,2% per lato.
+- I parametri cambiano a seconda del periodo su cui si scelgono.
+- Nessun guadagno è garantito.
+
 ## 10. Limiti e rischi (onesti)
 
 - **Nessun profitto garantito.** Le strategie con indicatori tecnici perdono spesso, soprattutto nei mercati laterali. Commissioni e slippage pesano sulle operazioni piccole. In simulazione le prime operazioni di prova sono state sia in guadagno sia in perdita.
